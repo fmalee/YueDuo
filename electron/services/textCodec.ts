@@ -56,10 +56,22 @@ function decodeStripBom(data: Buffer, encoding: string): string | null {
     return null
   }
   if (encoding === 'utf-32') {
-    if (data.length >= 4 && data[0] === 0xff && data[1] === 0xfe && data[2] === 0 && data[3] === 0) {
+    if (
+      data.length >= 4 &&
+      data[0] === 0xff &&
+      data[1] === 0xfe &&
+      data[2] === 0 &&
+      data[3] === 0
+    ) {
       return iconv.decode(data.subarray(4), 'utf-32le')
     }
-    if (data.length >= 4 && data[0] === 0 && data[1] === 0 && data[2] === 0xfe && data[3] === 0xff) {
+    if (
+      data.length >= 4 &&
+      data[0] === 0 &&
+      data[1] === 0 &&
+      data[2] === 0xfe &&
+      data[3] === 0xff
+    ) {
       return iconv.decode(data.subarray(4), 'utf-32be')
     }
     return null
