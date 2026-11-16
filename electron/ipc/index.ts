@@ -11,7 +11,7 @@ import {
 import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
-import type { AppSettings } from '../../shared/types'
+import type { AppSettings, DraftTabMeta } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
 export function registerIpcHandlers(): void {
@@ -21,8 +21,13 @@ export function registerIpcHandlers(): void {
   handle('file:writeText', (path: unknown, text: unknown) =>
     fileWriteText(String(path), String(text))
   )
-  handle('file:writeDraft', (tabId: unknown, text: unknown, viewState: unknown) =>
-    fileWriteDraft(String(tabId), text === null ? null : String(text), viewState ?? null)
+  handle('file:writeDraft', (tabId: unknown, text: unknown, viewState: unknown, meta: unknown) =>
+    fileWriteDraft(
+      String(tabId),
+      text === null ? null : String(text),
+      viewState ?? null,
+      (meta ?? null) as DraftTabMeta | null
+    )
   )
   handle('file:readDraft', (tabId: unknown) => fileReadDraft(String(tabId)))
   handle('file:clearDraft', (tabId: unknown) => fileClearDraft(String(tabId)))

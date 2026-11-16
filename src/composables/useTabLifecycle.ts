@@ -140,7 +140,21 @@ export function unloadModel(
     const entry = registry.get(tabId)
     if (!entry) return
     const text = isDirty(tabId) ? entry.model.getValue() : null
-    await fileWriteDraft(tabId, text, entry.viewState)
+    // 带上标签元信息：persist 尚未落盘时草稿行也能带着 path/title 恢复，标签不会凭空消失
+    const tab = getTabs().find((t) => t.id === tabId)
+    await fileWriteDraft(
+      tabId,
+      text,
+      entry.viewState,
+      tab
+        ? {
+            path: tab.path,
+            title: tab.title,
+            progressLine: 0,
+            lastFocusedAt: tab.lastFocusedAt
+          }
+        : undefined
+    )
     if (computeResidentSet(getTabs(), getActiveTabId()).has(tabId)) return
     disposeTabModel(tabId)
   })()

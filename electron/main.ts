@@ -45,9 +45,14 @@ function createWindow(): BrowserWindow {
     e.preventDefault()
     void requestRendererFlush().finally(() => {
       closeFlushed = true
-      // 验收模式：借关窗触发一次真实退出，覆盖 before-quit → will-quit 的关库路径
-      if (process.env['YUE_TEST']) app.quit()
-      else mainWindow.close()
+      // 验收模式：关窗 flush 已完成，置位后直接 quit，避免 before-quit 二次 flush
+      // 掩盖真实关窗耗时；仍会走 will-quit 关库
+      if (process.env['YUE_TEST']) {
+        quitFlushed = true
+        app.quit()
+      } else {
+        mainWindow.close()
+      }
     })
   })
 

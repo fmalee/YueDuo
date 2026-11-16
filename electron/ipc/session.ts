@@ -3,8 +3,12 @@ import { getDatabase } from '../services/database'
 import { loadSession, persistSession } from '../services/sessionStore'
 import type { SessionRestore, SessionSnapshot } from '../../shared/types'
 
-/** 退出握手兜底：渲染层异常/未加载时最多等这么久，不能卡住退出 */
-const FLUSH_TIMEOUT_MS = 1500
+/**
+ * 退出握手兜底：渲染层异常/未加载时最多等这么久，不能卡住退出。
+ * 快照在草稿之前写（毫秒级），所以即便超时也只损失未写完的草稿；
+ * 3 秒是给「多本大文件脏标签并行写草稿」留的窗口（实测 11 本约 147MB 可在此内完成）。
+ */
+const FLUSH_TIMEOUT_MS = 3000
 
 let resolveFlush: (() => void) | null = null
 

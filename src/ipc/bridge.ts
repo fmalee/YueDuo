@@ -1,6 +1,7 @@
 import type {
   AppSettings,
   DraftEntry,
+  DraftTabMeta,
   FileReadResult,
   FileStat,
   IpcResult,
@@ -53,9 +54,10 @@ export function fileWriteText(path: string, text: string): Promise<{ stat: FileS
 export function fileWriteDraft(
   tabId: string,
   text: string | null,
-  viewState: unknown
+  viewState: unknown,
+  meta?: DraftTabMeta
 ): Promise<void> {
-  return ipcInvoke<void>('file:writeDraft', tabId, text, viewState)
+  return ipcInvoke<void>('file:writeDraft', tabId, text, viewState, meta ?? null)
 }
 
 /** file:readDraft —— 重载已卸载标签：null = 无草稿（重载走 file:readText） */

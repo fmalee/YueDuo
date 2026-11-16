@@ -10,6 +10,7 @@ import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
   initSession,
+  injectDraftWriteFailure,
   persistSessionNow,
   progressSnapshot,
   restoreSession,
@@ -148,7 +149,8 @@ onMounted(async () => {
         // 会话验收通道（方案 §1.8）：进度取视口顶部行，落盘走真实链路
         sessionProgress: () => progressSnapshot(),
         scrollToLine: (line: number) => scrollSessionTo(line),
-        flushSession: () => persistSessionNow()
+        flushSession: () => persistSessionNow(),
+        failDraftWriteOnce: () => injectDraftWriteFailure()
       }
     })
     openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')

@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3'
-import type { DraftEntry } from '../../shared/types'
+import type { DraftEntry, DraftTabMeta } from '../../shared/types'
 import { nextPosition } from './sessionStore'
 
 /**
@@ -19,18 +19,30 @@ export function writeDraft(
   db: Database,
   tabId: string,
   text: string | null,
-  viewState: unknown
+  viewState: unknown,
+  meta?: DraftTabMeta | null
 ): void {
   const blob = text == null ? null : Buffer.from(text, 'utf8')
   const view = viewState == null ? null : JSON.stringify(viewState)
   const exists = db.prepare('SELECT 1 FROM session_tabs WHERE id = ?').get(tabId)
   if (!exists) {
-    // persist 尚未来得及落盘就被卸载：先建占位行（title 为空，恢复时过滤），位置排在末尾
+    // persist 尚未来得及落盘就被卸载：用调用方给的元信息建行，
+    // 不再依赖恢复时按空 title 过滤（那样标签会整个消失）
     db.prepare(
       `INSERT INTO session_tabs
          (id, position, path, title, progress_line, dirty, draft, view_state, last_focused_at)
-       VALUES (?, ?, '', '', 0, ?, ?, ?, 0)`
-    ).run(tabId, nextPosition(db), text == null ? 0 : 1, blob, view)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      tabId,
+      nextPosition(db),
+      meta?.path ?? '',
+      meta?.title ?? '未命名',
+      meta?.progressLine ?? 0,
+      text == null ? 0 : 1,
+      blob,
+      view,
+      meta?.lastFocusedAt ?? Date.now()
+    )
     return
   }
   db.prepare('UPDATE session_tabs SET draft = ?, view_state = ? WHERE id = ?').run(

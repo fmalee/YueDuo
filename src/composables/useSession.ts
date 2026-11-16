@@ -25,6 +25,8 @@ const restoredProgress = new Map<string, number>()
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
 let subscribed = false
+/** 验收注入：让下一次草稿写直接 reject（验证 persist 不被草稿失败牵连） */
+let failNextDraftWrite = false
 
 /** EditorHost 拿到编辑器实例后挂上（滚动抓取/退出补存草稿都靠它） */
 export function attachSessionEditor(instance: monaco.editor.IStandaloneCodeEditor | null): void {
@@ -118,15 +120,21 @@ export async function restoreSession(): Promise<void> {
 
 /**
  * 退出/关窗落盘（方案 §1.8）：
- * - 驻留未卸载的脏标签补写 draft/view_state（否则退出即丢未保存全文）
- * - 全量 persist；无论成败都回 flushDone，绝不卡住退出
+ * 1. 先写快照（顺序/active/进度/dirty）——快照小且快，超时也一定已落库
+ * 2. 再并行写驻留脏标签的 draft/view_state——单个失败/超时只损失该标签草稿，
+ *    不牵连快照与其余草稿（主进程超时后至少保住快照 + 已完成的草稿）
+ * 3. 无论成败都回 flushDone，绝不卡住退出
  */
 async function flushForQuit(): Promise<void> {
   try {
-    await persistDirtyResidentTabs()
     await persistSessionNow()
   } catch (e) {
-    console.error('[session] 退出前保存失败:', e)
+    console.error('[session] 退出前快照落盘失败:', e)
+  }
+  try {
+    await persistDirtyResidentTabs()
+  } catch (e) {
+    console.error('[session] 退出前草稿落盘失败:', e)
   } finally {
     try {
       await sessionFlushDone()
@@ -136,14 +144,30 @@ async function flushForQuit(): Promise<void> {
   }
 }
 
+/** 草稿并行写：每个任务单独兜底，任意一个 reject 都不影响其余任务与快照 */
 async function persistDirtyResidentTabs(): Promise<void> {
   const store = useTabsStore()
+  const writes: Promise<void>[] = []
   for (const tab of store.tabs) {
     const entry = getTabModel(tab.id)
     if (!entry || !isDirty(tab.id)) continue
     if (editor && store.activeTabId === tab.id) saveViewState(tab.id, editor)
-    await fileWriteDraft(tab.id, entry.model.getValue(), entry.viewState)
+    const meta = {
+      path: tab.path,
+      title: tab.title,
+      progressLine: progress.get(tab.id) ?? 0,
+      lastFocusedAt: tab.lastFocusedAt
+    }
+    let write: Promise<void>
+    if (failNextDraftWrite) {
+      failNextDraftWrite = false
+      write = Promise.reject(new Error('YUE_TEST 注入的草稿写失败'))
+    } else {
+      write = fileWriteDraft(tab.id, entry.model.getValue(), entry.viewState, meta)
+    }
+    writes.push(write.catch((e) => console.error(`[session] 草稿落盘失败 ${tab.title}:`, e)))
   }
+  await Promise.all(writes)
 }
 
 /** 订阅主进程退出握手（只挂一次；HMR 重挂载不重复注册） */
@@ -165,4 +189,9 @@ export function scrollSessionTo(line: number): number | null {
 /** 验收辅助：当前内存中的进度快照（非 reactive Map 的只读副本） */
 export function progressSnapshot(): Record<string, number> {
   return Object.fromEntries(progress)
+}
+
+/** 验收辅助：注入一次草稿写失败（只作用于退出 flush 的并行草稿写） */
+export function injectDraftWriteFailure(): void {
+  failNextDraftWrite = true
 }

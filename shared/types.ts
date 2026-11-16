@@ -49,6 +49,17 @@ export interface DraftEntry {
 }
 
 /**
+ * file:writeDraft 附带的最小标签元信息（方案 §1.8）
+ * persist 尚未落盘就被卸载时，用它补齐草稿行，避免重启后标签整个消失
+ */
+export interface DraftTabMeta {
+  path: string
+  title: string
+  progressLine: number
+  lastFocusedAt: number
+}
+
+/**
  * 会话快照中的标签（session:persist，方案 §1.8）
  * draft/view_state 不在这里：仍由 file:writeDraft 写入同一行，persist 不覆盖两列
  */

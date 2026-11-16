@@ -82,8 +82,8 @@ export function persistSession(db: Database, snapshot: SessionSnapshot): void {
 
 /**
  * 读取会话：按 position 升序。
- * title 为空的是 file:writeDraft 在 persist 之前建的占位行（标签还没来得及落盘），
- * 不参与恢复；真正的空白标签 title 恒为「未命名」，不会被误过滤。
+ * 不在恢复时丢弃任何行：草稿行由 file:writeDraft 带着标签元信息写入，
+ * 即使 persist 还没跑过也能恢复；空 title 只做兜底命名，不能让标签整个消失。
  */
 export function loadSession(db: Database): SessionRestore {
   const rows = db
@@ -91,7 +91,6 @@ export function loadSession(db: Database): SessionRestore {
       `SELECT id, position, path, title, progress_line, dirty, last_focused_at,
               (draft IS NOT NULL OR view_state IS NOT NULL) AS has_draft
          FROM session_tabs
-        WHERE title <> ''
         ORDER BY position`
     )
     .all() as SessionTabRow[]
@@ -102,7 +101,7 @@ export function loadSession(db: Database): SessionRestore {
     id: row.id,
     position: row.position,
     path: row.path,
-    title: row.title,
+    title: row.title || '未命名',
     progressLine: row.progress_line,
     // 无草稿的 dirty 行只可能来自异常退出，恢复后按干净处理（文件内容与内存不一致）
     dirty: row.dirty === 1 && row.has_draft === 1,
