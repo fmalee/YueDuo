@@ -32,7 +32,7 @@
 
 ## 数据库与书库
 
-- `yueduo.db` 放书库根目录、随库搬迁；不可写时回落 `userData`。`relative_path` 相对书库根、不含根目录名。
+- 书库根目录接入后 `yueduo.db` 随库搬迁到书库根、不可写时回落 `userData`；当前阶段暂放 `userData`（`c453d87`）。`relative_path` 相对书库根、不含根目录名。
 - 迁移用 `PRAGMA user_version` + 缺列 `ALTER TABLE`；建表语句只对新库生效；WAL 模式。
 - better-sqlite3 只在主进程用；路径比较前统一 `realpath`。
 - 换库顺序固定：建新库 → 停扫描 → 存档旧会话 → 切活动库 → 恢复新会话。
