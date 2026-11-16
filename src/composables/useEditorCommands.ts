@@ -1,6 +1,6 @@
-import { fileWriteText } from '@/ipc/bridge'
+import { fileClearDraft, fileWriteText } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
-import { getTabModel, isDirty, resetBaseline } from './useTabLifecycle'
+import { getTabModel, isDirty, resetBaseline, setStatCache } from './useTabLifecycle'
 
 /** 保存当前标签：全文只在保存瞬间取自 model（方案：全文不进 reactive store） */
 export function useEditorCommands(): {
@@ -12,15 +12,18 @@ export function useEditorCommands(): {
     editor?: import('monaco-editor').editor.IStandaloneCodeEditor
   ): Promise<boolean> {
     const tab = store.activeTab
-    if (!tab) return false
+    // 空白标签无保存路径（另存为流程在 closeTab/dialog:saveFile 侧处理）
+    if (!tab || !tab.path) return false
     const entry = getTabModel(tab.id)
     if (!entry) return false
 
     const text = editor ? editor.getValue() : entry.model.getValue()
-    await fileWriteText(tab.path, text)
-    // 保存后重置版本基线、清 dirty（方案 §1.4）
+    const { stat } = await fileWriteText(tab.path, text)
+    // 保存后重置版本基线、清 dirty 与草稿（方案 §1.4）；rename 替换后 inode 已变，stat 缓存同步刷新
     resetBaseline(tab.id)
     store.patchTab(tab.id, { dirty: false })
+    setStatCache(tab.id, stat)
+    await fileClearDraft(tab.id)
     return true
   }
 

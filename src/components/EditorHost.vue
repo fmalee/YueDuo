@@ -7,7 +7,11 @@ import {
   restoreViewState,
   saveViewState,
   isDirty,
-  disposeTabModel
+  disposeTabModel,
+  computeResidentSet,
+  unloadModel,
+  reloadModel,
+  waitUnloadSettled
 } from '@/composables/useTabLifecycle'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 
@@ -15,9 +19,17 @@ const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
 // 绝不用 :key 重建实例 —— 那是旧项目焦点/IME bug 的根源
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
+// 已卸载标签重载期间的加载态（方案 §1.7：无 model 时容器显示加载态）
+const loading = ref(false)
 
 const store = useTabsStore()
 const { saveActive } = useEditorCommands()
+
+/** 激活代际：重载在途时用户再切标签，旧流程作废（最后完成者校验，方案 §1.7 铁律） */
+let activateSeq = 0
+/** LRU 兜底检查周期（方案 §1.7：切换标签时同步计算 + 每 5 分钟定时） */
+const EVICT_INTERVAL_MS = 5 * 60_000
+let evictTimer: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
   if (!container.value) return
@@ -40,7 +52,9 @@ onMounted(() => {
   // 窗口级兜底（焦点在编辑器外时）
   window.addEventListener('keydown', onWindowKeydown)
 
-  applyActiveTab(null)
+  evictTimer = setInterval(scheduleEviction, EVICT_INTERVAL_MS)
+  // 重挂载（HMR）时 activeTab 的 model 可能已被卸载 → 走重载路径恢复
+  void activateEditorFor(store.activeTabId)
 })
 
 function onWindowKeydown(e: KeyboardEvent): void {
@@ -50,37 +64,107 @@ function onWindowKeydown(e: KeyboardEvent): void {
   }
 }
 
-// activeTabId 变化 → setModel + restoreViewState
+// activeTabId 变化 → setModel + restoreViewState（model 缺失时走 LRU 重载）
 watch(
   () => store.activeTabId,
   (newId, oldId) => {
     if (newId === oldId) return
     if (oldId && editor.value) saveViewState(oldId, editor.value)
-    applyActiveTab(newId)
+    void activateEditorFor(newId)
+    scheduleEviction()
   }
 )
 
-function applyActiveTab(tabId: string | null): void {
+/**
+ * 激活标签的编辑器视图：
+ * 1. 目标签卸载在途 → 等卸载分晓（model 被保留或草稿已落定）
+ * 2. model 已驻留 → 直接 setModel + restoreViewState
+ * 3. 已被 LRU 卸载 → 加载态 → 重载 → 完成者校验通过才 setModel（防重入竞态）：
+ *    重载期间用户再点其他标签则直接切换目标，本流程的 setModel 作废
+ */
+async function activateEditorFor(tabId: string | null): Promise<void> {
+  const seq = ++activateSeq
   if (!editor.value) return
-  const entry = tabId ? getTabModel(tabId) : undefined
-  editor.value.setModel(entry?.model ?? null)
-  if (tabId) restoreViewState(tabId, editor.value)
+  if (!tabId) {
+    editor.value.setModel(null)
+    loading.value = false
+    return
+  }
+  await waitUnloadSettled(tabId)
+  if (seq !== activateSeq || !editor.value || store.activeTabId !== tabId) return
+  const entry = getTabModel(tabId)
+  if (entry) {
+    loading.value = false
+    editor.value.setModel(entry.model)
+    restoreViewState(tabId, editor.value)
+    return
+  }
+  loading.value = true
+  editor.value.setModel(null)
+  try {
+    const tab = store.tabs.find((t) => t.id === tabId)
+    await reloadModel(tabId, tab?.path ?? '')
+  } catch (e) {
+    console.error('[LRU] reload failed:', e)
+  } finally {
+    if (seq === activateSeq) loading.value = false
+  }
+  if (seq !== activateSeq || !editor.value || store.activeTabId !== tabId) return
+  const reloaded = getTabModel(tabId)
+  if (reloaded) {
+    editor.value.setModel(reloaded.model)
+    restoreViewState(tabId, editor.value)
+  }
+}
+
+/** 卸载非驻留标签（fire-and-forget；unloadModel 内部自带「切回则保留」竞态防护） */
+function scheduleEviction(): void {
+  const resident = computeResidentSet(store.tabs, store.activeTabId)
+  for (const t of store.tabs) {
+    if (resident.has(t.id)) continue
+    if (!getTabModel(t.id)) continue
+    void unloadModel(
+      t.id,
+      () => store.tabs,
+      () => store.activeTabId
+    ).catch((e) => console.error('[LRU] unload failed:', e))
+  }
 }
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
+  if (evictTimer) clearInterval(evictTimer)
   for (const t of store.tabs) disposeTabModel(t.id)
   editor.value?.dispose()
 })
 </script>
 
 <template>
-  <div ref="container" class="monaco-container"></div>
+  <div class="editor-wrap">
+    <div ref="container" class="monaco-container"></div>
+    <div v-if="loading" class="loading-overlay">正在加载…</div>
+  </div>
 </template>
 
 <style scoped>
+.editor-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
 .monaco-container {
   width: 100%;
   height: 100%;
+}
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fdfbf7;
+  color: #8a8378;
+  font-size: 13px;
+  letter-spacing: 3px;
 }
 </style>

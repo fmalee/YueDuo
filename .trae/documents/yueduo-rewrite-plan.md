@@ -126,17 +126,18 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 
 - [x] **1.1** `textCodec` 完成：逐行翻译 Python `text_codec.py`（BOM 表 UTF-32 先于 UTF-16、无 BOM UTF-16 字节序推断、chardet + GB18030 复核、fallback 链 utf-8→gb18030→big5、换行归一、去残留 BOM），真实样本 12/12 通过，9.7MB 全文探测解码 29ms；实现见 `electron/services/textCodec.ts`，测试见 `scripts/test-text-codec.ts`。
 - [x] **1.2** `EditorHost` 完成：单 Monaco 实例 + model 注册表（非 reactive）+ `setModel`/`saveViewState`/`restoreViewState`，Pinia 只存标签元信息；`file:readText` 已接 textCodec，真实书库双标签验收（`YUE_TABS_OK`）通过；实现见 `src/components/EditorHost.vue`、`src/composables/useTabLifecycle.ts`、`src/stores/tabs.ts`。
-- [ ] **1.3** dirty 追踪：`getAlternativeVersionId()` 对比载入时的初始版本号；卸载重载后以 draft 为基线
-- [ ] **1.4** 保存：`file:writeText`（UTF-16LE、临时文件写 + rename 替换）；保存后重置版本基线、清 draft
-- [ ] **1.5** `TabBar`：Chrome 风格圆弧标签（复刻 Python `FlaredTabBar` 视觉：当前标签底边外展圆弧、关闭按钮、未保存黑点）；**标签显示完整小说名称、不裁切**（标签按内容自适应宽度，标签栏横向溢出时可滚动，不设 max-width 省略号）；`Cmd+N` 新建（不弹保存框、关掉最后一个留空窗口）、关闭前确认（dirty 才弹）、关闭按钮常驻开关
-- [ ] **1.6** 同文件单标签：`file:stat` inode 优先，`realpath` 兜底
-- [ ] **1.7** **上百标签驻留与按需渲染**（详细设计）：
-  - **model 注册表**（`useTabLifecycle` 内，非 reactive）：`Map<tabId, {model, viewState?, loadedAt}>`
-  - **驻留集合**：当前标签 + `lastFocusedAt` 最新的 10 个（预载数量进 settings，可调 0–20）
-  - **卸载触发**：切换标签时同步计算 + 每 5 分钟定时检查；卸载动作：若 dirty → `file:writeDraft`（草稿全文经 IPC 存 `session_tabs.draft`，不进 Vue 响应式）→ `model.dispose()`，tab 元信息保留
-  - **重载路径**：切到已卸载标签 → 显示加载态 → dirty ? 读 draft : `file:readText` → `createModel` → `restoreViewState`；期间防重入（重载中再点击其他标签直接切换目标，最后完成者校验 tabId 一致才 `setModel`，避免竞态）
-  - **恢复会话**：只载当前标签 → 后台按 `last_focused_at` 降序预载 10 个（串行、每本之间让出事件循环，不阻塞交互）；预载期间用户切换的标签优先
-  - **内存预算**：11 × 4MB 全文（UTF-16 JS string 翻倍约 8MB）≈ 90MB，可接受；预载若拖慢启动则降数量，不做文本切片
+- [x] **1.3** dirty 追踪完成：`getAlternativeVersionId()` 对比载入基线（O(1)）；LRU 卸载重载后以 draft 为基线（哨兵 -1：重载草稿内容的 model isDirty 恒真直到保存，undo 栈为空无撤销回基线路径）；见 `src/composables/useTabLifecycle.ts`。
+- [x] **1.4** 保存完成：`file:writeText`（UTF-16LE、临时文件写 + rename 替换，同目录失败退系统 tmp）；保存后重置基线、清 dirty、清 draft、stat 缓存刷新（rename 后 inode 已变）；CDP 验收 dirty→保存→重读含标记通过；见 `electron/ipc/file.ts`、`src/composables/useEditorCommands.ts`。
+- [x] **1.5** `TabBar` 完成：Chrome 圆弧标签（SVG 月牙填充 + 贝塞尔弧描边复刻 `FlaredTabBar`，flare=8/k≈4.42，首尾标签留落点边距）；完整书名不裁切（无 max-width，溢出滚动）；`Cmd+N` 新建、关闭确认（dirty 才弹 `dialog:confirmClose` 三选一）、dirty 黑点；见 `src/components/TabBar.vue`、`src/composables/useTabs.ts`、`electron/ipc/dialog.ts`。
+- [x] **1.6** 同文件单标签完成：两层去重——path 快查（免重复大文件读取）+ `file:stat` inode 优先/realPath 兜底（stat 缓存独立于 model 生命周期，LRU 卸载不影响去重；保存 rename 换 inode 后 stat 刷新）；见 `src/composables/useTabs.ts`、`useTabLifecycle.ts` 的 statCache。
+- [x] **1.7** **上百标签驻留与按需渲染完成**，CDP 真实书库 28 标签验收全绿：
+  - model 注册表（`useTabLifecycle`，非 reactive）：`Map<tabId, {model, viewState, loadedAt, baselineVersionId}>`
+  - 驻留集合：当前 + `lastFocusedAt` 前 10（`PRELOAD_COUNT=10`，1.9 接 settings）；28 标签实测驻留精确收敛 11
+  - 卸载：切换时同步计算 + 5 分钟定时兜底；dirty → `file:writeDraft`（全文+viewState 经 IPC 存主进程内存级草稿，**1.8 迁 SQLite session_tabs，IPC 不变**）→ dispose；卸载前复查驻留（在途切回则保留，竞态防护）；验收卸载后草稿含修改全文
+  - 重载：加载态遮罩 → draft/text 二路 → 完成者校验（激活代际 seq + activeTabId 双检，重载中切走直接让位）；验收点已卸载标签重载内容一致、dirty 哨兵保持、保存清草稿
+  - 恢复会话预载：1.8 接（session_tabs 驱动）
+  - 注：快速连续切换时中间标签跳过加载（完成者校验预期行为），驻留集合是上限资格而非强制全载
+  - 实现见 `src/composables/useTabLifecycle.ts`（unloadModel/reloadModel/waitUnloadSettled）、`src/components/EditorHost.vue`（activateEditorFor/scheduleEviction）、`electron/services/draftStore.ts`
 - [ ] **1.8** 会话恢复：`session:persist` 存标签顺序/active/progress_line/dirty/draft/view_state/last_focused_at；标签增删/切换 2 秒防抖 + 关窗立即保存（`before-quit` 阻塞等待完成）
 - [ ] **1.9** 设置持久化（userData 下 JSON）：外观、侧栏宽度、书库根目录、预载数量、关闭按钮常驻
 - [ ] **1.10** 主题 token + 浅/深/跟随系统（`nativeTheme.on('updated')`）；状态栏：文件名/**完整路径**/编码/字数/`行 x / y`（路径过长省略中间，tooltip 全路径）

@@ -1,4 +1,10 @@
-import type { FileReadResult, FileStat, IpcResult, NativeSanity } from '../../shared/types'
+import type {
+  DraftEntry,
+  FileReadResult,
+  FileStat,
+  IpcResult,
+  NativeSanity
+} from '../../shared/types'
 
 declare global {
   interface Window {
@@ -35,4 +41,23 @@ export function fileStat(path: string): Promise<FileStat> {
 /** file:writeText —— 保存（UTF-16LE、临时文件原子替换） */
 export function fileWriteText(path: string, text: string): Promise<{ stat: FileStat }> {
   return ipcInvoke<{ stat: FileStat }>('file:writeText', path, text)
+}
+
+/** file:writeDraft —— LRU 卸载：dirty 全文 + viewState 落主进程草稿（方案 §1.7） */
+export function fileWriteDraft(
+  tabId: string,
+  text: string | null,
+  viewState: unknown
+): Promise<void> {
+  return ipcInvoke<void>('file:writeDraft', tabId, text, viewState)
+}
+
+/** file:readDraft —— 重载已卸载标签：null = 无草稿（重载走 file:readText） */
+export function fileReadDraft(tabId: string): Promise<DraftEntry | null> {
+  return ipcInvoke<DraftEntry | null>('file:readDraft', tabId)
+}
+
+/** file:clearDraft —— 保存/关闭后清草稿（方案 §1.4） */
+export function fileClearDraft(tabId: string): Promise<void> {
+  return ipcInvoke<void>('file:clearDraft', tabId)
 }

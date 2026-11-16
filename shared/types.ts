@@ -18,11 +18,12 @@ export interface NativeSanity {
   nodeAbi: string
 }
 
-/** 文件身份（同文件去重依据：inode 优先） */
+/** 文件身份（同文件去重依据：inode 优先，realPath 兜底，方案 §1.6） */
 export interface FileStat {
   ino: number
   size: number
   mtimeMs: number
+  realPath: string
 }
 
 /** file:readText 返回 */
@@ -30,6 +31,20 @@ export interface FileReadResult {
   text: string
   encoding: string
   stat: FileStat
+}
+
+/** dialog:confirmClose 返回 */
+export type ConfirmChoice = 'save' | 'discard' | 'cancel'
+
+/**
+ * LRU 卸载草稿（file:writeDraft / file:readDraft，方案 §1.7）
+ * 阶段 1.7 为主进程内存级实现，1.8 会话持久化时迁 SQLite session_tabs.draft/view_state（IPC 不变）
+ */
+export interface DraftEntry {
+  /** 卸载时的未保存全文；null = 卸载时非 dirty（重载走 file:readText） */
+  text: string | null
+  /** 卸载时的 Monaco 视图状态（滚动/选区），重载恢复阅读进度 */
+  viewState: unknown
 }
 
 /** 标签元信息（全文内容只存在于 Monaco model，绝不进这里） */
