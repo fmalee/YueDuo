@@ -18,12 +18,11 @@ import { useEditorCommands } from '@/composables/useEditorCommands'
 import { useSettingsStore } from '@/stores/settings'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import {
+  applyRestoredView,
   attachSessionEditor,
   captureProgress,
   focusEditor,
-  schedulePersist,
-  scrollToTopLine,
-  takeRestoredProgress
+  schedulePersist
 } from '@/composables/useSession'
 
 const container = ref<HTMLDivElement>()
@@ -179,14 +178,13 @@ function restoreEditorFocus(): void {
 }
 
 /**
- * 恢复视图：会话恢复的进度优先（滚到顶部行并顶部对齐），
+ * 恢复视图：会话恢复的 topLine+光标优先（滚到顶部行、光标回原位、屏外才拉回），
  * 进程内切换仍走内存 viewState（保留原滚动/选区体验）
  */
 function applyStoredView(tabId: string): void {
   if (!editor.value) return
-  const restoredLine = takeRestoredProgress(tabId)
-  if (restoredLine != null) scrollToTopLine(restoredLine)
-  else restoreViewState(tabId, editor.value)
+  if (applyRestoredView(tabId)) return
+  restoreViewState(tabId, editor.value)
 }
 
 /** 状态栏数据跟随当前模型（行数/字数全量刷新一次，光标行取编辑器当前位置） */

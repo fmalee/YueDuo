@@ -6,21 +6,35 @@ import {
   sessionRestore
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
-import { getTabModel, isDirty, saveViewState } from './useTabLifecycle'
+import { getTabModel, isDirty, restoreViewState, saveViewState } from './useTabLifecycle'
 import { monaco } from '@/monaco'
 import type { SessionSnapshot } from '../../shared/types'
 
 /**
- * 会话持久化（方案 §1.8）
+ * 会话持久化（方案 §1.8 / §1.12）
  * - progress 存「视口顶部行」，恢复时滚到该行并顶部对齐（不居中原点，避免每次重启偏半屏）
+ * - cursor 存光标行列：只恢复视口不恢复光标会让人以为「重启丢位置」（光标跑到第一行）
  * - 标签增删/切换/滚动 → 2 秒防抖 session:persist；关窗/退出由主进程握手立即落盘
- * - 进度 Map 非 reactive：滚动是高频事件，绝不能进 Vue 响应式
+ * - progress/cursor Map 非 reactive：滚动是高频事件，绝不能进 Vue 响应式
  */
 const PERSIST_DEBOUNCE_MS = 2000
 
+interface CaretPos {
+  line: number
+  column: number
+}
+
+interface RestoredView {
+  /** 视口顶部行（0 = 无记录） */
+  topLine: number
+  /** 光标位置（null = 旧库无光标字段，退回草稿 view_state） */
+  caret: CaretPos | null
+}
+
 const progress = new Map<string, number>()
-/** 本次启动从库恢复的进度：标签首次激活时消费一次，之后交给 viewState */
-const restoredProgress = new Map<string, number>()
+const carets = new Map<string, CaretPos>()
+/** 本次启动从库恢复的视图：标签首次激活时消费一次，之后交给 viewState */
+const restoredView = new Map<string, RestoredView>()
 
 let editor: monaco.editor.IStandaloneCodeEditor | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -47,21 +61,46 @@ function topVisibleLine(): number {
   return editor?.getVisibleRanges()[0]?.startLineNumber ?? 0
 }
 
-/** 切换标签/滚动时抓取顶部行（非 reactive Map） */
+/** 切换标签/滚动时抓取顶部行与光标（非 reactive Map） */
 export function captureProgress(tabId: string): void {
   // 只有编辑器当前挂的正是该标签的 model 才可信；重载在途/已卸载时保留旧进度
   const entry = getTabModel(tabId)
   if (!editor || !entry || editor.getModel() !== entry.model) return
   const line = topVisibleLine()
   if (line > 0) progress.set(tabId, line)
+  const pos = editor.getPosition()
+  if (pos) carets.set(tabId, { line: pos.lineNumber, column: pos.column })
 }
 
-/** 标签首次激活时取恢复进度（消费一次即删） */
-export function takeRestoredProgress(tabId: string): number | null {
-  const line = restoredProgress.get(tabId)
-  if (line == null) return null
-  restoredProgress.delete(tabId)
-  return line
+/**
+ * 应用启动恢复的视图（消费一次）：
+ * 1. 视口滚到 progress_line 并顶部对齐
+ * 2. 光标放回上次行列
+ * 3. 视口以「光标可见」为准：光标在屏内就不动进度；落到屏外才最小幅度滚到可见
+ * 旧库没有 cursor 字段时退回草稿 view_state（其 selection/scrolling 同源）
+ */
+export function applyRestoredView(tabId: string): boolean {
+  const view = restoredView.get(tabId)
+  if (!view) return false
+  restoredView.delete(tabId)
+  if (!editor) return true
+  const model = editor.getModel()
+  if (!model) return true
+  if (view.topLine > 0) {
+    const top = Math.min(view.topLine, model.getLineCount())
+    editor.setScrollTop(editor.getTopForLineNumber(top), monaco.editor.ScrollType.Immediate)
+  }
+  if (view.caret) {
+    const line = Math.min(view.caret.line, model.getLineCount())
+    const column = Math.max(1, Math.min(view.caret.column, model.getLineMaxColumn(line)))
+    const pos = { lineNumber: line, column }
+    editor.setPosition(pos)
+    // 光标在屏内就不动进度；只有窗口尺寸变化等原因让它落到屏外时，才最小幅度滚动回来
+    editor.revealPosition(pos, monaco.editor.ScrollType.Immediate)
+  } else {
+    restoreViewState(tabId, editor)
+  }
+  return true
 }
 
 /**
@@ -92,14 +131,19 @@ export async function persistSessionNow(): Promise<void> {
   if (store.activeTabId) captureProgress(store.activeTabId)
   const snapshot: SessionSnapshot = {
     activeTabId: store.activeTabId,
-    tabs: store.tabs.map((t) => ({
-      id: t.id,
-      path: t.path,
-      title: t.title,
-      progressLine: progress.get(t.id) ?? 0,
-      dirty: t.dirty,
-      lastFocusedAt: t.lastFocusedAt
-    }))
+    tabs: store.tabs.map((t) => {
+      const caret = carets.get(t.id)
+      return {
+        id: t.id,
+        path: t.path,
+        title: t.title,
+        progressLine: progress.get(t.id) ?? 0,
+        cursorLine: caret?.line ?? 0,
+        cursorColumn: caret?.column ?? 0,
+        dirty: t.dirty,
+        lastFocusedAt: t.lastFocusedAt
+      }
+    })
   }
   await sessionPersist(snapshot)
 }
@@ -110,9 +154,16 @@ export async function restoreSession(): Promise<void> {
   const restored = await sessionRestore()
   if (restored.tabs.length === 0) return
   for (const row of restored.tabs) {
-    if (row.progressLine <= 0) continue
-    progress.set(row.id, row.progressLine)
-    restoredProgress.set(row.id, row.progressLine)
+    if (row.progressLine > 0) progress.set(row.id, row.progressLine)
+    if (row.cursorLine > 0) {
+      carets.set(row.id, { line: row.cursorLine, column: row.cursorColumn || 1 })
+    }
+    if (row.progressLine > 0 || row.cursorLine > 0) {
+      restoredView.set(row.id, {
+        topLine: row.progressLine,
+        caret: row.cursorLine > 0 ? { line: row.cursorLine, column: row.cursorColumn || 1 } : null
+      })
+    }
   }
   store.hydrate(
     restored.tabs.map((row) => ({
@@ -198,6 +249,21 @@ export function scrollSessionTo(line: number): number | null {
 /** 验收辅助：当前内存中的进度快照（非 reactive Map 的只读副本） */
 export function progressSnapshot(): Record<string, number> {
   return Object.fromEntries(progress)
+}
+
+/** 验收辅助：当前光标行列与视口顶部行（方案 §1.12：重启后光标必须回原位） */
+export function caretSnapshot(): { line: number; column: number; topLine: number } | null {
+  if (!editor) return null
+  const pos = editor.getPosition()
+  return pos ? { line: pos.lineNumber, column: pos.column, topLine: topVisibleLine() } : null
+}
+
+/** 验收辅助：直接放置光标且不滚动（构造「光标与视口分离」的场景） */
+export function setCaretForTest(line: number, column: number): boolean {
+  const model = editor?.getModel()
+  if (!editor || !model || line < 1 || line > model.getLineCount()) return false
+  editor.setPosition({ lineNumber: line, column })
+  return true
 }
 
 /** 验收辅助：注入一次草稿写失败（只作用于退出 flush 的并行草稿写） */

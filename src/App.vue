@@ -10,12 +10,14 @@ import { fileReadDraft, fileReadText, nativeSanity, chooseLibrary } from '@/ipc/
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
+  caretSnapshot,
   initSession,
   injectDraftWriteFailure,
   persistSessionNow,
   progressSnapshot,
   restoreSession,
-  scrollSessionTo
+  scrollSessionTo,
+  setCaretForTest
 } from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
@@ -171,6 +173,9 @@ onMounted(async () => {
         // 会话验收通道（方案 §1.8）：进度取视口顶部行，落盘走真实链路
         sessionProgress: () => progressSnapshot(),
         scrollToLine: (line: number) => scrollSessionTo(line),
+        // 光标恢复验收（方案 §1.12）：读光标/视口，或只放光标不滚动
+        caretState: () => caretSnapshot(),
+        setCaret: (line: number, column: number) => setCaretForTest(line, column),
         flushSession: () => persistSessionNow(),
         failDraftWriteOnce: () => injectDraftWriteFailure(),
         // 设置验收通道（方案 §1.9）：读当前值 / 走真实落盘链路改值

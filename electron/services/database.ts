@@ -32,6 +32,13 @@ const MIGRATIONS: readonly Migration[] = [
         last_focused_at INTEGER NOT NULL DEFAULT 0
       );
     `)
+  },
+  // v2：会话恢复补光标位置（原 progress_line 只够还原视口顶部，重启后光标会跑到第一行）
+  (db) => {
+    db.exec(`
+      ALTER TABLE session_tabs ADD COLUMN cursor_line INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE session_tabs ADD COLUMN cursor_column INTEGER NOT NULL DEFAULT 0;
+    `)
   }
 ]
 

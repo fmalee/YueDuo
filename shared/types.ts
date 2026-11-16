@@ -69,6 +69,10 @@ export interface SessionTabInput {
   title: string
   /** 视口顶部行（不是光标行；恢复时滚到该行并顶部对齐） */
   progressLine: number
+  /** 光标行（1-based，0 = 旧库无此字段，恢复时退回草稿 view_state） */
+  cursorLine: number
+  /** 光标列（1-based） */
+  cursorColumn: number
   dirty: boolean
   lastFocusedAt: number
 }

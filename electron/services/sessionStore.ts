@@ -16,6 +16,8 @@ interface SessionTabRow {
   path: string
   title: string
   progress_line: number
+  cursor_line: number
+  cursor_column: number
   dirty: number
   has_draft: number
   last_focused_at: number
@@ -42,14 +44,16 @@ export function nextPosition(db: Database): number {
 export function persistSession(db: Database, snapshot: SessionSnapshot): void {
   const upsertTab = db.prepare(`
     INSERT INTO session_tabs
-      (id, position, path, title, progress_line, dirty, last_focused_at)
+      (id, position, path, title, progress_line, cursor_line, cursor_column, dirty, last_focused_at)
     VALUES
-      (@id, @position, @path, @title, @progressLine, @dirty, @lastFocusedAt)
+      (@id, @position, @path, @title, @progressLine, @cursorLine, @cursorColumn, @dirty, @lastFocusedAt)
     ON CONFLICT(id) DO UPDATE SET
       position = excluded.position,
       path = excluded.path,
       title = excluded.title,
       progress_line = excluded.progress_line,
+      cursor_line = excluded.cursor_line,
+      cursor_column = excluded.cursor_column,
       dirty = excluded.dirty,
       last_focused_at = excluded.last_focused_at
   `)
@@ -71,6 +75,8 @@ export function persistSession(db: Database, snapshot: SessionSnapshot): void {
         path: tab.path,
         title: tab.title,
         progressLine: tab.progressLine,
+        cursorLine: tab.cursorLine,
+        cursorColumn: tab.cursorColumn,
         dirty: tab.dirty ? 1 : 0,
         lastFocusedAt: tab.lastFocusedAt
       })
@@ -88,7 +94,8 @@ export function persistSession(db: Database, snapshot: SessionSnapshot): void {
 export function loadSession(db: Database): SessionRestore {
   const rows = db
     .prepare(
-      `SELECT id, position, path, title, progress_line, dirty, last_focused_at,
+      `SELECT id, position, path, title, progress_line, cursor_line, cursor_column, dirty,
+              last_focused_at,
               (draft IS NOT NULL OR view_state IS NOT NULL) AS has_draft
          FROM session_tabs
         ORDER BY position`
@@ -103,6 +110,8 @@ export function loadSession(db: Database): SessionRestore {
     path: row.path,
     title: row.title || '未命名',
     progressLine: row.progress_line,
+    cursorLine: row.cursor_line,
+    cursorColumn: row.cursor_column,
     // 无草稿的 dirty 行只可能来自异常退出，恢复后按干净处理（文件内容与内存不一致）
     dirty: row.dirty === 1 && row.has_draft === 1,
     lastFocusedAt: row.last_focused_at,
