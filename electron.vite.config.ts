@@ -6,7 +6,9 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        input: resolve('electron/main.ts')
+        input: resolve('electron/main.ts'),
+        // native 模块与其依赖必须外置，禁止打进 bundle
+        external: ['better-sqlite3', 'bindings', 'file-uri-to-path']
       }
     }
   },
