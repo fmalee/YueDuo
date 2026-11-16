@@ -8,7 +8,13 @@ import type { DraftEntry, FileReadResult, FileStat } from '../../shared/types'
 
 function statOf(path: string): FileStat {
   const s = statSync(path)
-  return { ino: Number(s.ino), size: s.size, mtimeMs: s.mtimeMs, realPath: realpathSync(path) }
+  return {
+    dev: Number(s.dev),
+    ino: Number(s.ino),
+    size: s.size,
+    mtimeMs: s.mtimeMs,
+    realPath: realpathSync(path)
+  }
 }
 
 /** file:readText —— 打开/按需重载标签（textCodec 探测+转换+换行归一） */

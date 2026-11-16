@@ -18,8 +18,9 @@ export interface NativeSanity {
   nodeAbi: string
 }
 
-/** 文件身份（同文件去重依据：inode 优先，realPath 兜底，方案 §1.6） */
+/** 文件身份（同文件去重依据：dev+ino 优先，realPath 兜底，方案 §1.6） */
 export interface FileStat {
+  dev: number
   ino: number
   size: number
   mtimeMs: number

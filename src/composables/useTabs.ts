@@ -1,4 +1,4 @@
-import { fileClearDraft, fileReadText, ipcInvoke } from '@/ipc/bridge'
+import { fileClearDraft, fileReadText, fileStat, ipcInvoke } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import {
   createTabModel,
@@ -27,35 +27,37 @@ export function useTabs(): {
   const { saveActive } = useEditorCommands()
 
   /**
-   * 同文件去重（方案 §1.6）：inode 优先，realPath 兜底。
-   * stat 缓存独立于 model 生命周期（model 可被 LRU 卸载，去重判定不受影响）。
+   * 同文件去重（方案 §1.6）：dev+ino 优先（覆盖硬链接），realPath 兜底（覆盖符号链接）。
+   * ino 只在单卷内唯一，必须带 dev，否则外接盘撞号会认错文件。
    */
   function findSameFile(stat: FileStat): string | null {
     for (const t of store.tabs) {
       const s = getStatCache(t.id)
       if (!s) continue
-      if (s.ino === stat.ino || s.realPath === stat.realPath) return t.id
+      if (s.dev === stat.dev && s.ino === stat.ino) return t.id
+      if (s.realPath === stat.realPath) return t.id
     }
     return null
   }
 
   async function openFile(path: string): Promise<string> {
     const normalized = path.replace(/\/+$/, '')
-    // 第一层：path 快查（已打开则免读一次大文件）
+    // 第一层：path 快查（已打开则免一次 IPC）
     const byPath = store.tabs.find((t) => t.path === normalized)
     if (byPath) {
       store.setActive(byPath.id)
       return byPath.id
     }
 
-    const { text, stat } = await fileReadText(normalized)
-
-    // 第二层：stat 复查（软链/别名等不同路径指向同一文件）
+    // 第二层：先 stat 查重（软链/硬链接等不同路径指向同一文件时不得整份读取）
+    const stat = await fileStat(normalized)
     const dup = findSameFile(stat)
     if (dup) {
       store.setActive(dup)
       return dup
     }
+
+    const { text } = await fileReadText(normalized)
 
     const id = newTabId()
     const title = decodeURIComponent(normalized.split('/').pop() ?? '未命名')
