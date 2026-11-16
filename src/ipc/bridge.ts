@@ -1,4 +1,4 @@
-import type { IpcResult, NativeSanity } from '../../shared/types'
+import type { FileReadResult, FileStat, IpcResult, NativeSanity } from '../../shared/types'
 
 declare global {
   interface Window {
@@ -17,7 +17,17 @@ export async function ipcInvoke<T = unknown>(channel: string, ...args: unknown[]
   return result.data
 }
 
-/** 示例：native 验收通道 */
+/** native 验收通道 */
 export function nativeSanity(): Promise<NativeSanity> {
   return ipcInvoke<NativeSanity>('native:sanity')
+}
+
+/** file:readText —— 读文本（主进程 textCodec 探测+转换+换行归一） */
+export function fileReadText(path: string): Promise<FileReadResult> {
+  return ipcInvoke<FileReadResult>('file:readText', path)
+}
+
+/** file:stat —— 同文件去重（inode） */
+export function fileStat(path: string): Promise<FileStat> {
+  return ipcInvoke<FileStat>('file:stat', path)
 }

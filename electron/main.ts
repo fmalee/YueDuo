@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import icon from '../resources/icon.png?asset'
-import './ipc' // 各域 IPC handler 在模块加载时统一注册（含 native:sanity）
+import { registerIpcHandlers } from './ipc'
 
 // 自动化验收：YUE_DEBUG=1 时开 CDP 远程调试端口
 if (process.env['YUE_DEBUG']) {
@@ -68,6 +68,7 @@ if (!app.requestSingleInstanceLock()) {
       optimizer.watchWindowShortcuts(window)
     })
 
+    registerIpcHandlers()
     createWindow()
 
     app.on('activate', function () {

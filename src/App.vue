@@ -1,42 +1,45 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import TabBar from '@/components/TabBar.vue'
 import EditorHost from '@/components/EditorHost.vue'
+import { useTabs } from '@/composables/useTabs'
 import { nativeSanity } from '@/ipc/bridge'
 
-// 0.2 阶段验收页：Monaco 大文件一次性 setValue 瞬开
-const host = ref<InstanceType<typeof EditorHost>>()
-const loading = ref(false)
-const ipcReport = ref('')
+// 阶段 1.2 验收页：file:readText IPC → model → setModel 切换闭环
+const { openFile } = useTabs()
+const status = ref('未打开')
+const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
-async function openBigFile(): Promise<void> {
-  if (!host.value || loading.value) return
-  loading.value = true
+async function open(): Promise<void> {
   try {
-    const resp = await fetch('/test/rebirth.txt')
-    const text = await resp.text()
-    const ms = host.value.loadText(text, '重生之心动.txt')
-    // 自动化验收通道：结果写进 title，CDP /json 可直接读取
-    document.title = `YUE_RESULT:${text.length}chars:${ms}ms`
-  } finally {
-    loading.value = false
+    const id = await openFile(pathInput.value)
+    status.value = `已打开标签 ${id}`
+  } catch (e) {
+    status.value = `打开失败：${String(e)}`
   }
 }
 
 async function testIpc(): Promise<void> {
   try {
     const r = await nativeSanity()
-    ipcReport.value = `IPC OK —— better-sqlite3: ${r.betterSqlite3}，Electron ${r.electron}，ABI ${r.nodeAbi}`
-    // 自动化验收：追加 IPC 状态进 title（大文件结果之后）
-    document.title = `${document.title}+YUE_IPC:OK`
+    status.value = `IPC OK —— better-sqlite3: ${r.betterSqlite3}，Electron ${r.electron}`
   } catch (e) {
-    ipcReport.value = `IPC FAIL —— ${String(e)}`
-    document.title = `${document.title}+YUE_IPC:FAIL`
+    status.value = `IPC FAIL —— ${String(e)}`
   }
 }
 
 onMounted(() => {
   if (new URLSearchParams(location.search).get('auto') === '1') {
-    openBigFile().then(testIpc)
+    // 自动验收：打开两本书验证多标签 + setModel 切换闭环
+    openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
+      .then(() => openFile('/Users/Joey/Sites/Projects/小说/风流小保安.txt'))
+      .then(() => {
+        document.title = 'YUE_TABS_OK'
+      })
+      .catch((e) => {
+        document.title = `YUE_TABS_FAIL:${String(e).slice(0, 80)}`
+      })
+      .finally(testIpc)
   }
 })
 </script>
@@ -44,14 +47,14 @@ onMounted(() => {
 <template>
   <div class="app">
     <header class="bar">
-      <button :disabled="loading" @click="openBigFile">
-        {{ loading ? '读取中…' : '打开 5.1MB 测试文本' }}
-      </button>
-      <button @click="testIpc">IPC/native 验证</button>
-      <span class="hint">{{ ipcReport || '阶段 0 验收：瞬开 + IPC + native' }}</span>
+      <input v-model="pathInput" class="path-input" />
+      <button @click="open">打开</button>
+      <button @click="testIpc">IPC</button>
+      <span class="hint">{{ status }}</span>
     </header>
+    <TabBar />
     <main class="main">
-      <EditorHost ref="host" />
+      <EditorHost />
     </main>
   </div>
 </template>
@@ -66,9 +69,15 @@ onMounted(() => {
 .bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 6px 10px;
   border-bottom: 1px solid #ddd;
+}
+.path-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  padding: 3px 6px;
 }
 .main {
   flex: 1;
@@ -77,5 +86,6 @@ onMounted(() => {
 .hint {
   font-size: 12px;
   color: #888;
+  white-space: nowrap;
 }
 </style>
