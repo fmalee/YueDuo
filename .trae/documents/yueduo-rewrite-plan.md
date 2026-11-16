@@ -110,10 +110,12 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 
 ### 阶段 0：脚手架（先行验证，失败即止损）
 
-- [ ] **0.1** electron-vite 初始化（全部最新稳定版）+ dev 分支 + TS 严格模式 + ESLint
-- [ ] **0.2** Monaco 集成：大文件配置（关 Minimap/CodeLens/Hover/unicodeHighlight/bracketPairColorization/guides/renderWhitespace/renderLineHighlight、`wrappingStrategy: 'simple'`、`fontFamily: 'PingFang SC, ...'`、fontSize 15 / lineHeight 22）；4.5MB 文本一次性 `setValue` 瞬开为验收标准
-- [ ] **0.3** better-sqlite3 接入（prebuild-install 装 ABI 匹配的预编译 + rollupOptions.external 排除 `better-sqlite3/bindings/file-uri-to-path/iconv-lite`）+ `verify:native` 脚本（`ELECTRON_RUN_AS_NODE=1` 真实 require 验证）
-- [ ] **0.4** 单实例锁、contextIsolation + preload contextBridge、IPC 统一 try/catch 返回 `{ok, data|error}`
+- [x] **0.1** electron-vite 初始化（全部最新稳定版）+ dev 分支 + TS 严格模式 + ESLint
+- [x] **0.2** Monaco 集成：大文件配置（关 Minimap/CodeLens/Hover/unicodeHighlight/bracketPairColorization/guides/renderWhitespace/renderLineHighlight、`wrappingStrategy: 'simple'`、`fontFamily: 'PingFang SC, ...'`、fontSize 15 / lineHeight 22）；4.5MB 文本一次性 `setValue` 瞬开为验收标准
+- [x] **0.3** better-sqlite3 接入（prebuild-install 装 ABI 匹配的预编译 + rollupOptions.external 排除 `better-sqlite3/bindings/file-uri-to-path/iconv-lite`）+ `verify:native` 脚本（`ELECTRON_RUN_AS_NODE=1` 真实 require 验证）
+- [x] **0.4** 单实例锁、contextIsolation + preload contextBridge、IPC 统一 try/catch 返回 `{ok, data|error}`
+
+> **阶段 0 实施记录（2026-11-17）**：脚手架实际用 `@quick-start/create-electron`（electron-vite 6 官方脚手架，`create-electron-vite` 是另一个 vite-plugin-electron 方案且模板不含 electron 文件）；目录按方案重组为 `electron/`（main.ts/preload.ts/ipc/）+ `src/`（renderer root，publicDir 指回根 public/）。三处坑及解法：① Monaco 0.57 exports 模板要求子路径写 `monaco-editor/editor/editor.api`（不带 esm/vs 前缀，主入口会注册 90+ 语言太重）；② Electron 45 macOS 从 node_modules 的 Electron.app 启动时 `app.isPackaged=true`，`is.dev` 误判，判定改为「ELECTRON_RENDERER_URL 存在与否」；③ better-sqlite3 13.2.0 的 prebuilds 内置于 npm 包（N-API，darwin-x64.node），无需 prebuild-install 下载，Electron 45 进程内真实加载验证通过（零 rebuild）。验收数据：502 万字符一次性 setValue+setModel 253ms；IPC native:sanity 全链路 OK。
 
 ### 阶段 1：核心编辑器闭环（焦点 bug 在此架构下天然不存在）
 
