@@ -108,19 +108,24 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 
 ## 五、分阶段任务清单（编号供逐项细化讨论）
 
-### 阶段 0：脚手架（先行验证，失败即止损）
+### 阶段 0：脚手架（✅ 2026-11-17 完成）
 
-- [x] **0.1** electron-vite 初始化（全部最新稳定版）+ dev 分支 + TS 严格模式 + ESLint
-- [x] **0.2** Monaco 集成：大文件配置（关 Minimap/CodeLens/Hover/unicodeHighlight/bracketPairColorization/guides/renderWhitespace/renderLineHighlight、`wrappingStrategy: 'simple'`、`fontFamily: 'PingFang SC, ...'`、fontSize 15 / lineHeight 22）；4.5MB 文本一次性 `setValue` 瞬开为验收标准
-- [x] **0.3** better-sqlite3 接入（prebuild-install 装 ABI 匹配的预编译 + rollupOptions.external 排除 `better-sqlite3/bindings/file-uri-to-path/iconv-lite`）+ `verify:native` 脚本（`ELECTRON_RUN_AS_NODE=1` 真实 require 验证）
-- [x] **0.4** 单实例锁、contextIsolation + preload contextBridge、IPC 统一 try/catch 返回 `{ok, data|error}`
+- [x] **0.1** electron-vite 6 + Electron 45.3.3 + Vue 3.5 + TS 严格 + ESLint，可构建可运行。
+- [x] **0.2** Monaco 0.57 经 `?worker` 接入，大文件配置见 `src/monaco.ts`；4.8MB 一次性 `setValue` 249ms。
+- [x] **0.3** better-sqlite3 13.2 主进程 external + `verify:native`，Electron 内真实建表插查通过（零 rebuild）。
+- [x] **0.4** 单实例锁 + contextIsolation/contextBridge + IPC 统一 `{ok, data|error}`；`YUE_TEST` 无窗验收可用。
 
-> **阶段 0 实施记录（2026-11-17）**：脚手架实际用 `@quick-start/create-electron`（electron-vite 6 官方脚手架，`create-electron-vite` 是另一个 vite-plugin-electron 方案且模板不含 electron 文件）；目录按方案重组为 `electron/`（main.ts/preload.ts/ipc/）+ `src/`（renderer root，publicDir 指回根 public/）。三处坑及解法：① Monaco 0.57 exports 模板要求子路径写 `monaco-editor/editor/editor.api`（不带 esm/vs 前缀，主入口会注册 90+ 语言太重）；② Electron 45 macOS 从 node_modules 的 Electron.app 启动时 `app.isPackaged=true`，`is.dev` 误判，判定改为「ELECTRON_RENDERER_URL 存在与否」；③ better-sqlite3 13.2.0 的 prebuilds 内置于 npm 包（N-API，darwin-x64.node），无需 prebuild-install 下载，Electron 45 进程内真实加载验证通过（零 rebuild）。验收数据：502 万字符一次性 setValue+setModel 253ms；IPC native:sanity 全链路 OK。
+> **阶段 0 保留的坑与技术决策（可检索）**
+> - **脚手架**：`@quick-start/create-electron`（`create-electron-vite` 无 electron 模板）；目录 `electron/`（main/preload/ipc）+ `src/`（renderer，publicDir→根 `public/`）。
+> - **Monaco 子路径**：0.57 写 `monaco-editor/editor/editor.api`（不带 `esm/vs`；主入口注册 90+ 语言太重）。
+> - **`isPackaged` 误判**：Electron 45 macOS 从 node_modules 启动时 `is.dev` 不可信，改判 `ELECTRON_RENDERER_URL` 是否存在。
+> - **better-sqlite3**：13.2 内置 N-API prebuilds（darwin-x64.node），无需 prebuild-install；`ELECTRON_RUN_AS_NODE=1` 真实 require 验证。
+> - **验收**：502 万字符 `setValue`+`setModel` 253ms；`native:sanity` 全链路 OK。
 
 ### 阶段 1：核心编辑器闭环（焦点 bug 在此架构下天然不存在）
 
-- [ ] **1.1** `textCodec` 服务（Python `text_codec.py` 逐行翻译）：BOM 表（UTF-32 先于 UTF-16）、无 BOM UTF-16 字节序推断（NUL + 换行计数）、探测误判用 GB18030 复核、fallback 链（utf-8 → gb18030 → big5）、换行归一、去残留 BOM
-- [ ] **1.2** `EditorHost`：单 Monaco 实例；打开文件 → `file:readText` → `createModel(text, 'plaintext')`；切标签 → `setModel` + `restoreViewState`；离开标签 → `saveViewState`；卸载的标签无 model 时容器显示加载态
+- [x] **1.1** `textCodec` 完成：逐行翻译 Python `text_codec.py`（BOM 表 UTF-32 先于 UTF-16、无 BOM UTF-16 字节序推断、chardet + GB18030 复核、fallback 链 utf-8→gb18030→big5、换行归一、去残留 BOM），真实样本 12/12 通过，9.7MB 全文探测解码 29ms；实现见 `electron/services/textCodec.ts`，测试见 `scripts/test-text-codec.ts`。
+- [x] **1.2** `EditorHost` 完成：单 Monaco 实例 + model 注册表（非 reactive）+ `setModel`/`saveViewState`/`restoreViewState`，Pinia 只存标签元信息；`file:readText` 已接 textCodec，真实书库双标签验收（`YUE_TABS_OK`）通过；实现见 `src/components/EditorHost.vue`、`src/composables/useTabLifecycle.ts`、`src/stores/tabs.ts`。
 - [ ] **1.3** dirty 追踪：`getAlternativeVersionId()` 对比载入时的初始版本号；卸载重载后以 draft 为基线
 - [ ] **1.4** 保存：`file:writeText`（UTF-16LE、临时文件写 + rename 替换）；保存后重置版本基线、清 draft
 - [ ] **1.5** `TabBar`：Chrome 风格圆弧标签（复刻 Python `FlaredTabBar` 视觉：当前标签底边外展圆弧、关闭按钮、未保存黑点）；**标签显示完整小说名称、不裁切**（标签按内容自适应宽度，标签栏横向溢出时可滚动，不设 max-width 省略号）；`Cmd+N` 新建（不弹保存框、关掉最后一个留空窗口）、关闭前确认（dirty 才弹）、关闭按钮常驻开关
