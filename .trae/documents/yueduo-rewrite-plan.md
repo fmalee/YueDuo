@@ -1,0 +1,194 @@
+# YueDuo 重构方案（NovelManager → Electron + Vue 3 + Monaco）
+
+## 一、背景
+
+- **功能基线**：`/Users/Joey/Sites/Projects/NovelManager`（Python + PySide6，约 7800 行）。以它的 `AGENTS.md`「功能现状」为基础验收清单，并整合用户新增需求。
+- **失败尝试**：`/Users/Joey/Sites/Projects/YueDuo_old`（6133 行）。以 Python 原版为准绳逐项翻译，YueDuo_old 只作参考与坑警示，不照搬。
+- **本次目标**：在空白项目 `/Users/Joey/Sites/Projects/YueDuo` 重写。
+- 用户已确认：参照 Python 重写 services、渲染层全新架构、全新数据库 schema、分阶段验收、依赖全部用最新稳定版（版本冲突/不稳定等客观因素才降级）。
+
+## 二、YueDuo_old 的三个根因教训（新架构必须规避）
+
+1. **标签切换用 `:key` 重建 Monaco 实例** → 焦点/IME 状态错乱（Enter 失效、跳固定标签、中文打不上屏的根因，4 轮修复失败）。
+   ✅ 新方案：**单 Monaco 实例 + 每标签一个 model + `editor.setModel()` 切换**（VS Code 同款）。undo 栈随 model 天然隔离，切标签用 `saveViewState()/restoreViewState()` 恢复光标与滚动位置，焦点永不丢失。
+2. **全文内容存进 Pinia reactive** → 几 MB 字符串走 Vue 响应式，每次击键触发 `emit → store → prop` 全链路。
+   ✅ 新方案：全文只存在 Monaco model 里，store 只存元信息。保存/持久化时才 `model.getValue()`。
+3. **职责混杂 + 逻辑重复**（App.vue 626 行全编排、正则数据硬编码在组件、解析逻辑主进程渲染层各一份）。
+   ✅ 新方案：所有解析/转换逻辑只在主进程 services，渲染层零业务逻辑；App.vue 只做布局，交互逻辑进 composables。
+
+## 三、技术栈与骨架
+
+| 项 | 选型 | 要点 |
+|----|------|------|
+| 脚手架 | `npm create electron-vite@latest` | Electron 最新稳定版（`npm view electron version` 实查）+ ESM 主进程；禁止 `__dirname`/`__filename` |
+| 前端 | Vue 3 + TS 严格模式 + Pinia（均最新稳定版） | stores 只存元信息与 UI 状态 |
+| 编辑器 | Monaco 最新 + `vite-plugin-monaco-editor` | 唯一 worker 加载路径；API 使用前 grep 类型声明确认存在 |
+| 数据库 | better-sqlite3 最新（仅主进程） | `npx prebuild-install --arch=<arm64/x64>`（对应最新 Electron ABI，先查 `process.versions.modules`），禁止 npm rebuild / electron-rebuild |
+| 编码 | iconv-lite | 复刻 Python `text_codec.py` 探测链 |
+| 简繁 | OpenCC（四表 + keep/ambiguous，从 `NovelManager/assets/dicts/` 拷贝） | 策略照 Python：保护词 → 词组最长匹配 → 单字 → 多义字保留 |
+| Finder xattr | spawn `xattr` + 手写 Python plistlib 风格 bplist00 | float marker `0x23`、NSString UTF-16BE marker、32 字节 trailer |
+| 打包 | electron-builder | 阶段 3 再做 |
+
+**版本基线（2026-11-17 npm 实查最新稳定版）**：Electron 45.3.3、Vue 3.5.45、Monaco 0.57.0、better-sqlite3 13.2.0、Pinia 4.1.0、Vite 8.3.8、electron-vite 6.0.0。客观冲突（如 electron-vite 对 Vite 8 的 peer 限制）按用户规则适当降级，并在提交信息说明原因。
+
+**Monaco worker 加载修正**：`vite-plugin-monaco-editor` 停更于 1.1.0（CJS，Vite 8 兼容风险），改用 Vite 原生 `?worker` 导入（`monaco-editor/esm/vs/editor/editor.worker?worker`，纯文本场景只需 editor worker）。仍遵守铁律：worker 只走这一条路径，不配 `MonacoEnvironment.getWorkerUrl`、不用 AMD loader；若 `?worker` 路径失败再回退插件方案。
+
+**本机环境**：Intel Mac（x86_64）——prebuild-install 必须 `--arch=x64 --runtime=electron --target=<实际安装的 Electron 版本>`。
+
+### 目录结构
+
+```
+YueDuo/
+├── electron/
+│   ├── main.ts / preload.ts
+│   ├── ipc/            # 按域分 handler：file / library / session / convert / finder / dialog
+│   └── services/       # 纯 Node 可单测：database / textCodec / scanner / reconcile /
+│                       #   metadataParser / metadataWriter / chapterParser /
+│                       #   chineseConvert / tidy / finderMetadata / bookIdentity / sessionStore
+├── src/
+│   ├── App.vue         # 只做三栏 + 状态栏布局
+│   ├── components/     # TabBar / EditorHost / LeftSidebar / RightPanel / MetadataBar /
+│   │                   #   StatusBar / CommandPalette / StarRating / SectionTitle / FindReplaceBar
+│   ├── composables/    # useEditorCommands / useTabs / useTabLifecycle / useSession /
+│   │                   #   useLibrary / useFindReplace
+│   ├── stores/         # tabs / library / settings（无全文内容）
+│   ├── styles/theme.ts # LIGHT/DARK/METRICS/READING_* token → CSS 变量
+│   └── ipc/bridge.ts   # 唯一 IPC 出口
+├── shared/types.ts
+└── assets/dicts/ + icons/   # 从 NovelManager 拷贝
+```
+
+### IPC 契约（全部 `ipcRenderer.invoke` → `{ok:true,data}` | `{ok:false,error}`）
+
+| 通道 | 入参 | 返回 | 用途 |
+|------|------|------|------|
+| `file:readText` | `path` | `{text, encoding}` | 打开/按需重载标签（textCodec 探测+转换+换行归一） |
+| `file:writeText` | `path, text` | `{encoding}` | 保存（UTF-16LE + 临时文件替换） |
+| `file:stat` | `path` | `{ino, size}` | 同文件去重（inode） |
+| `library:open` | `root?` | `{root, dbCreated}` | 打开/切换书库（realpath 归一 + 建库） |
+| `library:fastScan` | — | 目录树 + 文件清单 | 秒开目录树 |
+| `library:enrich` | — | 进度事件 | 后台补元数据 + 对账 |
+| `library:books` / `:tags` / `:history`… | 过滤参数 | 列表 | 各管理页查询 |
+| `session:restore` / `session:persist` | — / 会话对象 | 会话对象 / void | 会话读写 |
+| `meta:applyEdit` | `path, {field, value}` | `{textEdit}` | 元数据写回（返回最小可撤销编辑区间） |
+| `finder:getRating` / `:setRating` / `:getComment` / `:setComment` | path (+值) | 值/void | xattr 读写（写前读旧值，相同跳过） |
+| `convert:s2t` / `:t2s` / `:tidy` | `text` | `{text}` | 主进程转换 |
+| `dialog:chooseLibrary` / `:confirmClose` 等 | — | 用户选择 | 原生对话框 |
+
+## 四、全新数据库 schema（v1）
+
+放**书库根目录** `yueduo.db`（随库搬迁；无库回落 userData）。
+**关键约定：`relative_path` 相对书库根目录、不含书库总目录名**（书库根 = `/Users/Joey/Sites/Projects/小说` 时存 `金庸/笑傲江湖.txt`）。
+
+```sql
+books(id, relative_path TEXT UNIQUE NOT NULL, filename, title, author, tags,
+      rating 0-5, word_count, size_bytes, progress_line, encoding, last_read_at,
+      created_at, updated_at)
+bookmarks(id, book_id FK CASCADE, line > 0, note, created_at, UNIQUE(book_id, line))
+tag_ratings(tag PK, rating 0-5, updated_at)
+session_state(id=1, active_tab_id)
+session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
+             dirty, draft BLOB, view_state TEXT, last_focused_at)
+```
+
+- 增量迁移：`PRAGMA user_version` + 缺列 ALTER，建表语句只对新库生效。
+- WAL 模式；better-sqlite3 同步 API 单连接。
+
+### 书籍身份对账（reconcile）算法
+
+扫描入库后执行，三步：
+
+1. **直命中**：库内记录按 `relative_path` 在本次扫描结果中找到 → 正常更新元数据（word_count/size/编码）。
+2. **移动识别**（未直命中的记录）：在本次扫描的「未匹配新文件」中做综合评分匹配：
+   - 候选条件（任一）：`title` 相等 且 `filename` 相等；或 `filename` 相等 且 `|size_bytes 差| / size ≤ 5%`；或 `title` 相等 且字数差 ≤ 2%
+   - **唯一候选** → 判定为移动，更新 `relative_path`（id/评分/进度/书签全保留）
+   - 多候选或零候选 → 挂起，`miss_count += 1`
+3. **删除清理**：`miss_count ≥ 2`（连续两次扫描零匹配）→ 删除记录（书签随 FK CASCADE）。
+   - 对账结果写入 `reconcile_log`（内存级日志，UI 可查：「已识别移动 N 本 / 疑似删除 N 本」），删除操作先列出清单。
+
+## 五、分阶段任务清单（编号供逐项细化讨论）
+
+### 阶段 0：脚手架（先行验证，失败即止损）
+
+- [ ] **0.1** electron-vite 初始化（全部最新稳定版）+ dev 分支 + TS 严格模式 + ESLint
+- [ ] **0.2** Monaco 集成：大文件配置（关 Minimap/CodeLens/Hover/unicodeHighlight/bracketPairColorization/guides/renderWhitespace/renderLineHighlight、`wrappingStrategy: 'simple'`、`fontFamily: 'PingFang SC, ...'`、fontSize 15 / lineHeight 22）；4.5MB 文本一次性 `setValue` 瞬开为验收标准
+- [ ] **0.3** better-sqlite3 接入（prebuild-install 装 ABI 匹配的预编译 + rollupOptions.external 排除 `better-sqlite3/bindings/file-uri-to-path/iconv-lite`）+ `verify:native` 脚本（`ELECTRON_RUN_AS_NODE=1` 真实 require 验证）
+- [ ] **0.4** 单实例锁、contextIsolation + preload contextBridge、IPC 统一 try/catch 返回 `{ok, data|error}`
+
+### 阶段 1：核心编辑器闭环（焦点 bug 在此架构下天然不存在）
+
+- [ ] **1.1** `textCodec` 服务（Python `text_codec.py` 逐行翻译）：BOM 表（UTF-32 先于 UTF-16）、无 BOM UTF-16 字节序推断（NUL + 换行计数）、探测误判用 GB18030 复核、fallback 链（utf-8 → gb18030 → big5）、换行归一、去残留 BOM
+- [ ] **1.2** `EditorHost`：单 Monaco 实例；打开文件 → `file:readText` → `createModel(text, 'plaintext')`；切标签 → `setModel` + `restoreViewState`；离开标签 → `saveViewState`；卸载的标签无 model 时容器显示加载态
+- [ ] **1.3** dirty 追踪：`getAlternativeVersionId()` 对比载入时的初始版本号；卸载重载后以 draft 为基线
+- [ ] **1.4** 保存：`file:writeText`（UTF-16LE、临时文件写 + rename 替换）；保存后重置版本基线、清 draft
+- [ ] **1.5** `TabBar`：Chrome 风格圆弧标签（复刻 Python `FlaredTabBar` 视觉：当前标签底边外展圆弧、关闭按钮、未保存黑点）；**标签显示完整小说名称、不裁切**（标签按内容自适应宽度，标签栏横向溢出时可滚动，不设 max-width 省略号）；`Cmd+N` 新建（不弹保存框、关掉最后一个留空窗口）、关闭前确认（dirty 才弹）、关闭按钮常驻开关
+- [ ] **1.6** 同文件单标签：`file:stat` inode 优先，`realpath` 兜底
+- [ ] **1.7** **上百标签驻留与按需渲染**（详细设计）：
+  - **model 注册表**（`useTabLifecycle` 内，非 reactive）：`Map<tabId, {model, viewState?, loadedAt}>`
+  - **驻留集合**：当前标签 + `lastFocusedAt` 最新的 10 个（预载数量进 settings，可调 0–20）
+  - **卸载触发**：切换标签时同步计算 + 每 5 分钟定时检查；卸载动作：若 dirty → `file:writeDraft`（草稿全文经 IPC 存 `session_tabs.draft`，不进 Vue 响应式）→ `model.dispose()`，tab 元信息保留
+  - **重载路径**：切到已卸载标签 → 显示加载态 → dirty ? 读 draft : `file:readText` → `createModel` → `restoreViewState`；期间防重入（重载中再点击其他标签直接切换目标，最后完成者校验 tabId 一致才 `setModel`，避免竞态）
+  - **恢复会话**：只载当前标签 → 后台按 `last_focused_at` 降序预载 10 个（串行、每本之间让出事件循环，不阻塞交互）；预载期间用户切换的标签优先
+  - **内存预算**：11 × 4MB 全文（UTF-16 JS string 翻倍约 8MB）≈ 90MB，可接受；预载若拖慢启动则降数量，不做文本切片
+- [ ] **1.8** 会话恢复：`session:persist` 存标签顺序/active/progress_line/dirty/draft/view_state/last_focused_at；标签增删/切换 2 秒防抖 + 关窗立即保存（`before-quit` 阻塞等待完成）
+- [ ] **1.9** 设置持久化（userData 下 JSON）：外观、侧栏宽度、书库根目录、预载数量、关闭按钮常驻
+- [ ] **1.10** 主题 token + 浅/深/跟随系统（`nativeTheme.on('updated')`）；状态栏：文件名/**完整路径**/编码/字数/`行 x / y`（路径过长省略中间，tooltip 全路径）
+- [ ] **1.11** **左栏「编辑」页**（VS Code 资源管理器逻辑）：列当前打开的全部文本（顺序同标签页），点击切换标签，条目显示 dirty 圆点/完整名称，右键关闭/关闭其他；左栏共六页（编辑/书架/历史/追更/标签/评分）
+- [ ] **1.12** 阶段验收：真实书库打开多本大 TXT，编辑/保存/切标签/重启恢复 50+ 标签场景，全程无焦点丢失与 IME 异常
+
+### 阶段 2：书库与元数据
+
+- [ ] **2.1** `database` 服务：全新 schema 建表 + 增量迁移 + WAL
+- [ ] **2.2** `libraryScanner`：递归扫 `.txt`；两阶段（fastScan 先建目录树秒开，后台 enrich 补元数据）——此设计源自用户本人、Python 旧项目已有实现，以 Python 实现为准翻译
+- [ ] **2.3** `reconcile` 服务：§四对账三步，含 `miss_count` 跟踪与对账日志
+- [ ] **2.4** `metadataParser`：书名（前两行书名号，否则文件名）、作者（前十行 `作者：`，否则佚名）、标签（前十行 `主题：`，否则目录名）
+- [ ] **2.5** 左栏五页共用打开流程：**书架**（资源管理器式惰性树：目录在上书在下、默认折叠）、**历史**（last_read_at 倒序）、**追更**（标签精确匹配「追更」）、**标签**（名称/数量/标签评分三列，点星改分、点标签列书）、**评分**（五星筛选、慢速再点同分取消、未筛选列前 100 本）
+- [ ] **2.6** 右栏三页：**章节**（后台提取、保存后重提、点击跳转；章节占 2/3 书签 1/3）、**书签**（按行号、两行条目、摘要 15 字、光标空行顺延）、**历史**（最近阅读倒序）
+- [ ] **2.7** 书签系统：右键「添加书签」、点击跳转、全库书签页按书分组
+- [ ] **2.8** `metadataWriter`：名称/作者/标签写回正文前 10 行（缺失按书名→作者→标签补行），生成**最小可撤销 TextEdit**（一次最小区间替换、保光标、触发未保存标记），再同步库
+- [ ] **2.9** 元数据栏：**位于编辑器下方、状态栏上方**（旧项目方案）；编辑名称/作者/标签/评分四项，点击即改、回车上屏、失焦取消；星星「再点同分清零」手势
+- [ ] **2.10** `finderMetadata`：星级 `kMDItemStarRating` 双向同步（扫描读入、改分写出）；**Finder 注释写入时机：`metadataWriter` 修改主题时 + 文本保存时**；无主题跳过；**写入前先读旧注释，内容相同也跳过**（减少写操作，防破坏文件）
+- [ ] **2.11** 最近阅读：打开即写 `last_read_at`，位置变化 60 秒防抖
+- [ ] **2.12** `Cmd+P` 快速检索：唤出读库快照、120ms 防抖内存过滤（书名/作者/标签）、空输入按最近阅读、回车打开 Esc 关闭
+- [ ] **2.13** 换库流程：建新库 → 停扫描 → 存档旧会话 → 切活动库 → 恢复新会话；路径统一 `realpath` 后比较
+
+### 阶段 3：编辑体验打磨与交付
+
+- [ ] **3.1** **自绘查找替换栏 `FindReplaceBar`**（弃用 Monaco 内置 find widget 与 overlay hack，交互照 Python `find_replace_bar.py`）：
+  - 触发：`editor.addCommand` 接管 `Cmd+F` / `Cmd+Option+F`（替换模式），内置 find widget 永不触发
+  - 匹配：`model.findMatches(pattern, null, isRegex, matchCase, null, false, -1)` 全量查询（100ms 防抖）；「当前序号 / 总数」按当前光标位置二分定位，无匹配置灰
+  - 跳转：Enter / Shift+Enter 上/下一个（`setSelection` + `revealRangeInCenter`）
+  - 全部替换：`pushUndoStop` + `executeEdits` 一次批量替换（可撤销）
+  - 高亮：`createDecorationsCollection` 标记全部匹配（当前项高亮更强；匹配数 > 5000 时仅标可视区附近）
+  - **常用正则下拉**：纯 Vue 组件（规则从 Python `tidy_rules.py` 迁移：提取章节目录/多余空行/多个空格/非法字符/对话内容/全角字母数字等），选中即填入查找框（替换框一并填入规则自带 replacement），无私有 API、无轮询、无 DOM 定位 hack
+  - 交互：Esc 关闭并返焦点编辑器；查找框改动实时刷新计数
+- [ ] **3.2** 简繁转换 + 一键整理：OpenCC 主进程服务；右键「转换」组（全角转半角/简转繁/繁转简，选区优先、可撤销）；一键整理固定顺序（UTF-16LE → 全角化 → 删段末不可见字符 → 繁转简 → 规则正则替换）
+- [ ] **3.3** 正文操作：回车补两个全角空格 `U+3000`（Shift+回车只换行）、锁定阅读（空格翻页）
+- [ ] **3.4** 标签拖动排序：编辑器标签页左右拖动（VS Code 逻辑），拖动落点插入，`session_tabs.position` 同步
+- [ ] **3.5** 标签右键菜单：保存/关闭类复用文件菜单、重命名（同步磁盘与库身份）、删除移废纸篓（`shell.trashItem`）、Finder 显示（`shell.showItemInFolder`）
+- [ ] **3.6** electron-builder 打包（ad-hoc 签名，只保证本机运行）
+- [ ] **3.7** 新项目 `AGENTS.md`：继承 YueDuo_old 坑清单中仍然成立的部分 + 本次架构约定
+
+## 六、验证方式
+
+- 开发：`dev` 分支，中文提交信息写「为什么」；每步写完立即 `vue-tsc --noEmit`
+- services 单测：纯 Node（`tsx` 脚本 / vitest + better-sqlite3 `:memory:`），不依赖 Electron API；测试数据脚本内构造
+- **功能验证书库（用户已授权随意增删改）：`/Users/Joey/Sites/Projects/小说`**，指定样本：
+  - `重生之心动.txt`、`娱乐之神级学习系统.txt`：有评分、无 Finder 注释
+  - `我就是好莱坞.txt`：无评分、无注释
+  - `风流小保安.txt`：有评分、有注释
+  - 覆盖 Finder xattr 读/写/同值跳过三种路径验证；对账验证可在该库内移动/删除样本文件测试
+- 端到端：`YUE_TEST=1 npm run dev`（窗口不显示、不抢前台）；注意单实例锁会让重复启动静默退出
+- 阶段验收节点：0.2（大文件瞬开）、1.12（编辑器闭环 + 焦点/IME 无异常 + LRU）、2.x 完成后（书库全功能 + 对账）、3.6（打包产物）
+- 阶段 1 完成后与用户确认焦点问题确实根治，再继续阶段 2
+
+## 七、风险与既定解法（继承自 YueDuo_old 血泪，实施时遵守）
+
+1. Monaco worker 404 → 只用 Vite 原生 `?worker` 路径（见 §三修正说明），不自己配 `MonacoEnvironment.getWorkerUrl`，也不用 AMD loader；装完先跑通再继续
+2. 大文件禁止分片追加（分片慢 4 倍），一律一次性 `setValue`
+3. 若回退 `vite-plugin-monaco-editor`（CJS 包）：ESM 下 `createRequire` 取 `.default`（装完先验证）
+4. Monaco API 先 grep `editor.api.d.ts` 确认存在再用（新版本 API 有删改）
+5. Finder xattr 只认 Python plistlib 格式 bplist00（`plist` 包会被 Finder 转成打不开的 0x98 格式）
+6. native 模块成功与否只看 Electron 进程里真实 require，不看 rebuild 命令输出；Electron 升级后 ABI 变化需重新 prebuild-install
+7. IPC handler 不抛裸异常（clone 失败变成不可读 reject）
+8. 渲染进程禁止 import Node 模块与 better-sqlite3，一切走 bridge
