@@ -175,7 +175,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 - [ ] **3.4** 标签拖动排序：编辑器标签页左右拖动（VS Code 逻辑），拖动落点插入，`session_tabs.position` 同步
 - [ ] **3.5** 标签右键菜单：保存/关闭类复用文件菜单、重命名（同步磁盘与库身份）、删除移废纸篓（`shell.trashItem`）、Finder 显示（`shell.showItemInFolder`）
 - [ ] **3.6** electron-builder 打包（ad-hoc 签名，只保证本机运行）
-- [ ] **3.7** 新项目 `AGENTS.md`：继承 YueDuo_old 坑清单中仍然成立的部分 + 本次架构约定
+- [x] **3.7** 新项目 `AGENTS.md`：继承 YueDuo_old 坑清单中仍然成立的部分 + 本次架构约定。**已提前落地**（提交 `671d5be`，根目录 85 行，含实装版本/权限边界/架构/IPC/Monaco 硬约束/数据与界面约定）；后续会话按它执行即可，无需重建。
 
 ## 六、验证方式
 
