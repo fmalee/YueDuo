@@ -57,6 +57,14 @@ export interface TabMeta {
   lastFocusedAt: number
 }
 
+/** 外观三态（方案 §1.10：浅/深/跟随系统） */
+export type ThemeMode = 'light' | 'dark' | 'system'
+
+/** 设置文件（userData/settings.json，方案 §1.9；当前最小切片只落外观） */
+export interface AppSettings {
+  appearance: ThemeMode
+}
+
 /** preload 注入到 window.yue 的形状 */
 export interface YueBridge {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>

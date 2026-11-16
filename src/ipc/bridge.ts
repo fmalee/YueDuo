@@ -1,4 +1,5 @@
 import type {
+  AppSettings,
   DraftEntry,
   FileReadResult,
   FileStat,
@@ -60,4 +61,14 @@ export function fileReadDraft(tabId: string): Promise<DraftEntry | null> {
 /** file:clearDraft —— 保存/关闭后清草稿（方案 §1.4） */
 export function fileClearDraft(tabId: string): Promise<void> {
   return ipcInvoke<void>('file:clearDraft', tabId)
+}
+
+/** settings:get —— 读设置（方案 §1.9；缺失/损坏由主进程回落默认值） */
+export function settingsGet(): Promise<AppSettings> {
+  return ipcInvoke<AppSettings>('settings:get')
+}
+
+/** settings:set —— 写回设置（方案 §1.9，1.10 切换外观时调用） */
+export function settingsSet(settings: AppSettings): Promise<AppSettings> {
+  return ipcInvoke<AppSettings>('settings:set', settings)
 }

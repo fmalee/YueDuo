@@ -49,6 +49,11 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+// 自动化验收：YUE_USER_DATA 指向临时目录，隔离设置文件与数据库，避免测试写真实用户数据
+if (process.env['YUE_USER_DATA']) {
+  app.setPath('userData', process.env['YUE_USER_DATA'])
+}
+
 // 单实例锁：重复启动时聚焦既有窗口后退出，避免 dev 验收互相干扰
 if (!app.requestSingleInstanceLock()) {
   app.quit()

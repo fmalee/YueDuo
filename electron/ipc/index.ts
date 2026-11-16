@@ -9,6 +9,8 @@ import {
   fileClearDraft
 } from './file'
 import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
+import { settingsGet, settingsSet } from './settings'
+import type { AppSettings } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
 export function registerIpcHandlers(): void {
@@ -26,4 +28,6 @@ export function registerIpcHandlers(): void {
   handle('dialog:confirmClose', (title: unknown) => confirmClose(String(title)))
   handle('dialog:saveFile', (name: unknown) => chooseSaveFile(String(name)))
   handle('dialog:chooseLibrary', () => chooseLibrary())
+  handle('settings:get', () => settingsGet())
+  handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
 }

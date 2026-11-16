@@ -10,7 +10,8 @@ const DOMAINS = [
   'finder:',
   'convert:',
   'dialog:',
-  'native:'
+  'native:',
+  'settings:'
 ]
 
 function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>> {

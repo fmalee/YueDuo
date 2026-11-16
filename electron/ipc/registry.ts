@@ -27,5 +27,6 @@ export const IPC_DOMAINS = [
   'finder:',
   'convert:',
   'dialog:',
-  'native:'
+  'native:',
+  'settings:'
 ] as const
