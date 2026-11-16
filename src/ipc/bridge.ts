@@ -4,13 +4,15 @@ import type {
   FileReadResult,
   FileStat,
   IpcResult,
-  NativeSanity
+  NativeSanity,
+  ThemeChanged
 } from '../../shared/types'
 
 declare global {
   interface Window {
     yue: {
       invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
+      onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
     }
   }
 }
@@ -71,4 +73,9 @@ export function settingsGet(): Promise<AppSettings> {
 /** settings:set —— 写回设置（方案 §1.9，1.10 切换外观时调用） */
 export function settingsSet(settings: AppSettings): Promise<AppSettings> {
   return ipcInvoke<AppSettings>('settings:set', settings)
+}
+
+/** 订阅主题变化推送（方案 §1.10：nativeTheme 'updated' → 渲染层切 token） */
+export function onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void {
+  return window.yue.onThemeUpdated(callback)
 }

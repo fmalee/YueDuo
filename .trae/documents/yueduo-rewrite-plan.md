@@ -140,7 +140,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
   - 实现见 `src/composables/useTabLifecycle.ts`（unloadModel/reloadModel/waitUnloadSettled）、`src/components/EditorHost.vue`（activateEditorFor/scheduleEviction）、`electron/services/draftStore.ts`
 - [ ] **1.8** 会话恢复：`session:persist` 存标签顺序/active/progress_line/dirty/draft/view_state/last_focused_at；标签增删/切换 2 秒防抖 + 关窗立即保存（`before-quit` 阻塞等待完成）
 - [ ] **1.9** 设置持久化（userData 下 JSON）：外观、侧栏宽度、书库根目录、预载数量、关闭按钮常驻
-- [ ] **1.10** 主题 token + 浅/深/跟随系统（`nativeTheme.on('updated')`）；状态栏：文件名/**完整路径**/编码/字数/`行 x / y`（路径过长省略中间，tooltip 全路径）
+- [x] **1.10** 主题 token + 浅/深/跟随系统 + 状态栏完成：token 唯一定义在 `src/styles/theme.ts`（`LIGHT_COLORS`/`DARK_COLORS`/`METRICS`/`READING`，注入 `--yd-*`，TabBar 六个无定义变量与全部写死色收回）；主进程 `nativeTheme.themeSource` 为唯一判定口径，`nativeTheme.on('updated')` 经 preload `onThemeUpdated` 推送 `theme:updated`；Monaco 双主题与 token 同源；状态栏显示文件名/完整路径（目录收缩=中间省略，tooltip 全路径）/编码/字数/`行 x / y`，字数与行数走 `getValueLength`/`getLineCount`（O(1)）；外观持久化由 1.9 最小切片提供。见 `src/styles/theme.ts`、`src/stores/settings.ts`、`src/components/StatusBar.vue`、`src/composables/useStatusMetrics.ts`、`electron/ipc/theme.ts`
 - [ ] **1.11** **左栏「编辑」页**（VS Code 资源管理器逻辑）：列当前打开的全部文本（顺序同标签页），点击切换标签，条目显示 dirty 圆点/完整名称，右键关闭/关闭其他；左栏共六页（编辑/书架/历史/追更/标签/评分）
 - [ ] **1.12** 阶段验收：真实书库打开多本大 TXT，编辑/保存/切标签/重启恢复 50+ 标签场景，全程无焦点丢失与 IME 异常
 

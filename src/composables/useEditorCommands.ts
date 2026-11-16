@@ -21,7 +21,8 @@ export function useEditorCommands(): {
     const { stat } = await fileWriteText(tab.path, text)
     // 保存后重置版本基线、清 dirty 与草稿（方案 §1.4）；rename 替换后 inode 已变，stat 缓存同步刷新
     resetBaseline(tab.id)
-    store.patchTab(tab.id, { dirty: false })
+    // 保存统一转工作编码 UTF-16LE（AGENTS.md 文本约定），状态栏随之更新
+    store.patchTab(tab.id, { dirty: false, encoding: 'UTF-16LE' })
     setStatCache(tab.id, stat)
     await fileClearDraft(tab.id)
     return true

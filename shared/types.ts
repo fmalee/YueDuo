@@ -53,6 +53,8 @@ export interface TabMeta {
   id: string
   path: string
   title: string
+  /** 打开/保存时的源编码（状态栏展示，方案 §1.10） */
+  encoding: string
   dirty: boolean
   lastFocusedAt: number
 }
@@ -65,7 +67,14 @@ export interface AppSettings {
   appearance: ThemeMode
 }
 
+/** 当前生效主题（主进程 nativeTheme 判定后推给渲染层，方案 §1.10） */
+export interface ThemeChanged {
+  dark: boolean
+}
+
 /** preload 注入到 window.yue 的形状 */
 export interface YueBridge {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
+  /** 订阅 nativeTheme 'updated'（返回取消订阅）；外观=跟随系统时靠它切主题 */
+  onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
 }

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { IpcResult } from '../shared/types'
+import type { IpcResult, ThemeChanged } from '../shared/types'
 
 /** preload 与主进程保持一致的域前缀白名单 */
 const DOMAINS = [
@@ -21,4 +21,14 @@ function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcRe
   return ipcRenderer.invoke(channel, ...args) as Promise<IpcResult<T>>
 }
 
-contextBridge.exposeInMainWorld('yue', { invoke })
+/** 主题推送订阅：固定通道名（不走 invoke 白名单），返回取消订阅 */
+function onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: ThemeChanged): void =>
+    callback(payload)
+  ipcRenderer.on('theme:updated', listener)
+  return (): void => {
+    ipcRenderer.removeListener('theme:updated', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('yue', { invoke, onThemeUpdated })

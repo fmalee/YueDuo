@@ -2,16 +2,21 @@
 import { onMounted, ref } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import EditorHost from '@/components/EditorHost.vue'
+import StatusBar from '@/components/StatusBar.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { fileReadDraft, fileReadText, nativeSanity } from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
+import { statusMetrics } from '@/composables/useStatusMetrics'
 import { useTabsStore } from '@/stores/tabs'
+import { useSettingsStore } from '@/stores/settings'
+import type { ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
 const { openFile, newBlankTab, activateTab } = useTabs()
 const { saveActive } = useEditorCommands()
 const store = useTabsStore()
+const settings = useSettingsStore()
 const status = ref('未打开')
 const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
@@ -21,6 +26,11 @@ function onWindowKeydown(e: KeyboardEvent): void {
     e.preventDefault()
     newBlankTab()
   }
+}
+
+/** 外观切换入口（方案 §1.10；正式设置界面后续阶段接管） */
+function onAppearanceChange(e: Event): void {
+  void settings.setAppearance((e.target as HTMLSelectElement).value as ThemeMode)
 }
 
 async function open(): Promise<void> {
@@ -110,9 +120,16 @@ onMounted(() => {
             id: t.id,
             title: t.title,
             path: t.path,
+            encoding: t.encoding,
             dirty: t.dirty
           })),
           active: store.activeTab?.title ?? null
+        }),
+        // 主题验收通道（方案 §1.10）
+        themeState: () => ({
+          appearance: settings.appearance,
+          dark: settings.dark,
+          statusBar: { ...statusMetrics }
         })
       }
     })
@@ -136,12 +153,18 @@ onMounted(() => {
       <button @click="open">打开</button>
       <button @click="save">保存 (Cmd+S)</button>
       <button @click="testIpc">IPC</button>
+      <select :value="settings.appearance" @change="onAppearanceChange">
+        <option value="system">跟随系统</option>
+        <option value="light">浅色</option>
+        <option value="dark">深色</option>
+      </select>
       <span class="hint">{{ status }}</span>
     </header>
     <TabBar />
     <main class="main">
       <EditorHost />
     </main>
+    <StatusBar />
   </div>
 </template>
 
@@ -157,13 +180,17 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--yd-border-1);
+  background: var(--yd-bg-2);
 }
 .path-input {
   flex: 1;
   min-width: 0;
   font-size: 12px;
   padding: 3px 6px;
+  border: 1px solid var(--yd-border-1);
+  background: var(--yd-bg-1);
+  color: var(--yd-text-1);
 }
 .main {
   flex: 1;
@@ -171,7 +198,7 @@ onMounted(() => {
 }
 .hint {
   font-size: 12px;
-  color: #888;
+  color: var(--yd-text-3);
   white-space: nowrap;
 }
 </style>

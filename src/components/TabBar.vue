@@ -54,8 +54,8 @@ const { activateTab, closeTab } = useTabs()
 <style scoped>
 .tab-bar {
   min-height: 34px;
-  border-bottom: 1px solid var(--yd-border, #e3dacd);
-  background: var(--yd-panel, #fbf8f3);
+  border-bottom: 1px solid var(--yd-border-1);
+  background: var(--yd-bg-2);
 }
 .tabs-scroll {
   display: flex;
@@ -76,7 +76,7 @@ const { activateTab, closeTab } = useTabs()
   font-size: 13px;
   white-space: nowrap;
   cursor: pointer;
-  color: var(--yd-secondary, #8a7f6e);
+  color: var(--yd-text-3);
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
@@ -88,13 +88,13 @@ const { activateTab, closeTab } = useTabs()
   margin-right: 8px;
 }
 .tab:hover:not(.active) {
-  background: var(--yd-hover, #f0e9dd);
-  color: var(--yd-text, #4a3f2f);
+  background: var(--yd-hover-1);
+  color: var(--yd-text-2);
 }
 .tab.active {
-  background: var(--yd-editor, #fdfbf7);
-  border-color: var(--yd-border, #e3dacd);
-  color: var(--yd-text, #4a3f2f);
+  background: var(--yd-bg-3);
+  border-color: var(--yd-border-1);
+  color: var(--yd-text-2);
   /* 盖过标签栏底边 1px，弧脚与其连成一体 */
   height: 30px;
   margin-bottom: -1px;
@@ -112,10 +112,10 @@ const { activateTab, closeTab } = useTabs()
   right: -8px;
 }
 .flare-fill {
-  fill: var(--yd-editor, #fdfbf7);
+  fill: var(--yd-bg-3);
 }
 .flare-stroke {
-  stroke: var(--yd-border, #e3dacd);
+  stroke: var(--yd-border-1);
   stroke-width: 1;
 }
 .tab-dirty {
@@ -123,7 +123,7 @@ const { activateTab, closeTab } = useTabs()
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #333;
+  background: var(--yd-text-1);
 }
 .tab-title {
   /* 完整小说名称不裁切：无 max-width/省略号，标签随内容自适应，溢出滚动 */
@@ -139,10 +139,10 @@ const { activateTab, closeTab } = useTabs()
   font-size: 14px;
   line-height: 1;
   border-radius: 4px;
-  color: var(--yd-secondary, #8a7f6e);
+  color: var(--yd-text-3);
 }
 .tab-close:hover {
-  background: #ddd2c0;
-  color: #333;
+  background: var(--yd-active-1);
+  color: var(--yd-text-1);
 }
 </style>

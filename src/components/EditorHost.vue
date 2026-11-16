@@ -14,6 +14,7 @@ import {
   waitUnloadSettled
 } from '@/composables/useTabLifecycle'
 import { useEditorCommands } from '@/composables/useEditorCommands'
+import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -42,7 +43,12 @@ onMounted(() => {
   editor.value.onDidChangeModelContent(() => {
     const id = store.activeTabId
     if (id) store.patchTab(id, { dirty: isDirty(id) })
+    // 状态栏字数/行数（getValueLength/getLineCount 均为增量维护，O(1)）
+    refreshStatusMetrics(editor.value?.getModel() ?? null)
   })
+
+  // 状态栏「行 x / y」：光标移动只更新行号
+  editor.value.onDidChangeCursorPosition((e) => setCursorLine(e.position.lineNumber))
 
   // Cmd+S 保存（编辑器焦点内；命令随 editor 实例生命周期销毁）
   editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -88,6 +94,7 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   if (!tabId) {
     editor.value.setModel(null)
     loading.value = false
+    syncStatus(null)
     return
   }
   await waitUnloadSettled(tabId)
@@ -97,10 +104,12 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
     loading.value = false
     editor.value.setModel(entry.model)
     restoreViewState(tabId, editor.value)
+    syncStatus(entry.model)
     return
   }
   loading.value = true
   editor.value.setModel(null)
+  syncStatus(null)
   try {
     const tab = store.tabs.find((t) => t.id === tabId)
     await reloadModel(tabId, tab?.path ?? '')
@@ -114,7 +123,14 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   if (reloaded) {
     editor.value.setModel(reloaded.model)
     restoreViewState(tabId, editor.value)
+    syncStatus(reloaded.model)
   }
+}
+
+/** 状态栏数据跟随当前模型（行数/字数全量刷新一次，光标行取编辑器当前位置） */
+function syncStatus(model: monaco.editor.ITextModel | null): void {
+  refreshStatusMetrics(model)
+  setCursorLine(editor.value?.getPosition()?.lineNumber ?? 1)
 }
 
 /** 卸载非驻留标签（fire-and-forget；unloadModel 内部自带「切回则保留」竞态防护） */
@@ -162,8 +178,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fdfbf7;
-  color: #8a8378;
+  background: var(--yd-bg-3);
+  color: var(--yd-text-3);
   font-size: 13px;
   letter-spacing: 3px;
 }

@@ -57,7 +57,7 @@ export function useTabs(): {
       return dup
     }
 
-    const { text } = await fileReadText(normalized)
+    const { text, encoding } = await fileReadText(normalized)
 
     const id = newTabId()
     const title = decodeURIComponent(normalized.split('/').pop() ?? '未命名')
@@ -68,6 +68,7 @@ export function useTabs(): {
       id,
       path: normalized,
       title, // 标签显示完整小说名称，不裁切（VS Code 逻辑）
+      encoding,
       dirty: false,
       lastFocusedAt: Date.now()
     })
@@ -79,7 +80,14 @@ export function useTabs(): {
   function newBlankTab(): string {
     const id = newTabId()
     createTabModel(id, '')
-    store.upsertTab({ id, path: '', title: '未命名', dirty: false, lastFocusedAt: Date.now() })
+    store.upsertTab({
+      id,
+      path: '',
+      title: '未命名',
+      encoding: '',
+      dirty: false,
+      lastFocusedAt: Date.now()
+    })
     store.setActive(id)
     return id
   }
