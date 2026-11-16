@@ -20,6 +20,7 @@ function onClose(id: string): void {
       :class="{ active: tab.id === store.activeTabId }"
       @click="activateTab(tab.id)"
     >
+      <span v-if="tab.dirty" class="tab-dirty"></span>
       <span class="tab-title">{{ tab.title }}</span>
       <span class="tab-close" @click.stop="onClose(tab.id)">×</span>
     </div>
@@ -52,6 +53,13 @@ function onClose(id: string): void {
   max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.tab-dirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #333;
 }
 .tab-close {
   display: inline-block;

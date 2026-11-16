@@ -5,9 +5,11 @@ import { useTabsStore } from '@/stores/tabs'
 import {
   getTabModel,
   restoreViewState,
-  saveViewState
+  saveViewState,
+  isDirty,
+  disposeTabModel
 } from '@/composables/useTabLifecycle'
-import { disposeTabModel } from '@/composables/useTabLifecycle'
+import { useEditorCommands } from '@/composables/useEditorCommands'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -15,6 +17,7 @@ const container = ref<HTMLDivElement>()
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
 
 const store = useTabsStore()
+const { saveActive } = useEditorCommands()
 
 onMounted(() => {
   if (!container.value) return
@@ -22,8 +25,30 @@ onMounted(() => {
     ...READER_EDITOR_OPTIONS,
     value: ''
   })
+
+  // dirty 追踪：内容变化后以版本号对比（O(1)，方案 §1.3）
+  editor.value.onDidChangeModelContent(() => {
+    const id = store.activeTabId
+    if (id) store.patchTab(id, { dirty: isDirty(id) })
+  })
+
+  // Cmd+S 保存（编辑器焦点内；命令随 editor 实例生命周期销毁）
+  editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+    void saveActive(editor.value)
+  })
+
+  // 窗口级兜底（焦点在编辑器外时）
+  window.addEventListener('keydown', onWindowKeydown)
+
   applyActiveTab(null)
 })
+
+function onWindowKeydown(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault()
+    void saveActive(editor.value)
+  }
+}
 
 // activeTabId 变化 → setModel + restoreViewState
 watch(
@@ -43,7 +68,7 @@ function applyActiveTab(tabId: string | null): void {
 }
 
 onBeforeUnmount(() => {
-  // 逐一 dispose 所有标签 model
+  window.removeEventListener('keydown', onWindowKeydown)
   for (const t of store.tabs) disposeTabModel(t.id)
   editor.value?.dispose()
 })

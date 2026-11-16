@@ -49,10 +49,7 @@ export function saveViewState(tabId: string, editor: monaco.editor.IStandaloneCo
   }
 }
 
-export function restoreViewState(
-  tabId: string,
-  editor: monaco.editor.IStandaloneCodeEditor
-): void {
+export function restoreViewState(tabId: string, editor: monaco.editor.IStandaloneCodeEditor): void {
   const entry = registry.get(tabId)
   if (entry?.viewState) {
     editor.restoreViewState(entry.viewState)

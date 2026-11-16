@@ -31,3 +31,8 @@ export function fileReadText(path: string): Promise<FileReadResult> {
 export function fileStat(path: string): Promise<FileStat> {
   return ipcInvoke<FileStat>('file:stat', path)
 }
+
+/** file:writeText —— 保存（UTF-16LE、临时文件原子替换） */
+export function fileWriteText(path: string, text: string): Promise<{ stat: FileStat }> {
+  return ipcInvoke<{ stat: FileStat }>('file:writeText', path, text)
+}
