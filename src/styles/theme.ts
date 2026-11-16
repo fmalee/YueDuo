@@ -38,7 +38,12 @@ export const METRICS = {
   statusBarHeight: 24,
   statusBarPaddingX: 12,
   statusBarGap: 14,
-  statusBarFontSize: 12
+  statusBarFontSize: 12,
+  sidebarWidth: 240,
+  sidebarFontSize: 13,
+  sidebarItemHeight: 26,
+  sidebarPaddingX: 10,
+  sidebarGap: 8
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -58,5 +63,10 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-statusbar-padding-x', `${METRICS.statusBarPaddingX}px`)
   root.style.setProperty('--yd-statusbar-gap', `${METRICS.statusBarGap}px`)
   root.style.setProperty('--yd-statusbar-font-size', `${METRICS.statusBarFontSize}px`)
+  root.style.setProperty('--yd-sidebar-width', `${METRICS.sidebarWidth}px`)
+  root.style.setProperty('--yd-sidebar-font-size', `${METRICS.sidebarFontSize}px`)
+  root.style.setProperty('--yd-sidebar-item-height', `${METRICS.sidebarItemHeight}px`)
+  root.style.setProperty('--yd-sidebar-padding-x', `${METRICS.sidebarPaddingX}px`)
+  root.style.setProperty('--yd-sidebar-gap', `${METRICS.sidebarGap}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

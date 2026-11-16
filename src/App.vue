@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import TabBar from '@/components/TabBar.vue'
+import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { useTabs } from '@/composables/useTabs'
@@ -180,10 +181,15 @@ onMounted(async () => {
       </select>
       <span class="hint">{{ status }}</span>
     </header>
-    <TabBar />
-    <main class="main">
-      <EditorHost />
-    </main>
+    <div class="workspace">
+      <Sidebar />
+      <div class="editor-column">
+        <TabBar />
+        <main class="main">
+          <EditorHost />
+        </main>
+      </div>
+    </div>
     <StatusBar />
   </div>
 </template>
@@ -211,6 +217,17 @@ onMounted(async () => {
   border: 1px solid var(--yd-border-1);
   background: var(--yd-bg-1);
   color: var(--yd-text-1);
+}
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.editor-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
 }
 .main {
   flex: 1;
