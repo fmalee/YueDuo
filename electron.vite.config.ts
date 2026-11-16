@@ -4,14 +4,26 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   main: {
-    // 主进程与所有 Node 侧 services/ipc 入口
-    entry: resolve('electron/main.ts')
+    build: {
+      rollupOptions: {
+        input: resolve('electron/main.ts')
+      }
+    }
   },
   preload: {
-    entry: resolve('electron/preload.ts')
+    build: {
+      rollupOptions: {
+        input: resolve('electron/preload.ts')
+      }
+    }
   },
   renderer: {
     root: resolve('src'),
+    build: {
+      rollupOptions: {
+        input: resolve('src/index.html')
+      }
+    },
     resolve: {
       alias: {
         '@': resolve('src')
