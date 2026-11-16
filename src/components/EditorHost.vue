@@ -20,6 +20,7 @@ import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetr
 import {
   attachSessionEditor,
   captureProgress,
+  focusEditor,
   schedulePersist,
   scrollToTopLine,
   takeRestoredProgress
@@ -138,6 +139,7 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
     editor.value.setModel(entry.model)
     applyStoredView(tabId)
     syncStatus(entry.model)
+    restoreEditorFocus()
     return
   }
   loading.value = true
@@ -159,7 +161,21 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
     syncStatus(reloaded.model)
     // 会话恢复的标签按需重读后补上源编码（状态栏展示，方案 §1.10）
     if (reloaded.encoding) store.patchTab(tabId, { encoding: reloaded.encoding })
+    restoreEditorFocus()
   }
+}
+
+/**
+ * 激活完成后把焦点交还正文（方案 §1.12 焦点验收）：
+ * 点击标签/左栏（普通 div）会把焦点掉到 body；LRU 重载期间 setModel(null) 也会让 textarea 失焦。
+ * 用户正在路径框/设置项等其他输入控件里时不抢焦点，避免慢重载打断正在输入的内容。
+ */
+function restoreEditorFocus(): void {
+  const active = document.activeElement
+  const tag = active?.tagName
+  if (tag === 'INPUT' || tag === 'SELECT') return
+  if (tag === 'TEXTAREA' && active?.closest('.monaco-editor')) return
+  focusEditor()
 }
 
 /**

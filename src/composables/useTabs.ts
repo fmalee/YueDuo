@@ -11,7 +11,7 @@ import {
   waitUnloadSettled
 } from './useTabLifecycle'
 import { useEditorCommands } from './useEditorCommands'
-import { schedulePersist } from './useSession'
+import { focusEditor, schedulePersist } from './useSession'
 import type { ConfirmChoice, FileStat } from '../../shared/types'
 
 let seq = 0
@@ -124,11 +124,15 @@ export function useTabs(): {
     void fileClearDraft(id)
     store.removeTab(id)
     schedulePersist()
+    // 点击条目已经把焦点留在 body（div 不可聚焦）；关闭后不还焦点就要再点一次正文
+    focusEditor()
   }
 
   function activateTab(id: string): void {
     store.setActive(id)
     schedulePersist()
+    // 切到同一标签时 activeTabId 不变、激活流程不触发，这里直接还焦点
+    focusEditor()
   }
 
   return { openFile, newBlankTab, closeTab, activateTab }

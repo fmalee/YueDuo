@@ -33,6 +33,15 @@ export function attachSessionEditor(instance: monaco.editor.IStandaloneCodeEdito
   editor = instance
 }
 
+/**
+ * 把焦点交还正文：
+ * 标签栏/左栏条目是普通 div，点击后焦点掉到 body；LRU 重载的 setModel(null) 也会让 textarea 失焦。
+ * 不还焦点的话，切完标签/恢复会话后必须先点一次正文才能打字（用户实测的焦点丢失）。
+ */
+export function focusEditor(): void {
+  editor?.focus()
+}
+
 /** 视口顶部行（方案 §1.8 的 progress_line 口径） */
 function topVisibleLine(): number {
   return editor?.getVisibleRanges()[0]?.startLineNumber ?? 0
