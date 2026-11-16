@@ -37,6 +37,15 @@ export const useTabsStore = defineStore('tabs', {
     setActive(id: string): void {
       this.activeTabId = id
       this.patchTab(id, { lastFocusedAt: Date.now() })
+    },
+    /**
+     * 会话恢复（方案 §1.8）：整体替换标签与 active。
+     * 不经过 setActive，避免把恢复的 lastFocusedAt 刷成当前时间（LRU 驻留顺序会失真）
+     */
+    hydrate(tabs: TabMeta[], activeTabId: string | null): void {
+      this.tabs = tabs
+      this.activeTabId =
+        activeTabId && tabs.some((t) => t.id === activeTabId) ? activeTabId : (tabs[0]?.id ?? null)
     }
   }
 })

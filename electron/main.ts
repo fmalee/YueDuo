@@ -4,6 +4,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import icon from '../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc'
 import { initTheme } from './ipc/theme'
+import { requestRendererFlush } from './ipc/session'
 import { closeDatabase, initDatabase } from './services/database'
 
 // 自动化验收：YUE_DEBUG=1 时开 CDP 远程调试端口
@@ -35,6 +36,19 @@ function createWindow(): BrowserWindow {
   mainWindow.webContents.setWindowOpenHandler((details) => {
     shell.openExternal(details.url)
     return { action: 'deny' }
+  })
+
+  // 关窗立即保存（方案 §1.8）：拦下 close，等渲染层 session:persist 落定再真正关闭
+  let closeFlushed = false
+  mainWindow.on('close', (e) => {
+    if (closeFlushed || quitFlushed) return
+    e.preventDefault()
+    void requestRendererFlush().finally(() => {
+      closeFlushed = true
+      // 验收模式：借关窗触发一次真实退出，覆盖 before-quit → will-quit 的关库路径
+      if (process.env['YUE_TEST']) app.quit()
+      else mainWindow.close()
+    })
   })
 
   // HMR for renderer base on electron-vite cli.
@@ -90,6 +104,18 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// 退出前落盘会话（方案 §1.8）：before-quit 阻塞等待渲染层 session:persist 完成后再放行
+let quitFlushed = false
+app.on('before-quit', (e) => {
+  // 无窗口（渲染层已随关窗销毁）时无需握手，直接交给 will-quit 关库
+  if (quitFlushed || BrowserWindow.getAllWindows().length === 0) return
+  e.preventDefault()
+  void requestRendererFlush().finally(() => {
+    quitFlushed = true
+    app.quit()
+  })
 })
 
 // 退出前关库：WAL 正常 checkpoint，避免残留 -wal/-shm

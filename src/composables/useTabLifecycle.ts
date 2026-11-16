@@ -14,6 +14,8 @@ export interface ModelEntry {
   loadedAt: number
   /** 载入时的基线版本号，dirty = getAlternativeVersionId() !== baseline */
   baselineVersionId: number
+  /** 载入时的源编码（会话恢复后状态栏展示；草稿重载为空） */
+  encoding: string
 }
 
 const registry = new Map<string, ModelEntry>()
@@ -45,14 +47,15 @@ export function removeStatCache(tabId: string): void {
   statCache.delete(tabId)
 }
 
-export function createTabModel(tabId: string, text: string): ModelEntry {
+export function createTabModel(tabId: string, text: string, encoding = ''): ModelEntry {
   disposeTabModel(tabId)
   const model = monaco.editor.createModel(text, 'plaintext')
   const entry: ModelEntry = {
     model,
     viewState: null,
     loadedAt: Date.now(),
-    baselineVersionId: model.getAlternativeVersionId()
+    baselineVersionId: model.getAlternativeVersionId(),
+    encoding
   }
   registry.set(tabId, entry)
   return entry
@@ -166,17 +169,19 @@ export function reloadModel(tabId: string, path: string): Promise<void> {
     const draft = await fileReadDraft(tabId)
     if (registry.has(tabId)) return
     let text: string
+    let encoding = ''
     if (draft && draft.text != null) {
       text = draft.text
     } else if (path) {
       const r = await fileReadText(path)
       text = r.text
+      encoding = r.encoding
       setStatCache(tabId, r.stat)
     } else {
       text = '' // 空白标签
     }
     if (registry.has(tabId)) return // 读取在途时被并发处理
-    const entry = createTabModel(tabId, text)
+    const entry = createTabModel(tabId, text, encoding)
     if (draft && draft.viewState != null) {
       entry.viewState = draft.viewState as monaco.editor.ICodeEditorViewState
     }

@@ -57,6 +57,12 @@ export function initDatabase(dir: string): void {
   handle = db
 }
 
+/** 取库连接（session/draft 服务用）；未初始化即抛错，由 registry 收敛为 {ok:false} */
+export function getDatabase(): Database.Database {
+  if (!handle) throw new Error('数据库尚未初始化')
+  return handle
+}
+
 /** 关窗退出前收尾（WAL checkpoint 落盘，避免残留 -wal/-shm） */
 export function closeDatabase(): void {
   handle?.close()

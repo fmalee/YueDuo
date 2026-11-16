@@ -10,6 +10,7 @@ import {
 } from './file'
 import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
 import { settingsGet, settingsSet } from './settings'
+import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
 import type { AppSettings } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
@@ -30,4 +31,9 @@ export function registerIpcHandlers(): void {
   handle('dialog:chooseLibrary', () => chooseLibrary())
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
+  // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；
+  // flushDone 是退出握手回执，渲染层落盘后调用
+  handle('session:persist', (snapshot: unknown) => sessionPersist(snapshot))
+  handle('session:restore', () => sessionRestore())
+  handle('session:flushDone', () => sessionFlushDone())
 }

@@ -5,6 +5,8 @@ import type {
   FileStat,
   IpcResult,
   NativeSanity,
+  SessionRestore,
+  SessionSnapshot,
   ThemeChanged
 } from '../../shared/types'
 
@@ -13,6 +15,7 @@ declare global {
     yue: {
       invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
       onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
+      onSessionFlush(callback: () => void): () => void
     }
   }
 }
@@ -78,4 +81,24 @@ export function settingsSet(settings: AppSettings): Promise<AppSettings> {
 /** 订阅主题变化推送（方案 §1.10：nativeTheme 'updated' → 渲染层切 token） */
 export function onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void {
   return window.yue.onThemeUpdated(callback)
+}
+
+/** session:persist —— 全量写会话（方案 §1.8；2 秒防抖 + 关窗立即调用） */
+export function sessionPersist(snapshot: SessionSnapshot): Promise<void> {
+  return ipcInvoke<void>('session:persist', snapshot)
+}
+
+/** session:restore —— 启动时读会话（标签顺序/active/进度） */
+export function sessionRestore(): Promise<SessionRestore> {
+  return ipcInvoke<SessionRestore>('session:restore')
+}
+
+/** session:flushDone —— 退出握手回执：落盘完成，主进程可继续退出 */
+export function sessionFlushDone(): Promise<null> {
+  return ipcInvoke<null>('session:flushDone')
+}
+
+/** 订阅退出/关窗前落盘请求（主进程 before-quit / 关窗时发） */
+export function onSessionFlush(callback: () => void): () => void {
+  return window.yue.onSessionFlush(callback)
 }

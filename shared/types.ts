@@ -48,6 +48,39 @@ export interface DraftEntry {
   viewState: unknown
 }
 
+/**
+ * 会话快照中的标签（session:persist，方案 §1.8）
+ * draft/view_state 不在这里：仍由 file:writeDraft 写入同一行，persist 不覆盖两列
+ */
+export interface SessionTabInput {
+  id: string
+  path: string
+  title: string
+  /** 视口顶部行（不是光标行；恢复时滚到该行并顶部对齐） */
+  progressLine: number
+  dirty: boolean
+  lastFocusedAt: number
+}
+
+/** session:persist 入参：标签顺序即数组顺序 */
+export interface SessionSnapshot {
+  activeTabId: string | null
+  tabs: SessionTabInput[]
+}
+
+/** session:restore 返回的标签行（按 position 升序） */
+export interface SessionTabRecord extends SessionTabInput {
+  position: number
+  /** 是否有 draft/view_state（脏标签恢复时据此读草稿） */
+  hasDraft: boolean
+}
+
+/** session:restore 返回 */
+export interface SessionRestore {
+  activeTabId: string | null
+  tabs: SessionTabRecord[]
+}
+
 /** 标签元信息（全文内容只存在于 Monaco model，绝不进这里） */
 export interface TabMeta {
   id: string
@@ -77,4 +110,6 @@ export interface YueBridge {
   invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
   /** 订阅 nativeTheme 'updated'（返回取消订阅）；外观=跟随系统时靠它切主题 */
   onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
+  /** 订阅退出/关窗前的会话落盘请求（返回取消订阅）；渲染层保存完成后回 session:flushDone */
+  onSessionFlush(callback: () => void): () => void
 }

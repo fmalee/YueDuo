@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { decodeBytes, encodeForWrite } from '../services/textCodec'
 import { writeDraft, readDraft, clearDraft } from '../services/draftStore'
+import { getDatabase } from '../services/database'
 import type { DraftEntry, FileReadResult, FileStat } from '../../shared/types'
 
 function statOf(path: string): FileStat {
@@ -53,17 +54,17 @@ function copySync(src: string, dest: string): void {
   writeFileSync(dest, readFileSync(src))
 }
 
-/** file:writeDraft —— LRU 卸载时存 dirty 全文与 viewState（方案 §1.7） */
+/** file:writeDraft —— LRU 卸载时存 dirty 全文与 viewState（方案 §1.7，1.8 起落 SQLite） */
 export function fileWriteDraft(tabId: string, text: string | null, viewState: unknown): void {
-  writeDraft(tabId, text, viewState)
+  writeDraft(getDatabase(), tabId, text, viewState)
 }
 
 /** file:readDraft —— 重载已卸载标签时读草稿；null = 无草稿（走 file:readText） */
 export function fileReadDraft(tabId: string): DraftEntry | null {
-  return readDraft(tabId)
+  return readDraft(getDatabase(), tabId)
 }
 
 /** file:clearDraft —— 保存/关闭后清草稿（方案 §1.4 保存后清 draft） */
 export function fileClearDraft(tabId: string): void {
-  clearDraft(tabId)
+  clearDraft(getDatabase(), tabId)
 }

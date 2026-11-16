@@ -31,4 +31,13 @@ function onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void {
   }
 }
 
-contextBridge.exposeInMainWorld('yue', { invoke, onThemeUpdated })
+/** 退出/关窗前落盘请求：固定通道名，渲染层保存完再回 session:flushDone */
+function onSessionFlush(callback: () => void): () => void {
+  const listener = (): void => callback()
+  ipcRenderer.on('session:flush', listener)
+  return (): void => {
+    ipcRenderer.removeListener('session:flush', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('yue', { invoke, onThemeUpdated, onSessionFlush })

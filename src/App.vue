@@ -8,6 +8,13 @@ import { useEditorCommands } from '@/composables/useEditorCommands'
 import { fileReadDraft, fileReadText, nativeSanity } from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
+import {
+  initSession,
+  persistSessionNow,
+  progressSnapshot,
+  restoreSession,
+  scrollSessionTo
+} from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import type { ThemeMode } from '../shared/types'
@@ -89,8 +96,15 @@ async function testIpc(): Promise<void> {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('keydown', onWindowKeydown)
+  // 会话恢复先于任何打开动作：先挂退出握手，再按库还原标签顺序/active/进度
+  initSession()
+  try {
+    await restoreSession()
+  } catch (e) {
+    console.error('[session] 恢复会话失败:', e)
+  }
   if (new URLSearchParams(location.search).get('auto') === '1') {
     Object.assign(globalThis, {
       __yueTest: {
@@ -130,7 +144,11 @@ onMounted(() => {
           appearance: settings.appearance,
           dark: settings.dark,
           statusBar: { ...statusMetrics }
-        })
+        }),
+        // 会话验收通道（方案 §1.8）：进度取视口顶部行，落盘走真实链路
+        sessionProgress: () => progressSnapshot(),
+        scrollToLine: (line: number) => scrollSessionTo(line),
+        flushSession: () => persistSessionNow()
       }
     })
     openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')

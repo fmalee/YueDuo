@@ -15,6 +15,13 @@ import {
 } from '@/composables/useTabLifecycle'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
+import {
+  attachSessionEditor,
+  captureProgress,
+  schedulePersist,
+  scrollToTopLine,
+  takeRestoredProgress
+} from '@/composables/useSession'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -50,6 +57,15 @@ onMounted(() => {
   // 状态栏「行 x / y」：光标移动只更新行号
   editor.value.onDidChangeCursorPosition((e) => setCursorLine(e.position.lineNumber))
 
+  // 会话进度：记录视口顶部行（方案 §1.8），滚动停止 2 秒后落盘
+  editor.value.onDidScrollChange(() => {
+    const id = store.activeTabId
+    if (!id) return
+    captureProgress(id)
+    schedulePersist()
+  })
+  attachSessionEditor(editor.value)
+
   // Cmd+S 保存（编辑器焦点内；命令随 editor 实例生命周期销毁）
   editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     void saveActive(editor.value)
@@ -75,7 +91,11 @@ watch(
   () => store.activeTabId,
   (newId, oldId) => {
     if (newId === oldId) return
-    if (oldId && editor.value) saveViewState(oldId, editor.value)
+    if (oldId && editor.value) {
+      // 切走前先抓旧标签的视口顶部行，再存 viewState
+      captureProgress(oldId)
+      saveViewState(oldId, editor.value)
+    }
     void activateEditorFor(newId)
     scheduleEviction()
   }
@@ -103,7 +123,7 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   if (entry) {
     loading.value = false
     editor.value.setModel(entry.model)
-    restoreViewState(tabId, editor.value)
+    applyStoredView(tabId)
     syncStatus(entry.model)
     return
   }
@@ -122,9 +142,22 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   const reloaded = getTabModel(tabId)
   if (reloaded) {
     editor.value.setModel(reloaded.model)
-    restoreViewState(tabId, editor.value)
+    applyStoredView(tabId)
     syncStatus(reloaded.model)
+    // 会话恢复的标签按需重读后补上源编码（状态栏展示，方案 §1.10）
+    if (reloaded.encoding) store.patchTab(tabId, { encoding: reloaded.encoding })
   }
+}
+
+/**
+ * 恢复视图：会话恢复的进度优先（滚到顶部行并顶部对齐），
+ * 进程内切换仍走内存 viewState（保留原滚动/选区体验）
+ */
+function applyStoredView(tabId: string): void {
+  if (!editor.value) return
+  const restoredLine = takeRestoredProgress(tabId)
+  if (restoredLine != null) scrollToTopLine(restoredLine)
+  else restoreViewState(tabId, editor.value)
 }
 
 /** 状态栏数据跟随当前模型（行数/字数全量刷新一次，光标行取编辑器当前位置） */
@@ -150,6 +183,7 @@ function scheduleEviction(): void {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
   if (evictTimer) clearInterval(evictTimer)
+  attachSessionEditor(null)
   for (const t of store.tabs) disposeTabModel(t.id)
   editor.value?.dispose()
 })

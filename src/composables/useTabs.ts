@@ -11,6 +11,7 @@ import {
   waitUnloadSettled
 } from './useTabLifecycle'
 import { useEditorCommands } from './useEditorCommands'
+import { schedulePersist } from './useSession'
 import type { ConfirmChoice, FileStat } from '../../shared/types'
 
 let seq = 0
@@ -62,7 +63,7 @@ export function useTabs(): {
     const id = newTabId()
     const title = decodeURIComponent(normalized.split('/').pop() ?? '未命名')
 
-    createTabModel(id, text)
+    createTabModel(id, text, encoding)
     setStatCache(id, stat)
     store.upsertTab({
       id,
@@ -73,6 +74,7 @@ export function useTabs(): {
       lastFocusedAt: Date.now()
     })
     store.setActive(id)
+    schedulePersist()
     return id
   }
 
@@ -89,6 +91,7 @@ export function useTabs(): {
       lastFocusedAt: Date.now()
     })
     store.setActive(id)
+    schedulePersist()
     return id
   }
 
@@ -120,10 +123,12 @@ export function useTabs(): {
     // 关闭即清理草稿（save 路径 saveActive 内已清，幂等）
     void fileClearDraft(id)
     store.removeTab(id)
+    schedulePersist()
   }
 
   function activateTab(id: string): void {
     store.setActive(id)
+    schedulePersist()
   }
 
   return { openFile, newBlankTab, closeTab, activateTab }
