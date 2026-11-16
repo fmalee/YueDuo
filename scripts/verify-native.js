@@ -8,5 +8,12 @@ if (row.a !== 42) {
   console.error('native FAIL: 期望 42，实际', row.a)
   process.exit(1)
 }
-console.log('native OK: better-sqlite3', require('better-sqlite3/package.json').version,
-  '在 Electron', process.versions.electron, '(Node ABI', process.versions.modules, ') 内加载并执行成功')
+console.log(
+  'native OK: better-sqlite3',
+  require('better-sqlite3/package.json').version,
+  '在 Electron',
+  process.versions.electron,
+  '(Node ABI',
+  process.versions.modules,
+  ') 内加载并执行成功'
+)

@@ -18,16 +18,16 @@
 
 ## 三、技术栈与骨架
 
-| 项 | 选型 | 要点 |
-|----|------|------|
-| 脚手架 | `npm create electron-vite@latest` | Electron 最新稳定版（`npm view electron version` 实查）+ ESM 主进程；禁止 `__dirname`/`__filename` |
-| 前端 | Vue 3 + TS 严格模式 + Pinia（均最新稳定版） | stores 只存元信息与 UI 状态 |
-| 编辑器 | Monaco 最新 + `vite-plugin-monaco-editor` | 唯一 worker 加载路径；API 使用前 grep 类型声明确认存在 |
-| 数据库 | better-sqlite3 最新（仅主进程） | `npx prebuild-install --arch=<arm64/x64>`（对应最新 Electron ABI，先查 `process.versions.modules`），禁止 npm rebuild / electron-rebuild |
-| 编码 | iconv-lite | 复刻 Python `text_codec.py` 探测链 |
-| 简繁 | OpenCC（四表 + keep/ambiguous，从 `NovelManager/assets/dicts/` 拷贝） | 策略照 Python：保护词 → 词组最长匹配 → 单字 → 多义字保留 |
-| Finder xattr | spawn `xattr` + 手写 Python plistlib 风格 bplist00 | float marker `0x23`、NSString UTF-16BE marker、32 字节 trailer |
-| 打包 | electron-builder | 阶段 3 再做 |
+| 项           | 选型                                                                  | 要点                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| 脚手架       | `npm create electron-vite@latest`                                     | Electron 最新稳定版（`npm view electron version` 实查）+ ESM 主进程；禁止 `__dirname`/`__filename`                                       |
+| 前端         | Vue 3 + TS 严格模式 + Pinia（均最新稳定版）                           | stores 只存元信息与 UI 状态                                                                                                              |
+| 编辑器       | Monaco 最新 + `vite-plugin-monaco-editor`                             | 唯一 worker 加载路径；API 使用前 grep 类型声明确认存在                                                                                   |
+| 数据库       | better-sqlite3 最新（仅主进程）                                       | `npx prebuild-install --arch=<arm64/x64>`（对应最新 Electron ABI，先查 `process.versions.modules`），禁止 npm rebuild / electron-rebuild |
+| 编码         | iconv-lite                                                            | 复刻 Python `text_codec.py` 探测链                                                                                                       |
+| 简繁         | OpenCC（四表 + keep/ambiguous，从 `NovelManager/assets/dicts/` 拷贝） | 策略照 Python：保护词 → 词组最长匹配 → 单字 → 多义字保留                                                                                 |
+| Finder xattr | spawn `xattr` + 手写 Python plistlib 风格 bplist00                    | float marker `0x23`、NSString UTF-16BE marker、32 字节 trailer                                                                           |
+| 打包         | electron-builder                                                      | 阶段 3 再做                                                                                                                              |
 
 **版本基线（2026-11-17 npm 实查最新稳定版）**：Electron 45.3.3、Vue 3.5.45、Monaco 0.57.0、better-sqlite3 13.2.0、Pinia 4.1.0、Vite 8.3.8、electron-vite 6.0.0。客观冲突（如 electron-vite 对 Vite 8 的 peer 限制）按用户规则适当降级，并在提交信息说明原因。
 
@@ -60,20 +60,20 @@ YueDuo/
 
 ### IPC 契约（全部 `ipcRenderer.invoke` → `{ok:true,data}` | `{ok:false,error}`）
 
-| 通道 | 入参 | 返回 | 用途 |
-|------|------|------|------|
-| `file:readText` | `path` | `{text, encoding}` | 打开/按需重载标签（textCodec 探测+转换+换行归一） |
-| `file:writeText` | `path, text` | `{encoding}` | 保存（UTF-16LE + 临时文件替换） |
-| `file:stat` | `path` | `{ino, size}` | 同文件去重（inode） |
-| `library:open` | `root?` | `{root, dbCreated}` | 打开/切换书库（realpath 归一 + 建库） |
-| `library:fastScan` | — | 目录树 + 文件清单 | 秒开目录树 |
-| `library:enrich` | — | 进度事件 | 后台补元数据 + 对账 |
-| `library:books` / `:tags` / `:history`… | 过滤参数 | 列表 | 各管理页查询 |
-| `session:restore` / `session:persist` | — / 会话对象 | 会话对象 / void | 会话读写 |
-| `meta:applyEdit` | `path, {field, value}` | `{textEdit}` | 元数据写回（返回最小可撤销编辑区间） |
-| `finder:getRating` / `:setRating` / `:getComment` / `:setComment` | path (+值) | 值/void | xattr 读写（写前读旧值，相同跳过） |
-| `convert:s2t` / `:t2s` / `:tidy` | `text` | `{text}` | 主进程转换 |
-| `dialog:chooseLibrary` / `:confirmClose` 等 | — | 用户选择 | 原生对话框 |
+| 通道                                                              | 入参                   | 返回                | 用途                                              |
+| ----------------------------------------------------------------- | ---------------------- | ------------------- | ------------------------------------------------- |
+| `file:readText`                                                   | `path`                 | `{text, encoding}`  | 打开/按需重载标签（textCodec 探测+转换+换行归一） |
+| `file:writeText`                                                  | `path, text`           | `{encoding}`        | 保存（UTF-16LE + 临时文件替换）                   |
+| `file:stat`                                                       | `path`                 | `{ino, size}`       | 同文件去重（inode）                               |
+| `library:open`                                                    | `root?`                | `{root, dbCreated}` | 打开/切换书库（realpath 归一 + 建库）             |
+| `library:fastScan`                                                | —                      | 目录树 + 文件清单   | 秒开目录树                                        |
+| `library:enrich`                                                  | —                      | 进度事件            | 后台补元数据 + 对账                               |
+| `library:books` / `:tags` / `:history`…                           | 过滤参数               | 列表                | 各管理页查询                                      |
+| `session:restore` / `session:persist`                             | — / 会话对象           | 会话对象 / void     | 会话读写                                          |
+| `meta:applyEdit`                                                  | `path, {field, value}` | `{textEdit}`        | 元数据写回（返回最小可撤销编辑区间）              |
+| `finder:getRating` / `:setRating` / `:getComment` / `:setComment` | path (+值)             | 值/void             | xattr 读写（写前读旧值，相同跳过）                |
+| `convert:s2t` / `:t2s` / `:tidy`                                  | `text`                 | `{text}`            | 主进程转换                                        |
+| `dialog:chooseLibrary` / `:confirmClose` 等                       | —                      | 用户选择            | 原生对话框                                        |
 
 ## 四、全新数据库 schema（v1）
 

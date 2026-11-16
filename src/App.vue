@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import EditorHost from '@/components/EditorHost.vue'
+import { nativeSanity } from '@/ipc/bridge'
 
 // 0.2 阶段验收页：Monaco 大文件一次性 setValue 瞬开
 const host = ref<InstanceType<typeof EditorHost>>()
 const loading = ref(false)
+const ipcReport = ref('')
 
 async function openBigFile(): Promise<void> {
   if (!host.value || loading.value) return
@@ -20,9 +22,21 @@ async function openBigFile(): Promise<void> {
   }
 }
 
+async function testIpc(): Promise<void> {
+  try {
+    const r = await nativeSanity()
+    ipcReport.value = `IPC OK —— better-sqlite3: ${r.betterSqlite3}，Electron ${r.electron}，ABI ${r.nodeAbi}`
+    // 自动化验收：追加 IPC 状态进 title（大文件结果之后）
+    document.title = `${document.title}+YUE_IPC:OK`
+  } catch (e) {
+    ipcReport.value = `IPC FAIL —— ${String(e)}`
+    document.title = `${document.title}+YUE_IPC:FAIL`
+  }
+}
+
 onMounted(() => {
   if (new URLSearchParams(location.search).get('auto') === '1') {
-    openBigFile()
+    openBigFile().then(testIpc)
   }
 })
 </script>
@@ -33,7 +47,8 @@ onMounted(() => {
       <button :disabled="loading" @click="openBigFile">
         {{ loading ? '读取中…' : '打开 5.1MB 测试文本' }}
       </button>
-      <span class="hint">阶段 0.2 验收：一次性 setValue 应近瞬开</span>
+      <button @click="testIpc">IPC/native 验证</button>
+      <span class="hint">{{ ipcReport || '阶段 0 验收：瞬开 + IPC + native' }}</span>
     </header>
     <main class="main">
       <EditorHost ref="host" />

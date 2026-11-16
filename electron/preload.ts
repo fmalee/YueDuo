@@ -1,22 +1,23 @@
-import { contextBridge } from 'electron'
-import { electronAPI } from '@electron-toolkit/preload'
+import { contextBridge, ipcRenderer } from 'electron'
+import type { IpcResult } from '../shared/types'
 
-// Custom APIs for renderer
-const api = {}
+/** preload 与主进程保持一致的域前缀白名单 */
+const DOMAINS = [
+  'file:',
+  'library:',
+  'session:',
+  'meta:',
+  'finder:',
+  'convert:',
+  'dialog:',
+  'native:'
+]
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
-if (process.contextIsolated) {
-  try {
-    contextBridge.exposeInMainWorld('electron', electronAPI)
-    contextBridge.exposeInMainWorld('api', api)
-  } catch (error) {
-    console.error(error)
+function invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>> {
+  if (!DOMAINS.some((d) => channel.startsWith(d))) {
+    return Promise.resolve({ ok: false, error: `IPC 通道前缀不合法: ${channel}` })
   }
-} else {
-  // @ts-ignore (define in dts)
-  window.electron = electronAPI
-  // @ts-ignore (define in dts)
-  window.api = api
+  return ipcRenderer.invoke(channel, ...args) as Promise<IpcResult<T>>
 }
+
+contextBridge.exposeInMainWorld('yue', { invoke })
