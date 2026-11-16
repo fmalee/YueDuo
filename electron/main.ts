@@ -4,6 +4,7 @@ import { electronApp, optimizer } from '@electron-toolkit/utils'
 import icon from '../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc'
 import { initTheme } from './ipc/theme'
+import { closeDatabase, initDatabase } from './services/database'
 
 // 自动化验收：YUE_DEBUG=1 时开 CDP 远程调试端口
 if (process.env['YUE_DEBUG']) {
@@ -75,6 +76,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     registerIpcHandlers()
+    initDatabase(app.getPath('userData'))
     initTheme()
     createWindow()
 
@@ -88,4 +90,9 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
   }
+})
+
+// 退出前关库：WAL 正常 checkpoint，避免残留 -wal/-shm
+app.on('will-quit', () => {
+  closeDatabase()
 })
