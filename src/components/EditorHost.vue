@@ -9,11 +9,13 @@ import {
   isDirty,
   disposeTabModel,
   computeResidentSet,
+  setPreloadCount,
   unloadModel,
   reloadModel,
   waitUnloadSettled
 } from '@/composables/useTabLifecycle'
 import { useEditorCommands } from '@/composables/useEditorCommands'
+import { useSettingsStore } from '@/stores/settings'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import {
   attachSessionEditor,
@@ -31,7 +33,18 @@ const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
 const loading = ref(false)
 
 const store = useTabsStore()
+const settings = useSettingsStore()
 const { saveActive } = useEditorCommands()
+
+// 预载数量（方案 §1.9）：启动先注入设置值，变化时立即按新上限收敛驻留集合
+setPreloadCount(settings.preloadCount)
+watch(
+  () => settings.preloadCount,
+  (count) => {
+    setPreloadCount(count)
+    scheduleEviction()
+  }
+)
 
 /** 激活代际：重载在途时用户再切标签，旧流程作废（最后完成者校验，方案 §1.7 铁律） */
 let activateSeq = 0

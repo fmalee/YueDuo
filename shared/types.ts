@@ -106,9 +106,35 @@ export interface TabMeta {
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-/** 设置文件（userData/settings.json，方案 §1.9；当前最小切片只落外观） */
+/** 设置文件（userData/settings.json，方案 §1.9） */
 export interface AppSettings {
+  /** 外观三态（§1.10） */
   appearance: ThemeMode
+  /** 左栏宽度（px，拖拽夹 160–640） */
+  sidebarWidth: number
+  /** 书库根目录；'' = 尚未接入（阶段 2 起作为书库根） */
+  libraryRoot: string
+  /** 除当前标签外的预载数量（0–20，接 LRU 驻留集合） */
+  preloadCount: number
+  /** 标签关闭按钮是否常驻（false = 仅 hover / 当前标签显示） */
+  closeButtonAlwaysVisible: boolean
+}
+
+/** 侧栏宽度约束（AGENTS.md 界面约定：拖拽夹 160–640） */
+export const SIDEBAR_MIN_WIDTH = 160
+export const SIDEBAR_MAX_WIDTH = 640
+
+/** 预载数量约束（方案 §1.7：0–20） */
+export const PRELOAD_MIN_COUNT = 0
+export const PRELOAD_MAX_COUNT = 20
+
+/** 设置默认值（主进程落盘与渲染层首帧共用同一份，避免两侧漂移） */
+export const DEFAULT_SETTINGS: AppSettings = {
+  appearance: 'system',
+  sidebarWidth: 240,
+  libraryRoot: '',
+  preloadCount: 10,
+  closeButtonAlwaysVisible: true
 }
 
 /** 当前生效主题（主进程 nativeTheme 判定后推给渲染层，方案 §1.10） */

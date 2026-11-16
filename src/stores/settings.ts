@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import type { ThemeMode } from '../../shared/types'
+import { DEFAULT_SETTINGS } from '../../shared/types'
+import type { AppSettings, ThemeMode } from '../../shared/types'
 import { onThemeUpdated, settingsGet, settingsSet } from '@/ipc/bridge'
 import { applyTheme } from '@/styles/theme'
 import { applyMonacoTheme } from '@/monaco'
@@ -8,19 +9,28 @@ import { applyMonacoTheme } from '@/monaco'
 let themeSubscribed = false
 
 /**
- * 外观状态（方案 §1.9 持久化 + §1.10 三态切换）
+ * 设置状态（方案 §1.9）：外观三态（§1.10）+ 侧栏宽度 / 书库根目录 / 预载数量 / 关闭按钮常驻
  * 生效主题以主进程 nativeTheme 推送为准：外观=system 时由 OS 决定，light/dark 时锁定
  */
 export const useSettingsStore = defineStore('settings', {
   state: () => ({
-    appearance: 'system' as ThemeMode,
-    dark: false
+    appearance: DEFAULT_SETTINGS.appearance as ThemeMode,
+    dark: false,
+    sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
+    libraryRoot: DEFAULT_SETTINGS.libraryRoot,
+    preloadCount: DEFAULT_SETTINGS.preloadCount,
+    closeButtonAlwaysVisible: DEFAULT_SETTINGS.closeButtonAlwaysVisible
   }),
   actions: {
     /** 首帧前初始化：读设置 → 注入 token → 订阅 nativeTheme 推送 */
     async init(): Promise<void> {
       try {
-        this.appearance = (await settingsGet()).appearance
+        const saved = await settingsGet()
+        this.appearance = saved.appearance
+        this.sidebarWidth = saved.sidebarWidth
+        this.libraryRoot = saved.libraryRoot
+        this.preloadCount = saved.preloadCount
+        this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
       } catch (e) {
         console.error('[theme] 读取设置失败，按默认外观启动:', e)
       }
@@ -39,6 +49,33 @@ export const useSettingsStore = defineStore('settings', {
       }
     },
 
+    /** 当前全部设置：写回必须是完整对象，避免局部更新丢字段 */
+    snapshot(): AppSettings {
+      return {
+        appearance: this.appearance,
+        sidebarWidth: this.sidebarWidth,
+        libraryRoot: this.libraryRoot,
+        preloadCount: this.preloadCount,
+        closeButtonAlwaysVisible: this.closeButtonAlwaysVisible
+      }
+    },
+
+    /** 落盘并以主进程校验后的值为准（失败时保留内存值，不阻断操作） */
+    async persist(): Promise<AppSettings> {
+      try {
+        const saved = await settingsSet(this.snapshot())
+        this.appearance = saved.appearance
+        this.sidebarWidth = saved.sidebarWidth
+        this.libraryRoot = saved.libraryRoot
+        this.preloadCount = saved.preloadCount
+        this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+        return saved
+      } catch (e) {
+        console.error('[settings] 保存失败，本次修改仅内存生效:', e)
+        return this.snapshot()
+      }
+    },
+
     /** 切换外观：先本地立即生效（避免一帧闪白），主进程 themeSource 更新后会推送权威值 */
     async setAppearance(appearance: ThemeMode): Promise<void> {
       this.appearance = appearance
@@ -47,12 +84,27 @@ export const useSettingsStore = defineStore('settings', {
           ? window.matchMedia('(prefers-color-scheme: dark)').matches
           : appearance === 'dark'
       this.apply()
-      try {
-        const saved = await settingsSet({ appearance })
-        this.appearance = saved.appearance
-      } catch (e) {
-        console.error('[theme] 保存外观失败:', e)
-      }
+      await this.persist()
+    },
+
+    async setSidebarWidth(width: number): Promise<void> {
+      this.sidebarWidth = width
+      await this.persist()
+    },
+
+    async setLibraryRoot(root: string): Promise<void> {
+      this.libraryRoot = root
+      await this.persist()
+    },
+
+    async setPreloadCount(count: number): Promise<void> {
+      this.preloadCount = count
+      await this.persist()
+    },
+
+    async setCloseButtonAlwaysVisible(visible: boolean): Promise<void> {
+      this.closeButtonAlwaysVisible = visible
+      await this.persist()
     },
 
     /** DOM token + Monaco 主题同步切换 */

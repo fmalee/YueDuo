@@ -1,15 +1,58 @@
 <script setup lang="ts">
-import { ref, onBeforeUnmount, onMounted } from 'vue'
+import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
+import { useSettingsStore } from '@/stores/settings'
+import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../../shared/types'
 
 /**
  * 左栏「编辑」页（方案 §1.11，VS Code 资源管理器逻辑）：
  * 顺序与标签页一致，点击切换，dirty 圆点 + 完整名称，右键关闭 / 关闭其他。
  * 另外五页（书架/历史/追更/标签/评分）属阶段 2.5，不在此实现。
+ * 宽度可拖拽（方案 §1.9，夹 160–640），松手写入设置。
  */
 const store = useTabsStore()
+const settings = useSettingsStore()
 const { activateTab, closeTab } = useTabs()
+
+const width = ref(settings.sidebarWidth)
+watch(
+  () => settings.sidebarWidth,
+  (value) => {
+    if (!dragging.value) width.value = value
+  }
+)
+
+const dragging = ref(false)
+let dragStartX = 0
+let dragStartWidth = 0
+
+function onResizeStart(e: PointerEvent): void {
+  e.preventDefault()
+  dragging.value = true
+  dragStartX = e.clientX
+  dragStartWidth = width.value
+  // 监听挂 window：指针移出 5px 拖拽条也不会断，卸载时统一清理
+  window.addEventListener('pointermove', onResizeMove)
+  window.addEventListener('pointerup', onResizeEnd)
+  window.addEventListener('pointercancel', onResizeEnd)
+}
+
+function onResizeMove(e: PointerEvent): void {
+  if (!dragging.value) return
+  const next = Math.round(dragStartWidth + e.clientX - dragStartX)
+  width.value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next))
+}
+
+function onResizeEnd(): void {
+  if (!dragging.value) return
+  dragging.value = false
+  window.removeEventListener('pointermove', onResizeMove)
+  window.removeEventListener('pointerup', onResizeEnd)
+  window.removeEventListener('pointercancel', onResizeEnd)
+  // 拖拽结束才落盘，避免每帧写文件
+  void settings.setSidebarWidth(width.value)
+}
 
 interface MenuState {
   x: number
@@ -73,11 +116,14 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onWindowPointerDown, true)
   window.removeEventListener('keydown', onWindowKeydown)
   window.removeEventListener('blur', dismiss)
+  window.removeEventListener('pointermove', onResizeMove)
+  window.removeEventListener('pointerup', onResizeEnd)
+  window.removeEventListener('pointercancel', onResizeEnd)
 })
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ resizing: dragging }" :style="{ width: `${width}px` }">
     <div class="sidebar-header">编辑</div>
     <div class="sidebar-list" @scroll="dismiss">
       <div
@@ -95,6 +141,8 @@ onBeforeUnmount(() => {
       </div>
       <div v-if="store.tabs.length === 0" class="sidebar-empty">无打开的文件</div>
     </div>
+    <!-- 拖拽条压住右边框，命中区 5px（方案 §1.9） -->
+    <div class="resize-handle" @pointerdown="onResizeStart"></div>
 
     <Teleport to="body">
       <div
@@ -112,6 +160,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .sidebar {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: none;
@@ -119,6 +168,23 @@ onBeforeUnmount(() => {
   min-width: 0;
   border-right: 1px solid var(--yd-border-1);
   background: var(--yd-bg-2);
+}
+/* 拖拽中禁止选中正文，避免拖动变成划词 */
+.sidebar.resizing {
+  user-select: none;
+}
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  bottom: 0;
+  width: 5px;
+  cursor: col-resize;
+  z-index: 5;
+}
+.resize-handle:hover,
+.sidebar.resizing .resize-handle {
+  background: var(--yd-active-1);
 }
 .sidebar-header {
   flex: none;

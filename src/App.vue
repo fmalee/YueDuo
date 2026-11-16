@@ -6,7 +6,7 @@ import EditorHost from '@/components/EditorHost.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
-import { fileReadDraft, fileReadText, nativeSanity } from '@/ipc/bridge'
+import { fileReadDraft, fileReadText, nativeSanity, chooseLibrary } from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
@@ -40,6 +40,27 @@ function onWindowKeydown(e: KeyboardEvent): void {
 /** 外观切换入口（方案 §1.10；正式设置界面后续阶段接管） */
 function onAppearanceChange(e: Event): void {
   void settings.setAppearance((e.target as HTMLSelectElement).value as ThemeMode)
+}
+
+/** 书库根目录（方案 §1.9）：本次只做选择与持久化，阶段 2 起作为书库根消费 */
+async function pickLibrary(): Promise<void> {
+  try {
+    const root = await chooseLibrary()
+    if (!root) return
+    await settings.setLibraryRoot(root)
+    status.value = `书库根目录：${root}`
+  } catch (e) {
+    status.value = `选择书库失败：${String(e)}`
+  }
+}
+
+function onPreloadChange(e: Event): void {
+  const count = Number((e.target as HTMLInputElement).value)
+  void settings.setPreloadCount(Number.isFinite(count) ? count : 10)
+}
+
+function onCloseButtonChange(e: Event): void {
+  void settings.setCloseButtonAlwaysVisible((e.target as HTMLInputElement).checked)
 }
 
 async function open(): Promise<void> {
@@ -151,7 +172,12 @@ onMounted(async () => {
         sessionProgress: () => progressSnapshot(),
         scrollToLine: (line: number) => scrollSessionTo(line),
         flushSession: () => persistSessionNow(),
-        failDraftWriteOnce: () => injectDraftWriteFailure()
+        failDraftWriteOnce: () => injectDraftWriteFailure(),
+        // 设置验收通道（方案 §1.9）：读当前值 / 走真实落盘链路改值
+        settingsState: () => settings.snapshot(),
+        setLibraryRoot: (root: string) => settings.setLibraryRoot(root),
+        setPreloadCount: (count: number) => settings.setPreloadCount(count),
+        setSidebarWidth: (width: number) => settings.setSidebarWidth(width)
       }
     })
     openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
@@ -179,6 +205,35 @@ onMounted(async () => {
         <option value="light">浅色</option>
         <option value="dark">深色</option>
       </select>
+      <button
+        class="lib-btn"
+        :title="settings.libraryRoot || '尚未设置书库根目录'"
+        @click="pickLibrary"
+      >
+        书库
+      </button>
+      <span class="library-path" :title="settings.libraryRoot">
+        {{ settings.libraryRoot || '未设置书库' }}
+      </span>
+      <label class="opt">
+        预载
+        <input
+          class="preload-input"
+          type="number"
+          min="0"
+          max="20"
+          :value="settings.preloadCount"
+          @change="onPreloadChange"
+        />
+      </label>
+      <label class="opt">
+        <input
+          type="checkbox"
+          :checked="settings.closeButtonAlwaysVisible"
+          @change="onCloseButtonChange"
+        />
+        × 常驻
+      </label>
       <span class="hint">{{ status }}</span>
     </header>
     <div class="workspace">
@@ -237,5 +292,29 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--yd-text-3);
   white-space: nowrap;
+}
+.library-path {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--yd-text-3);
+}
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--yd-text-2);
+  white-space: nowrap;
+}
+.preload-input {
+  width: 48px;
+  padding: 2px 4px;
+  border: 1px solid var(--yd-border-1);
+  background: var(--yd-bg-1);
+  color: var(--yd-text-1);
+  font-size: 12px;
 }
 </style>

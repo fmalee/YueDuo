@@ -80,6 +80,11 @@ export function settingsSet(settings: AppSettings): Promise<AppSettings> {
   return ipcInvoke<AppSettings>('settings:set', settings)
 }
 
+/** dialog:chooseLibrary —— 选择书库根目录（方案 §1.9；阶段 2 起作为书库根，返回 null = 取消） */
+export function chooseLibrary(): Promise<string | null> {
+  return ipcInvoke<string | null>('dialog:chooseLibrary')
+}
+
 /** 订阅主题变化推送（方案 §1.10：nativeTheme 'updated' → 渲染层切 token） */
 export function onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void {
   return window.yue.onThemeUpdated(callback)

@@ -2,6 +2,8 @@
  * 主题 token 唯一来源（AGENTS.md：颜色/间距/字号只在这里定义，经 --yd-* 注入）
  * 命名沿用 base.css 的分层习惯：bg-1/2/3 由外到内、text-1/2/3 由主到次
  */
+import { DEFAULT_SETTINGS } from '../../shared/types'
+
 export const LIGHT_COLORS = {
   'bg-1': '#ffffff', // 窗口底色
   'bg-2': '#fbf8f3', // 标签栏 / 状态栏
@@ -39,7 +41,7 @@ export const METRICS = {
   statusBarPaddingX: 12,
   statusBarGap: 14,
   statusBarFontSize: 12,
-  sidebarWidth: 240,
+  sidebarWidth: DEFAULT_SETTINGS.sidebarWidth, // 仅作 CSS 兜底，实际宽度由设置内联覆盖
   sidebarFontSize: 13,
   sidebarItemHeight: 26,
   sidebarPaddingX: 10,

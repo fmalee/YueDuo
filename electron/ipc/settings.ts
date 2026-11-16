@@ -10,7 +10,9 @@ export function settingsGet(): AppSettings {
 
 /** settings:set —— 写回设置并返回实际落盘值；外观变化同时切 nativeTheme.themeSource */
 export function settingsSet(settings: AppSettings): AppSettings {
-  const saved = writeSettings(app.getPath('userData'), settings)
+  const dir = app.getPath('userData')
+  // 与旧值合并：调用方只带部分字段时，不能把其他设置悄悄重置为默认
+  const saved = writeSettings(dir, { ...readSettings(dir), ...settings })
   applyThemeSource(saved.appearance)
   return saved
 }

@@ -1,30 +1,61 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
+import {
+  DEFAULT_SETTINGS,
+  PRELOAD_MAX_COUNT,
+  PRELOAD_MIN_COUNT,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH
+} from '../../shared/types'
 import type { AppSettings, ThemeMode } from '../../shared/types'
 
 /**
- * 设置持久化 —— userData/settings.json（方案 §1.9，最小切片只落外观三态）
+ * 设置持久化 —— userData/settings.json（方案 §1.9）
  * 纯 Node 实现（AGENTS.md：services 不 import Electron），目录由调用方注入，便于单测隔离
  */
 const FILE_NAME = 'settings.json'
 const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
-const DEFAULTS: AppSettings = { appearance: 'system' }
 
 function settingsPath(dir: string): string {
   return join(dir, FILE_NAME)
 }
 
-/** 只接受白名单内的外观值，其余（缺字段/旧值/脏数据）一律回落「跟随系统」 */
+/** 数值字段统一夹在合法区间（脏数据/手工编辑都不该让界面错位） */
+function clampInt(value: unknown, min: number, max: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(max, Math.max(min, Math.round(value)))
+}
+
+/**
+ * 逐字段校验：白名单外/缺字段/类型不对一律回落默认值。
+ * 只做字段级回落而非整体重置——旧版本 settings.json 升级时其余字段仍然保留。
+ */
 function normalize(raw: unknown): AppSettings {
-  const value =
-    typeof raw === 'object' && raw !== null
-      ? (raw as Record<string, unknown>).appearance
-      : undefined
+  const value: Record<string, unknown> =
+    typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {}
   return {
-    appearance: THEME_MODES.includes(value as ThemeMode)
-      ? (value as ThemeMode)
-      : DEFAULTS.appearance
+    appearance: THEME_MODES.includes(value.appearance as ThemeMode)
+      ? (value.appearance as ThemeMode)
+      : DEFAULT_SETTINGS.appearance,
+    sidebarWidth: clampInt(
+      value.sidebarWidth,
+      SIDEBAR_MIN_WIDTH,
+      SIDEBAR_MAX_WIDTH,
+      DEFAULT_SETTINGS.sidebarWidth
+    ),
+    libraryRoot:
+      typeof value.libraryRoot === 'string' ? value.libraryRoot : DEFAULT_SETTINGS.libraryRoot,
+    preloadCount: clampInt(
+      value.preloadCount,
+      PRELOAD_MIN_COUNT,
+      PRELOAD_MAX_COUNT,
+      DEFAULT_SETTINGS.preloadCount
+    ),
+    closeButtonAlwaysVisible:
+      typeof value.closeButtonAlwaysVisible === 'boolean'
+        ? value.closeButtonAlwaysVisible
+        : DEFAULT_SETTINGS.closeButtonAlwaysVisible
   }
 }
 
@@ -33,7 +64,7 @@ export function readSettings(dir: string): AppSettings {
   try {
     return normalize(JSON.parse(readFileSync(settingsPath(dir), 'utf8')))
   } catch {
-    return { ...DEFAULTS }
+    return { ...DEFAULT_SETTINGS }
   }
 }
 

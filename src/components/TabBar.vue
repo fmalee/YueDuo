@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
+import { useSettingsStore } from '@/stores/settings'
 
 const store = useTabsStore()
+const settings = useSettingsStore()
 const { activateTab, closeTab } = useTabs()
 </script>
 
 <template>
   <!-- Chrome 风圆弧标签栏：当前标签底边外展圆弧（Python FlaredTabBar 同款，flare=8px 贝塞尔） -->
-  <div class="tab-bar">
+  <div class="tab-bar" :class="{ 'close-always': settings.closeButtonAlwaysVisible }">
     <div class="tabs-scroll">
       <div
         v-for="(tab, i) in store.tabs"
@@ -140,6 +142,13 @@ const { activateTab, closeTab } = useTabs()
   line-height: 1;
   border-radius: 4px;
   color: var(--yd-text-3);
+  /* 关闭按钮常驻由设置决定（方案 §1.9）；非常驻时仅 hover / 当前标签显示 */
+  opacity: 0;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close,
+.tab-bar.close-always .tab-close {
+  opacity: 1;
 }
 .tab-close:hover {
   background: var(--yd-active-1);

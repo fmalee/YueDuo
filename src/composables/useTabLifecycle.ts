@@ -1,11 +1,12 @@
 import { monaco } from '@/monaco'
 import { fileReadDraft, fileReadText, fileWriteDraft } from '@/ipc/bridge'
+import { DEFAULT_SETTINGS, PRELOAD_MAX_COUNT, PRELOAD_MIN_COUNT } from '../../shared/types'
 import type { FileStat, TabMeta } from '../../shared/types'
 
 /**
  * model 注册表 —— 非 reactive（全文/视图状态绝不进 Vue 响应式）
  * 方案 §1.7：Map<tabId, {model, viewState?, loadedAt}> + LRU 驻留
- * 驻留集合 = 当前标签 + lastFocusedAt 最新的 PRELOAD_COUNT 个，其余卸载
+ * 驻留集合 = 当前标签 + lastFocusedAt 最新的 preloadCount 个，其余卸载（§1.9 由设置注入）
  * 卸载 = dirty 全文与 viewState 经 IPC 存草稿 + model.dispose()（tab 元信息保留）
  */
 export interface ModelEntry {
@@ -20,8 +21,18 @@ export interface ModelEntry {
 
 const registry = new Map<string, ModelEntry>()
 
-/** 除当前标签外按 lastFocusedAt 驻留的数量（方案 §1.7；1.9 进 settings 可调 0–20） */
-export const PRELOAD_COUNT = 10
+/** 除当前标签外按 lastFocusedAt 驻留的数量（方案 §1.7；1.9 由设置注入，0–20） */
+let preloadCount = DEFAULT_SETTINGS.preloadCount
+
+/** 设置页/LRU 共用：预载数量只影响驻留资格，已驻留 model 由下一次 scheduleEviction 收敛 */
+export function setPreloadCount(value: number): void {
+  if (!Number.isFinite(value)) return
+  preloadCount = Math.min(PRELOAD_MAX_COUNT, Math.max(PRELOAD_MIN_COUNT, Math.round(value)))
+}
+
+export function getPreloadCount(): number {
+  return preloadCount
+}
 
 /** 卸载在途标记（竞态防护）：重载/关闭/切回需等卸载完成，draft 读写才有确定顺序 */
 const unloadInFlight = new Map<string, Promise<void>>()
@@ -111,7 +122,7 @@ export function waitUnloadSettled(tabId: string): Promise<void> {
 }
 
 /**
- * 驻留集合 = 当前标签 + 其余按 lastFocusedAt 降序前 PRELOAD_COUNT 个（方案 §1.7）
+ * 驻留集合 = 当前标签 + 其余按 lastFocusedAt 降序前 preloadCount 个（方案 §1.7）
  */
 export function computeResidentSet(tabs: TabMeta[], activeTabId: string | null): Set<string> {
   const resident = new Set<string>()
@@ -119,7 +130,7 @@ export function computeResidentSet(tabs: TabMeta[], activeTabId: string | null):
   const others = tabs
     .filter((t) => t.id !== activeTabId)
     .sort((a, b) => b.lastFocusedAt - a.lastFocusedAt)
-    .slice(0, PRELOAD_COUNT)
+    .slice(0, preloadCount)
   for (const t of others) resident.add(t.id)
   return resident
 }
