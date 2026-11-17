@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
+import { focusEditor, schedulePersist } from '@/composables/useSession'
 import { useSettingsStore } from '@/stores/settings'
 import { METRICS } from '@/styles/theme'
 
@@ -152,6 +153,134 @@ function onScrollbarPointerEnd(): void {
   scheduleScrollbarHide()
 }
 
+// —— 标签拖动排序（方案 §3.4）：按下后越过阈值才算拖动，松手按落点插入 ——
+/** 与 VS Code 同口径：小幅抖动仍视为点击，不进入拖动 */
+const DRAG_THRESHOLD = 4
+/** 拖到视口左右边缘该像素内自动横向滚动，便于把标签拖到视口外 */
+const DRAG_AUTOSCROLL_ZONE = 24
+const DRAG_AUTOSCROLL_STEP = 10
+const draggingTab = ref(false)
+const dragId = ref<string | null>(null)
+/** 插入落点：去掉被拖标签后的下标（0..length），null = 尚未算出 */
+const dropIndex = ref<number | null>(null)
+/** 落点指示线在滚动内容坐标系中的 left */
+const dropLeft = ref(0)
+let pendingDragId: string | null = null
+let dragStartX = 0
+let dragPointerX = 0
+/** 拖动结束后的 click 不能再激活标签；宏任务复位，确保 click 先被拦下 */
+let suppressClick = false
+let autoScrollFrame: number | null = null
+
+function clearAutoScroll(): void {
+  if (autoScrollFrame !== null) {
+    cancelAnimationFrame(autoScrollFrame)
+    autoScrollFrame = null
+  }
+}
+
+/** 按指针位置算插入下标：只比较其余标签的中点，被拖标签自身不参与 */
+function updateDrop(clientX: number): void {
+  const container = scrollRef.value
+  if (!container || !dragId.value) return
+  const rects: DOMRect[] = []
+  for (const el of container.querySelectorAll<HTMLElement>('.tab')) {
+    if (el.dataset.tabId === dragId.value) continue
+    rects.push(el.getBoundingClientRect())
+  }
+  let index = rects.length
+  for (let i = 0; i < rects.length; i++) {
+    if (clientX < rects[i].left + rects[i].width / 2) {
+      index = i
+      break
+    }
+  }
+  dropIndex.value = index
+  if (rects.length === 0) {
+    dropLeft.value = 0
+    return
+  }
+  // 插入线画在目标标签左缘；插到末尾则画在最后一个标签右缘
+  const edge = index < rects.length ? rects[index].left : rects[rects.length - 1].right
+  dropLeft.value = edge - container.getBoundingClientRect().left + container.scrollLeft
+}
+
+function stepAutoScroll(): void {
+  autoScrollFrame = null
+  if (!draggingTab.value) return
+  const el = scrollRef.value
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  let delta = 0
+  if (dragPointerX < rect.left + DRAG_AUTOSCROLL_ZONE) delta = -DRAG_AUTOSCROLL_STEP
+  else if (dragPointerX > rect.right - DRAG_AUTOSCROLL_ZONE) delta = DRAG_AUTOSCROLL_STEP
+  if (delta === 0) return
+  const max = el.scrollWidth - el.clientWidth
+  const next = Math.max(0, Math.min(max, el.scrollLeft + delta))
+  if (next === el.scrollLeft) return
+  el.scrollLeft = next
+  updateDrop(dragPointerX)
+  autoScrollFrame = requestAnimationFrame(stepAutoScroll)
+}
+
+function startAutoScroll(): void {
+  if (autoScrollFrame === null) autoScrollFrame = requestAnimationFrame(stepAutoScroll)
+}
+
+function onTabPointerDown(e: PointerEvent, tabId: string): void {
+  if (e.button !== 0) return
+  // 关闭按钮优先响应点击，不参与拖动
+  if (e.target instanceof Element && e.target.closest('.tab-close')) return
+  pendingDragId = tabId
+  dragStartX = e.clientX
+  dragPointerX = e.clientX
+  window.addEventListener('pointermove', onTabPointerMove)
+  window.addEventListener('pointerup', onTabPointerEnd)
+  window.addEventListener('pointercancel', onTabPointerEnd)
+}
+
+function onTabPointerMove(e: PointerEvent): void {
+  dragPointerX = e.clientX
+  if (!draggingTab.value) {
+    if (!pendingDragId || Math.abs(e.clientX - dragStartX) < DRAG_THRESHOLD) return
+    draggingTab.value = true
+    dragId.value = pendingDragId
+    updateDrop(e.clientX)
+    startAutoScroll()
+    return
+  }
+  updateDrop(e.clientX)
+  startAutoScroll()
+}
+
+function onTabPointerEnd(): void {
+  const moved = draggingTab.value
+  const id = dragId.value
+  const target = dropIndex.value
+  window.removeEventListener('pointermove', onTabPointerMove)
+  window.removeEventListener('pointerup', onTabPointerEnd)
+  window.removeEventListener('pointercancel', onTabPointerEnd)
+  clearAutoScroll()
+  pendingDragId = null
+  draggingTab.value = false
+  dragId.value = null
+  dropIndex.value = null
+  if (!moved || !id || target === null) return
+  suppressClick = true
+  setTimeout(() => {
+    suppressClick = false
+  }, 0)
+  store.moveTab(id, target)
+  schedulePersist()
+  // 标签是普通 div，按下后焦点掉到 body；拖动结束把焦点还给正文
+  focusEditor()
+}
+
+function onTabClick(id: string): void {
+  if (suppressClick) return
+  activateTab(id)
+}
+
 watch([() => store.activeTabId, () => store.tabs.length], () => {
   void nextTick(() => {
     ensureActiveVisible()
@@ -171,9 +300,13 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   if (hideTimer) clearTimeout(hideTimer)
+  clearAutoScroll()
   window.removeEventListener('pointermove', onScrollbarPointerMove)
   window.removeEventListener('pointerup', onScrollbarPointerEnd)
   window.removeEventListener('pointercancel', onScrollbarPointerEnd)
+  window.removeEventListener('pointermove', onTabPointerMove)
+  window.removeEventListener('pointerup', onTabPointerEnd)
+  window.removeEventListener('pointercancel', onTabPointerEnd)
 })
 </script>
 
@@ -183,7 +316,8 @@ onBeforeUnmount(() => {
     class="tab-bar"
     :class="{
       'close-always': settings.closeButtonAlwaysVisible,
-      'scrollbar-dragging': draggingScrollbar
+      'scrollbar-dragging': draggingScrollbar,
+      'tab-dragging': draggingTab
     }"
     @pointerenter="onBarEnter"
     @pointerleave="onBarLeave"
@@ -196,9 +330,12 @@ onBeforeUnmount(() => {
         :class="{
           active: tab.id === store.activeTabId,
           first: i === 0,
-          last: i === store.tabs.length - 1
+          last: i === store.tabs.length - 1,
+          dragging: draggingTab && tab.id === dragId
         }"
-        @click="activateTab(tab.id)"
+        :data-tab-id="tab.id"
+        @click="onTabClick(tab.id)"
+        @pointerdown="onTabPointerDown($event, tab.id)"
       >
         <!-- 左外展圆弧（8×8 月牙填充 + 1px 弧描边） -->
         <svg
@@ -226,6 +363,12 @@ onBeforeUnmount(() => {
           <path class="flare-stroke" d="M0,0 C0,4.42 3.58,8 8,8" fill="none" />
         </svg>
       </div>
+      <!-- 拖动落点指示线：画在滚动内容坐标系里，随标签一起横向滚动 -->
+      <div
+        v-if="draggingTab && dropIndex !== null"
+        class="tab-drop-line"
+        :style="{ left: `${dropLeft}px` }"
+      ></div>
     </div>
     <!-- 置顶细滚动条：占标签上方 3px 留白，不遮标题；不滚动时淡出 -->
     <div
@@ -251,8 +394,11 @@ onBeforeUnmount(() => {
   min-height: 34px;
   border-bottom: 1px solid var(--yd-border-1);
   background: var(--yd-bg-2);
+  /* 拖动排序时不要选中标签文字 */
+  user-select: none;
 }
 .tabs-scroll {
+  position: relative;
   display: flex;
   align-items: flex-end;
   overflow-x: auto;
@@ -293,6 +439,25 @@ onBeforeUnmount(() => {
 .tab-bar.scrollbar-dragging,
 .tab-bar.scrollbar-dragging .tab-scrollbar-thumb {
   cursor: grabbing;
+}
+.tab-bar.tab-dragging,
+.tab-bar.tab-dragging .tab {
+  cursor: grabbing;
+}
+.tab.dragging {
+  opacity: 0.55;
+}
+/* 拖动插入落点：2px 竖线，与强调色一致，不参与布局 */
+.tab-drop-line {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--yd-accent);
+  pointer-events: none;
+  z-index: 4;
 }
 .tab {
   position: relative;

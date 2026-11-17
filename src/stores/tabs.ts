@@ -39,6 +39,18 @@ export const useTabsStore = defineStore('tabs', {
       this.patchTab(id, { lastFocusedAt: Date.now() })
     },
     /**
+     * 拖动排序（方案 §3.4）：数组顺序即会话 position，落盘走 schedulePersist。
+     * toIndex 是「去掉被拖标签后」的插入下标（0..length-1），不做原地自增换算
+     */
+    moveTab(id: string, toIndex: number): void {
+      const from = this.tabs.findIndex((t) => t.id === id)
+      if (from === -1) return
+      const to = Math.max(0, Math.min(toIndex, this.tabs.length - 1))
+      if (from === to) return
+      const [tab] = this.tabs.splice(from, 1)
+      this.tabs.splice(to, 0, tab)
+    },
+    /**
      * 会话恢复（方案 §1.8）：整体替换标签与 active。
      * 不经过 setActive，避免把恢复的 lastFocusedAt 刷成当前时间（LRU 驻留顺序会失真）
      */
