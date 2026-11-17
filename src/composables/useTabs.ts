@@ -55,6 +55,7 @@ export function useTabs(): {
   closeOtherTabs: (id: string) => Promise<void>
   closeAllTabs: () => Promise<void>
   activateTab: (id: string) => void
+  cycleTab: (step: 1 | -1) => void
   saveTab: (id: string) => Promise<boolean>
   renameTab: (id: string, newName: string) => Promise<string | null>
   deleteTabFile: (id: string) => Promise<boolean>
@@ -267,6 +268,15 @@ export function useTabs(): {
     void library.flushReadStamps()
   }
 
+  /** 下一个/上一个标签（窗口菜单）：按标签栏顺序循环，到头绕回另一端 */
+  function cycleTab(step: 1 | -1): void {
+    if (store.tabs.length < 2) return
+    const index = store.tabs.findIndex((t) => t.id === store.activeTabId)
+    if (index === -1) return
+    const next = (index + step + store.tabs.length) % store.tabs.length
+    activateTab(store.tabs[next].id)
+  }
+
   return {
     openFile,
     newBlankTab,
@@ -274,6 +284,7 @@ export function useTabs(): {
     closeOtherTabs,
     closeAllTabs,
     activateTab,
+    cycleTab,
     saveTab,
     renameTab,
     deleteTabFile,

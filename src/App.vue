@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
@@ -42,6 +42,7 @@ const {
   openFile,
   newBlankTab,
   activateTab,
+  cycleTab,
   closeTab,
   closeOtherTabs,
   closeAllTabs,
@@ -56,6 +57,18 @@ const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
 const reader = useReaderStore()
+
+/** 左右侧栏显隐：窗口菜单勾选项驱动，会话内有效 */
+const leftVisible = ref(true)
+const rightVisible = ref(true)
+
+/** 查找/替换与文本转换由编辑器侧组件响应，菜单/快捷键只转交意图 */
+function dispatchEditorCommand(
+  event: 'yueduo:findReplace' | 'yueduo:convert',
+  detail: string
+): void {
+  window.dispatchEvent(new CustomEvent(event, { detail }))
+}
 
 // Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）；
 // Cmd+L 锁定阅读（方案 §3.3，同 Python 视图菜单的 Ctrl+L）
@@ -112,6 +125,45 @@ function runMenuCommand(payload: AppMenuPayload): void {
       break
     case 'closeAll':
       void closeAllTabs()
+      break
+    case 'newTab':
+      newBlankTab()
+      break
+    case 'quickSearch':
+      palette.toggle()
+      break
+    case 'find':
+      dispatchEditorCommand('yueduo:findReplace', 'find')
+      break
+    case 'replace':
+      dispatchEditorCommand('yueduo:findReplace', 'replace')
+      break
+    case 'tidy':
+      dispatchEditorCommand('yueduo:convert', 'tidy')
+      break
+    case 'toSimplified':
+      dispatchEditorCommand('yueduo:convert', 'toSimplified')
+      break
+    case 'toTraditional':
+      dispatchEditorCommand('yueduo:convert', 'toTraditional')
+      break
+    case 'toHalfwidth':
+      dispatchEditorCommand('yueduo:convert', 'toHalfwidth')
+      break
+    case 'toggleLock':
+      reader.toggle()
+      break
+    case 'toggleSidebar':
+      leftVisible.value = payload.value !== false
+      break
+    case 'toggleRightPanel':
+      rightVisible.value = payload.value !== false
+      break
+    case 'nextTab':
+      cycleTab(1)
+      break
+    case 'prevTab':
+      cycleTab(-1)
       break
   }
 }
@@ -302,7 +354,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <div class="workspace">
-      <Sidebar />
+      <Sidebar v-show="leftVisible" />
       <div class="editor-column">
         <TabBar />
         <main class="main">
@@ -311,7 +363,7 @@ onBeforeUnmount(() => {
         <!-- 元数据栏（方案 §2.9）：编辑器下方、状态栏上方 -->
         <MetadataBar />
       </div>
-      <RightPanel />
+      <RightPanel v-show="rightVisible" />
     </div>
     <StatusBar />
     <!-- 命令面板（方案 §2.12）：Cmd+P 唤出，Teleport 到 body -->

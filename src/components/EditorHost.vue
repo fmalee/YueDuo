@@ -93,6 +93,7 @@ function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): stri
 }
 
 onMounted(() => {
+  window.addEventListener('yueduo:convert', onConvertCommand)
   if (!container.value) return
   editor.value = monaco.editor.create(container.value, {
     ...READER_EDITOR_OPTIONS,
@@ -281,6 +282,15 @@ async function runConvert(convert: (text: string) => Promise<ConvertResult>): Pr
 }
 
 /** 一键整理（方案 §3.2）：固定五步顺序在主进程完成，整篇一次替换、可撤销 */
+/** 菜单「编辑」的整理/转换：与右键 convert 组共用同一实现 */
+function onConvertCommand(e: Event): void {
+  const action = (e as CustomEvent<string>).detail
+  if (action === 'tidy') void runTidy()
+  else if (action === 'toSimplified') void runConvert(convertToSimplified)
+  else if (action === 'toTraditional') void runConvert(convertToTraditional)
+  else if (action === 'toHalfwidth') void runConvert(convertToHalfwidth)
+}
+
 async function runTidy(): Promise<void> {
   const instance = editor.value
   const model = instance?.getModel()
@@ -485,6 +495,7 @@ function scheduleEviction(): void {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
+  window.removeEventListener('yueduo:convert', onConvertCommand)
   if (evictTimer) clearInterval(evictTimer)
   // 卸载前把未落库的书签漂移写掉（HMR 重挂载也不丢）
   void flushBookmarkDrift()

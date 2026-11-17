@@ -65,9 +65,19 @@ export function installApplicationMenu(): void {
       label: '文件',
       submenu: [
         {
+          label: '新建',
+          accelerator: 'CmdOrCtrl+N',
+          click: (_item, win) => sendMenuCommand('newTab', win)
+        },
+        {
           label: '打开…',
           accelerator: 'CmdOrCtrl+O',
           click: (_item, win) => sendMenuCommand('open', win)
+        },
+        {
+          label: '速查',
+          accelerator: 'CmdOrCtrl+P',
+          click: (_item, win) => sendMenuCommand('quickSearch', win)
         },
         {
           label: '书库…',
@@ -105,6 +115,17 @@ export function installApplicationMenu(): void {
         { role: 'redo', label: '恢复' },
         { type: 'separator' },
         { role: 'cut', label: '剪切' },
+        { type: 'separator' },
+        {
+          label: '查找',
+          accelerator: 'CmdOrCtrl+F',
+          click: (_item, win) => sendMenuCommand('find', win)
+        },
+        {
+          label: '替换',
+          accelerator: 'Ctrl+Cmd+F',
+          click: (_item, win) => sendMenuCommand('replace', win)
+        },
         { role: 'copy', label: '复制' },
         { role: 'paste', label: '粘贴' },
         ...(isMac
@@ -112,6 +133,28 @@ export function installApplicationMenu(): void {
           : []),
         { role: 'delete', label: '删除' },
         { role: 'selectAll', label: '全选' },
+        { type: 'separator' },
+        {
+          label: '一键整理',
+          click: (_item, win) => sendMenuCommand('tidy', win)
+        },
+        {
+          label: '繁简转换',
+          submenu: [
+            {
+              label: '繁体 → 简体',
+              click: (_item, win) => sendMenuCommand('toSimplified', win)
+            },
+            {
+              label: '简体 → 繁体',
+              click: (_item, win) => sendMenuCommand('toTraditional', win)
+            }
+          ]
+        },
+        {
+          label: '全角转半角',
+          click: (_item, win) => sendMenuCommand('toHalfwidth', win)
+        },
         ...(isMac
           ? [
               { type: 'separator' } as MenuItemConstructorOptions,
@@ -145,6 +188,12 @@ export function installApplicationMenu(): void {
           click: (item, win) => sendMenuCommand('toggleCloseButton', win, item.checked)
         },
         { type: 'separator' },
+        {
+          label: '锁定阅读',
+          accelerator: 'CmdOrCtrl+L',
+          click: (_item, win) => sendMenuCommand('toggleLock', win)
+        },
+        { type: 'separator' },
         { role: 'reload', label: '重新加载' },
         { role: 'forceReload', label: '强制重新加载' },
         { role: 'toggleDevTools', label: '切换开发者工具' },
@@ -167,6 +216,32 @@ export function installApplicationMenu(): void {
             checked: saved.appearance === mode,
             click: (_item, win) => sendMenuCommand('appearance', win, mode)
           }))
+        },
+        { type: 'separator' },
+        {
+          label: '显示左侧栏',
+          type: 'checkbox',
+          checked: true,
+          accelerator: 'Shift+Cmd+B',
+          click: (item, win) => sendMenuCommand('toggleSidebar', win, item.checked)
+        },
+        {
+          label: '显示右侧栏',
+          type: 'checkbox',
+          checked: true,
+          accelerator: 'Cmd+B',
+          click: (item, win) => sendMenuCommand('toggleRightPanel', win, item.checked)
+        },
+        { type: 'separator' },
+        {
+          label: '下一个标签',
+          accelerator: 'Alt+Cmd+Right',
+          click: (_item, win) => sendMenuCommand('nextTab', win)
+        },
+        {
+          label: '上一个标签',
+          accelerator: 'Alt+Cmd+Left',
+          click: (_item, win) => sendMenuCommand('prevTab', win)
         },
         { type: 'separator' },
         ...(isMac

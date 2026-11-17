@@ -54,6 +54,8 @@ export interface FileTrashResult {
 /** 顶部应用菜单下发给渲染层的命令（保存/关闭类复用同一套标签动作） */
 export type AppMenuCommand =
   | 'open'
+  | 'newTab'
+  | 'quickSearch'
   | 'chooseLibrary'
   | 'save'
   | 'closeTab'
@@ -62,6 +64,17 @@ export type AppMenuCommand =
   | 'appearance'
   | 'toggleCloseButton'
   | 'preloadCount'
+  | 'find'
+  | 'replace'
+  | 'tidy'
+  | 'toTraditional'
+  | 'toSimplified'
+  | 'toHalfwidth'
+  | 'toggleLock'
+  | 'toggleSidebar'
+  | 'toggleRightPanel'
+  | 'nextTab'
+  | 'prevTab'
 
 /** 菜单命令附带值：appearance=外观模式，preloadCount=预载数量，toggleCloseButton=新勾选状态 */
 export interface AppMenuPayload {

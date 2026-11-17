@@ -91,12 +91,14 @@ watch([findText, matchCase, wholeWord, regex], () => {
 
 onMounted(() => {
   window.addEventListener('keydown', onWindowKeydown, true)
+  window.addEventListener('yueduo:findReplace', onFindReplaceCommand)
   window.addEventListener('resize', clampToContainer)
   window.addEventListener('pointerdown', onDocumentPointerDown, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown, true)
+  window.removeEventListener('yueduo:findReplace', onFindReplaceCommand)
   window.removeEventListener('resize', clampToContainer)
   window.removeEventListener('pointerdown', onDocumentPointerDown, true)
   window.removeEventListener('pointermove', onResizeMove)
@@ -171,6 +173,11 @@ function onWindowKeydown(e: KeyboardEvent): void {
     if (rulesOpen.value) rulesOpen.value = false
     else close()
   }
+}
+
+/** 菜单「查找/替换」：与 Cmd+F / Ctrl+Cmd+F 走同一条打开路径 */
+function onFindReplaceCommand(e: Event): void {
+  openBar((e as CustomEvent<string>).detail === 'replace')
 }
 
 function openBar(expandReplace: boolean): void {
