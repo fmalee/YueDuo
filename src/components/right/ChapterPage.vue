@@ -87,6 +87,10 @@ function jump(line: number): void {
   font-size: var(--yd-library-small-font-size);
   font-weight: 600;
 }
+/* 下方书签标题与分割线留出间距，避免贴边（用户实测反馈） */
+.bookmark-section > .section-title {
+  padding-top: var(--yd-panel-padding);
+}
 .section-count {
   font-weight: 400;
 }
