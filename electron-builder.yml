@@ -1,5 +1,5 @@
 appId: com.electron.app
-productName: yueduo
+productName: YueDuo
 directories:
   buildResources: build
 files:

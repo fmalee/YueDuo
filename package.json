@@ -1,5 +1,5 @@
 {
-  "name": "yueduo",
+  "name": "YueDuo",
   "version": "1.0.0",
   "description": "TXT 小说阅读与管理器（NovelManager 重构版）",
   "main": "./out/main/main.js",
