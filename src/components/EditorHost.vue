@@ -16,6 +16,7 @@ import {
 } from '@/composables/useTabLifecycle'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { useSettingsStore } from '@/stores/settings'
+import { useLibraryStore } from '@/stores/library'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import {
   applyRestoredView,
@@ -42,6 +43,7 @@ const loading = ref(false)
 
 const store = useTabsStore()
 const settings = useSettingsStore()
+const library = useLibraryStore()
 const { saveActive } = useEditorCommands()
 const { addBookmarkAtCaret } = useBookmarks()
 
@@ -60,6 +62,11 @@ let activateSeq = 0
 /** LRU 兜底检查周期（方案 §1.7：切换标签时同步计算 + 每 5 分钟定时） */
 const EVICT_INTERVAL_MS = 5 * 60_000
 let evictTimer: ReturnType<typeof setInterval> | null = null
+
+/** 当前标签路径（空白标签为空串）：最近阅读防抖只对书库内的书有意义 */
+function activePath(): string {
+  return store.tabs.find((t) => t.id === store.activeTabId)?.path ?? ''
+}
 
 onMounted(() => {
   if (!container.value) return
@@ -83,7 +90,12 @@ onMounted(() => {
   })
 
   // 状态栏「行 x / y」：光标移动只更新行号
-  editor.value.onDidChangeCursorPosition((e) => setCursorLine(e.position.lineNumber))
+  editor.value.onDidChangeCursorPosition((e) => {
+    setCursorLine(e.position.lineNumber)
+    // 最近阅读（方案 §2.11）：光标移动是阅读位置变化，停住 60 秒再写 last_read_at
+    const path = activePath()
+    if (path) library.scheduleReadStamp(path)
+  })
 
   // 会话进度：记录视口顶部行（方案 §1.8），滚动停止 2 秒后落盘
   editor.value.onDidScrollChange(() => {
@@ -91,6 +103,9 @@ onMounted(() => {
     if (!id) return
     captureProgress(id)
     schedulePersist()
+    // 最近阅读（方案 §2.11）：滚动同样算阅读位置变化，与光标共用 60 秒防抖
+    const path = activePath()
+    if (path) library.scheduleReadStamp(path)
   })
   attachSessionEditor(editor.value)
 

@@ -6,6 +6,7 @@ import {
   sessionRestore
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
+import { useLibraryStore } from '@/stores/library'
 import { getTabModel, isDirty, restoreViewState, saveViewState } from './useTabLifecycle'
 import { flushBookmarkDrift } from './useBookmarkDrift'
 import { monaco } from '@/monaco'
@@ -228,6 +229,12 @@ export async function restoreSession(): Promise<void> {
 async function flushForQuit(): Promise<void> {
   // 书签行号漂移先落库：它有 800ms 防抖，退出时可能还有未写的调整
   await flushBookmarkDrift()
+  // 最近阅读的位置防抖（方案 §2.11）：退出前把待写时间戳落库（同 Python aboutToQuit）
+  try {
+    await useLibraryStore().flushReadStamps()
+  } catch (e) {
+    console.error('[session] 退出前最近阅读落盘失败:', e)
+  }
   try {
     await persistSessionNow()
   } catch (e) {

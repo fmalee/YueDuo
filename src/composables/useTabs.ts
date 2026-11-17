@@ -78,7 +78,7 @@ export function useTabs(): {
       lastFocusedAt: Date.now()
     })
     store.setActive(id)
-    // 打开即写最近阅读时间（方案 §2.5 验收补丁；60 秒防抖留给 §2.11）
+    // 打开即写最近阅读时间（方案 §2.5）；阅读中的位置变化由 useLibraryStore 60 秒防抖更新（§2.11）
     void library.markRead(normalized)
     schedulePersist()
     return id
@@ -141,6 +141,8 @@ export function useTabs(): {
     focusEditor()
     const tab = store.tabs.find((t) => t.id === id)
     if (tab?.path) void library.markRead(tab.path)
+    // 切标签立即落掉旧标签待写的最近阅读（同 Python currentChanged → _flush_read_stamps）
+    void library.flushReadStamps()
   }
 
   return { openFile, newBlankTab, closeTab, activateTab }

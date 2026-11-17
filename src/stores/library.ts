@@ -25,6 +25,16 @@ const MARK_READ_DEDUPE_MS = 500
 let lastMarkPath = ''
 let lastMarkAt = 0
 
+/**
+ * 最近阅读写入（方案 §2.11，对齐 Python `_READ_STAMP_DELAY_MS`）：
+ * 阅读位置每变化一次就重置 60 秒计时，停住 60 秒才更新一次 last_read_at；
+ * 切标签/退出前立即写出，避免刚读完就关掉时丢掉这次时间戳。
+ * pending 只存路径、不进 Vue 响应式（滚动是高频事件）。
+ */
+const READ_STAMP_DELAY_MS = 60_000
+const pendingStamps = new Set<string>()
+let stampTimer: ReturnType<typeof setTimeout> | null = null
+
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
@@ -214,6 +224,31 @@ export const useLibraryStore = defineStore('library', {
       } catch {
         // 书库尚未打开或路径在库外：不打扰阅读
       }
+    },
+
+    /**
+     * 阅读位置变化（光标移动/滚动）：登记待写路径并重置 60 秒计时（方案 §2.11）。
+     * 「打开即写」仍走 markRead，这里只负责读着读着的时间戳防抖。
+     */
+    scheduleReadStamp(path: string): void {
+      if (!this.root || !path) return
+      pendingStamps.add(path)
+      if (stampTimer) clearTimeout(stampTimer)
+      stampTimer = setTimeout(() => {
+        stampTimer = null
+        void this.flushReadStamps()
+      }, READ_STAMP_DELAY_MS)
+    },
+
+    /** 立即写出待写的最近阅读时间（切标签/退出前，同 Python currentChanged/aboutToQuit） */
+    async flushReadStamps(): Promise<void> {
+      if (stampTimer) {
+        clearTimeout(stampTimer)
+        stampTimer = null
+      }
+      const paths = [...pendingStamps]
+      pendingStamps.clear()
+      for (const path of paths) await this.markRead(path)
     },
 
     /** 书籍评分：库内评分与 Finder 星级同写，随后按新评分刷新评分页 */
