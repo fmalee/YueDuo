@@ -71,9 +71,12 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-// 自动化验收：YUE_USER_DATA 指向临时目录，隔离设置文件与数据库，避免测试写真实用户数据
+// 自动化验收：YUE_USER_DATA 指向临时目录，隔离设置文件与数据库，避免测试写真实用户数据；
+// 开发态默认用项目内 .dev/user-data（已 gitignore），与打包版系统默认配置完全分开。
 if (process.env['YUE_USER_DATA']) {
   app.setPath('userData', process.env['YUE_USER_DATA'])
+} else if (process.env['ELECTRON_RENDERER_URL']) {
+  app.setPath('userData', join(__dirname, '../../.dev/user-data'))
 }
 
 // 单实例锁：重复启动时聚焦既有窗口后退出，避免 dev 验收互相干扰

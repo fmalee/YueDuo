@@ -1,10 +1,11 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, dialog } from 'electron'
 import { readFile, realpath } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import { listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
 import { LibraryDatabaseManager } from '../services/libraryDatabase'
 import { readSettings } from '../services/settingsStore'
+import { DEV_LIBRARY_ROOT, defaultLibraryRoot, isDevRuntime } from '../devEnv'
 import { closeDatabase } from '../services/database'
 import {
   findBookByRelativePath,
@@ -80,7 +81,8 @@ function requireRoot(): string {
  */
 export function initActiveLibrary(): LibraryCurrentState {
   const userData = app.getPath('userData')
-  const state = manager().init(readSettings(userData).libraryRoot)
+  const settings = readSettings(userData)
+  const state = manager().init(defaultLibraryRoot(settings.libraryRoot))
   activeRoot = state.root
   startupError = state.error
   return { root: state.root, error: state.error, fallback: state.fallback }
@@ -96,12 +98,38 @@ export function libraryCurrent(): LibraryCurrentState {
 }
 
 /**
+ * 开发态保险：只默认使用测试库；打开其它路径（很可能正是正式书库）先确认。
+ * 扫描 enrich 会写 Finder 星级与注释，开发调试不应无声改动正式数据；
+ * 自动化验收（YUE_TEST）走临时库，不弹框。
+ */
+async function confirmDevLibraryRoot(root: string): Promise<boolean> {
+  if (!isDevRuntime() || process.env['YUE_TEST']) return true
+  const requested = await realpath(root).catch(() => root)
+  const devRoot = await realpath(DEV_LIBRARY_ROOT).catch(() => DEV_LIBRARY_ROOT)
+  if (requested === devRoot) return true
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    title: '开发环境书库确认',
+    message: `确定要在开发环境打开「${root}」吗？`,
+    detail: `开发环境默认只使用测试书库：${DEV_LIBRARY_ROOT}。\n扫描会写入 Finder 星级和注释；如果这是正式书库，这些数据会被开发调试改动。`,
+    buttons: ['取消', '仍然打开'],
+    defaultId: 0,
+    cancelId: 0,
+    noLink: true
+  })
+  return response === 1
+}
+
+/**
  * library:open —— 换库第一步：建新库并读出新会话，旧库仍保持活动。
  * 同一书库直接返回 switched=false；目录无效或新库建不起来时抛错，原库不受影响。
  */
 export async function openLibrary(root: unknown): Promise<LibraryOpenResult> {
   if (typeof root !== 'string' || !root.trim()) {
     throw new Error('尚未设置书库根目录')
+  }
+  if (!(await confirmDevLibraryRoot(root))) {
+    throw new Error('已取消：开发环境不打开测试库以外的书库')
   }
   const prepared = manager().prepare(root)
   if (prepared.result.switched) {
