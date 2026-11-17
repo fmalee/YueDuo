@@ -15,6 +15,8 @@ import type {
   LibraryScanProgress,
   LibrarySyncResult,
   LibraryTagSummary,
+  MetadataEditResult,
+  MetadataField,
   NativeSanity,
   SessionRestore,
   SessionSnapshot,
@@ -179,6 +181,19 @@ export function librarySetBookRating(id: number, rating: number): Promise<number
 /** library:syncMetadata —— 保存后按当前正文重解析书名/作者/标签，只更新这一本 */
 export function librarySyncMetadata(path: string): Promise<LibrarySyncResult> {
   return ipcInvoke<LibrarySyncResult>('library:syncMetadata', path)
+}
+
+/**
+ * meta:applyEdit —— 元数据写回（方案 §2.8）：传编辑器当前正文（可含未保存修改），
+ * 主进程返回最小替换区间，并按写回后的正文同步 books。
+ */
+export function metaApplyEdit(
+  path: string,
+  text: string,
+  field: MetadataField,
+  value: string
+): Promise<MetadataEditResult> {
+  return ipcInvoke<MetadataEditResult>('meta:applyEdit', path, text, field, value)
 }
 
 /** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */

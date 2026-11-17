@@ -7,18 +7,12 @@
  * 纯 Node 实现（AGENTS.md：services 不 import Electron），便于脚本单测
  */
 import { extname } from 'path'
+import type { ParsedMetadata } from '../../shared/types'
 
 const TITLE_PATTERN = /《([^》]+)》/
 const AUTHOR_PATTERN = /^\s*作者\s*[：:]\s*(.+?)\s*$/
 const TAGS_PATTERN = /^\s*主题\s*[：:]\s*(.+?)\s*$/
 const TAG_SPLITTER = /[,，\s]+/
-
-export interface ParsedMetadata {
-  title: string
-  author: string
-  tags: string[]
-  wordCount: number
-}
 
 /** 标签在库内以空格分隔；正文里逗号和空格都算分隔符（对齐 Python split_tags） */
 export function splitTags(value: string): string[] {

@@ -212,6 +212,32 @@ export interface LibrarySyncResult {
   updated: boolean
 }
 
+/** 元数据解析结果（方案 §2.4；主进程解析、渲染层展示共用） */
+export interface ParsedMetadata {
+  title: string
+  author: string
+  tags: string[]
+  wordCount: number
+}
+
+/** 元数据字段（方案 §2.8：名称/作者/标签） */
+export type MetadataField = 'title' | 'author' | 'tags'
+
+/** 元数据写回的最小替换区间：UTF-16 字符偏移，由编辑器一次 executeEdits 应用（方案 §2.8） */
+export interface MetadataTextEdit {
+  start: number
+  end: number
+  replacement: string
+}
+
+/** meta:applyEdit 返回：edit=null 表示正文无需改动；updated=是否同步到书库 */
+export interface MetadataEditResult {
+  edit: MetadataTextEdit | null
+  updated: boolean
+  /** 按写回后的正文重新解析的元数据（供 2.9 元数据栏刷新） */
+  metadata: ParsedMetadata
+}
+
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 

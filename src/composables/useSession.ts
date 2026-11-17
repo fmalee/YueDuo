@@ -48,6 +48,11 @@ export function attachSessionEditor(instance: monaco.editor.IStandaloneCodeEdito
   editor = instance
 }
 
+/** 当前编辑器实例（元数据写回等编排用；EditorHost 未挂载时为 null） */
+export function getActiveEditor(): monaco.editor.IStandaloneCodeEditor | null {
+  return editor
+}
+
 /**
  * 把焦点交还正文：
  * 标签栏/左栏条目是普通 div，点击后焦点掉到 body；LRU 重载的 setModel(null) 也会让 textarea 失焦。

@@ -160,6 +160,12 @@ async function relativeInLibrary(root: string, path: string): Promise<string | n
   return rel.split(sep).join('/')
 }
 
+/** 解析正文并写回 books（不读盘）；返回是否命中库内记录 */
+function syncMetadataFromText(resolved: string, relativePath: string, text: string): boolean {
+  const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
+  return updateBookMetadata(relativePath, meta.title, meta.author, meta.tags.join(' '))
+}
+
 /**
  * 保存文件后同步元数据（方案 §2.5 验收补丁）：读保存后的正文，按扫描同口径解析
  * 书名/作者/标签并只更新这一本，不做全库重扫。
@@ -176,10 +182,18 @@ export async function syncBookMetadata(path: unknown): Promise<LibrarySyncResult
   } catch {
     return { updated: false }
   }
-  const { text } = decodeBytes(data)
-  const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
-  const updated = updateBookMetadata(relativePath, meta.title, meta.author, meta.tags.join(' '))
-  return { updated }
+  return { updated: syncMetadataFromText(resolved, relativePath, decodeBytes(data).text) }
+}
+
+/**
+ * 元数据写回后按编辑器内存正文同步库（方案 §2.8 B1）：
+ * 不等保存，提交即更新 books；文件不在活动书库内返回 false（打开任意 txt 不报错）。
+ */
+export async function syncBookMetadataFromText(path: unknown, text: unknown): Promise<boolean> {
+  if (!activeRoot || typeof path !== 'string' || !path || typeof text !== 'string') return false
+  const relativePath = await relativeInLibrary(activeRoot, path)
+  if (!relativePath) return false
+  return syncMetadataFromText(join(activeRoot, relativePath), relativePath, text)
 }
 
 /**

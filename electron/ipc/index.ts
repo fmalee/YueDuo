@@ -31,6 +31,7 @@ import {
 } from './library'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
+import { applyMetadataEdit } from './meta'
 import type { AppSettings, DraftTabMeta } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
@@ -83,6 +84,10 @@ export function registerIpcHandlers(): void {
   handle('library:allBookmarks', () => libraryAllBookmarks())
   handle('library:replaceBookmarks', (path: unknown, bookmarks: unknown) =>
     replaceBookBookmarks(path, bookmarks)
+  )
+  // 元数据写回（方案 §2.8）：按编辑器当前正文算最小替换区间，再同步 books
+  handle('meta:applyEdit', (path: unknown, text: unknown, field: unknown, value: unknown) =>
+    applyMetadataEdit(path, text, field, value)
   )
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
