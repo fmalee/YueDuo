@@ -10,16 +10,16 @@ import SidebarTags from './sidebar/SidebarTags.vue'
 import SidebarRating from './sidebar/SidebarRating.vue'
 
 /**
- * 左栏壳（方案 §1.11 + §2.5）：六页共用同一个位置，用顶部小标签切换。
- * 编辑页列打开中的标签；书架/历史/追更/标签/评分共用书库打开流程。
+ * 左栏壳（方案 §1.11 + §2.5）：五页共用同一个位置，用顶部小标签切换。
+ * 编辑页列打开中的标签；书架/追更/标签/评分共用书库打开流程。
+ * 历史只在右栏保留（用户实测去重，避免左右两处重复）。
  * 宽度可拖拽（方案 §1.9，夹 160–640），松手写入设置。
  */
-type PageId = 'edit' | 'shelf' | 'history' | 'following' | 'tags' | 'rating'
+type PageId = 'edit' | 'shelf' | 'following' | 'tags' | 'rating'
 
 const pages: { id: PageId; label: string }[] = [
   { id: 'edit', label: '编辑' },
   { id: 'shelf', label: '书架' },
-  { id: 'history', label: '历史' },
   { id: 'following', label: '追更' },
   { id: 'tags', label: '标签' },
   { id: 'rating', label: '评分' }
@@ -74,17 +74,12 @@ const followingEmpty =
 
 // 进入页面时重取：阅读/评分/保存都会改库，列表不能只靠 init 时那一份
 watch(activePage, (page) => {
-  if (page === 'history') void library.loadHistory()
-  else if (page === 'rating') void library.loadRated()
+  if (page === 'rating') void library.loadRated()
   else if (page === 'tags') {
     void library.loadTags()
     if (library.activeTag) void library.loadTagBooks()
   }
 })
-
-function refreshHistory(): void {
-  void library.loadHistory()
-}
 
 function refreshFollowing(): void {
   void library.loadFollowing()
@@ -114,12 +109,6 @@ onBeforeUnmount(() => {
     <div class="sidebar-pages">
       <SidebarEdit v-if="activePage === 'edit'" />
       <SidebarShelf v-else-if="activePage === 'shelf'" />
-      <SidebarBookList
-        v-else-if="activePage === 'history'"
-        :books="library.history"
-        empty-text="还没有阅读记录"
-        @refresh="refreshHistory"
-      />
       <SidebarBookList
         v-else-if="activePage === 'following'"
         :books="library.following"
