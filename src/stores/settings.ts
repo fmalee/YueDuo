@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { cloneFindRules, DEFAULT_FIND_RULES } from '../../shared/findRules'
 import { DEFAULT_SETTINGS } from '../../shared/types'
 import type { AppSettings, ThemeMode } from '../../shared/types'
 import { onThemeUpdated, settingsGet, settingsSet } from '@/ipc/bridge'
@@ -19,7 +20,9 @@ export const useSettingsStore = defineStore('settings', {
     sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
     libraryRoot: DEFAULT_SETTINGS.libraryRoot,
     preloadCount: DEFAULT_SETTINGS.preloadCount,
-    closeButtonAlwaysVisible: DEFAULT_SETTINGS.closeButtonAlwaysVisible
+    closeButtonAlwaysVisible: DEFAULT_SETTINGS.closeButtonAlwaysVisible,
+    /** 常用正则只读消费（阶段 3.1 查找下拉）；改规则走设置服务落盘 */
+    findRules: cloneFindRules(DEFAULT_FIND_RULES)
   }),
   actions: {
     /** 首帧前初始化：读设置 → 注入 token → 订阅 nativeTheme 推送 */
@@ -31,6 +34,7 @@ export const useSettingsStore = defineStore('settings', {
         this.libraryRoot = saved.libraryRoot
         this.preloadCount = saved.preloadCount
         this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+        this.findRules = cloneFindRules(saved.findRules)
       } catch (e) {
         console.error('[theme] 读取设置失败，按默认外观启动:', e)
       }
@@ -56,7 +60,8 @@ export const useSettingsStore = defineStore('settings', {
         sidebarWidth: this.sidebarWidth,
         libraryRoot: this.libraryRoot,
         preloadCount: this.preloadCount,
-        closeButtonAlwaysVisible: this.closeButtonAlwaysVisible
+        closeButtonAlwaysVisible: this.closeButtonAlwaysVisible,
+        findRules: cloneFindRules(this.findRules)
       }
     },
 
@@ -69,6 +74,7 @@ export const useSettingsStore = defineStore('settings', {
         this.libraryRoot = saved.libraryRoot
         this.preloadCount = saved.preloadCount
         this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+        this.findRules = cloneFindRules(saved.findRules)
         return saved
       } catch (e) {
         console.error('[settings] 保存失败，本次修改仅内存生效:', e)

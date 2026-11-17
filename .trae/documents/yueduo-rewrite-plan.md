@@ -165,6 +165,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 ### 阶段 3：编辑体验打磨与交付
 
 - [ ] **3.1** **自绘查找替换栏 `FindReplaceBar`**（弃用 Monaco 内置 find widget 与 overlay hack，交互照 Python `find_replace_bar.py`）：
+  - **数据部分已完成（本轮）**：常用正则原样迁移到 `shared/findRules.ts`（`DEFAULT_FIND_RULES` 5 条 + 占位项「常用正则…」），并作为 `AppSettings.findRules` 经 1.9 settings 服务持久化/读取，其他设置项结构不变。**口径**：以 Python `tidy_rules.SEARCH_RULES` 为准（key/名称/模式/替换/说明/顺序）；`YueDuo_old` 多出的「全角转半角」与「空格替换为半角」不采用（Python 注释明确转换类不进查找下拉，空格替换为全角 `U+3000`）。`scripts/test-find-rules.ts` 直接调 python3 导出旧规则逐条比对，并覆盖正则可用性、settings 读写与坏数据整组回落。**UI 未做**（用户要求暂缓）。
   - 触发：`editor.addCommand` 接管 `Cmd+F` / `Cmd+Option+F`（替换模式），内置 find widget 永不触发
   - 匹配：`model.findMatches(pattern, null, isRegex, matchCase, null, false, -1)` 全量查询（100ms 防抖）；「当前序号 / 总数」按当前光标位置二分定位，无匹配置灰
   - 跳转：Enter / Shift+Enter 上/下一个（`setSelection` + `revealRangeInCenter`）
