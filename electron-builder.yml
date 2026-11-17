@@ -24,6 +24,8 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # 图标沿用 NovelManager 那版书本图标（含 1024@2x），Dock/Finder 都读这里
+  icon: build/icon.icns
   # 只保证本机运行：显式 ad-hoc 签名，不依赖开发者证书、不做公证。
   # ad-hoc 与 hardenedRuntime 同开会触发库校验，这里关掉硬化运行时（本机运行不启用加固即可）。
   identity: '-'
