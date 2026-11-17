@@ -181,6 +181,13 @@ export interface BookmarkInfo {
   note: string
 }
 
+/** 全库书签分组（方案 §2.7：按书合并，path 已拼绝对路径便于直接打开） */
+export interface LibraryBookmarkGroup {
+  path: string
+  title: string
+  bookmarks: BookmarkInfo[]
+}
+
 /** 标签页一行的三列：名称 / 书目数量 / 标签评分（方案 §2.5） */
 export interface LibraryTagSummary {
   name: string

@@ -1,4 +1,6 @@
 import * as monaco from 'monaco-editor/editor/editor.api'
+// editor.api 是精简入口，不含右键菜单实现；单独引入 contextmenu 贡献（方案 §2.7 右键添加书签）
+import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import { DARK_COLORS, LIGHT_COLORS, READING } from './styles/theme'
 

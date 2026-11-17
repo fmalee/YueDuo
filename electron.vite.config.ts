@@ -32,6 +32,15 @@ export default defineConfig({
         '@': resolve('src')
       }
     },
+    // Monaco 拆成两个入口导入（核心 API + 右键菜单贡献）：预打包会各打一份共享模块，
+    // 导致菜单注册表不是同一个实例、右键菜单为空；这两个入口改为直接按源码模块加载，
+    // 共享模块按 URL 只实例化一次。生产构建由 Rollup 去重，不受影响。
+    optimizeDeps: {
+      exclude: [
+        'monaco-editor/editor/editor.api',
+        'monaco-editor/editor/contrib/contextmenu/browser/contextmenu'
+      ]
+    },
     plugins: [vue()]
   }
 })

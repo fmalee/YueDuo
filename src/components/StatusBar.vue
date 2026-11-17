@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { statusMetrics } from '@/composables/useStatusMetrics'
+import { statusMessage } from '@/composables/useStatusMessage'
 
 /** 状态栏（方案 §1.10）：文件名 / 完整路径（中间省略，tooltip 全路径）/ 编码 / 字数 / 行 x / y */
 const store = useTabsStore()
@@ -28,6 +29,7 @@ const encoding = computed(() => tab.value?.encoding.toUpperCase() || '—')
       </span>
     </div>
     <div class="right">
+      <span v-if="statusMessage" class="message">{{ statusMessage }}</span>
       <span>{{ encoding }}</span>
       <span>字数 {{ statusMetrics.charCount.toLocaleString() }}</span>
       <span>行 {{ statusMetrics.cursorLine }} / {{ statusMetrics.lineCount }}</span>
@@ -79,5 +81,8 @@ const encoding = computed(() => tab.value?.encoding.toUpperCase() || '—')
   align-items: center;
   gap: var(--yd-statusbar-gap);
   flex: none;
+}
+.message {
+  color: var(--yd-accent);
 }
 </style>

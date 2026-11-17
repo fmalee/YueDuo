@@ -7,6 +7,7 @@ import {
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { getTabModel, isDirty, restoreViewState, saveViewState } from './useTabLifecycle'
+import { flushBookmarkDrift } from './useBookmarkDrift'
 import { monaco } from '@/monaco'
 import type { SessionSnapshot } from '../../shared/types'
 
@@ -124,6 +125,28 @@ export function jumpToLine(line: number): boolean {
   return true
 }
 
+/** 全库书签可能指向未打开的书：目标标签的 model 挂上后再跳（同 Python pending jumps） */
+const pendingJumps = new Map<string, number>()
+
+/** 跨书点击书签：目标标签已激活则立即跳，否则排队等 EditorHost 激活完成 */
+export function requestLineJump(tabId: string, line: number): void {
+  const store = useTabsStore()
+  const entry = getTabModel(tabId)
+  if (editor && store.activeTabId === tabId && entry && editor.getModel() === entry.model) {
+    jumpToLine(line)
+    return
+  }
+  pendingJumps.set(tabId, line)
+}
+
+/** EditorHost 完成 setModel 后消费排队跳转 */
+export function applyPendingLineJump(tabId: string): boolean {
+  const line = pendingJumps.get(tabId)
+  if (line === undefined) return false
+  pendingJumps.delete(tabId)
+  return jumpToLine(line)
+}
+
 /** 标签增删/切换/滚动后 2 秒防抖落盘（方案 §1.8） */
 export function schedulePersist(): void {
   if (timer) clearTimeout(timer)
@@ -198,6 +221,8 @@ export async function restoreSession(): Promise<void> {
  * 3. 无论成败都回 flushDone，绝不卡住退出
  */
 async function flushForQuit(): Promise<void> {
+  // 书签行号漂移先落库：它有 800ms 防抖，退出时可能还有未写的调整
+  await flushBookmarkDrift()
   try {
     await persistSessionNow()
   } catch (e) {

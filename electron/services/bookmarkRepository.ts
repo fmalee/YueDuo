@@ -14,6 +14,13 @@ interface BookmarkRow {
   note: string
 }
 
+/** 服务层分组：只带相对路径，绝对路径由 IPC 拼书库根（services 不依赖 Electron） */
+export interface LibraryBookmarkGroupRow {
+  relativePath: string
+  title: string
+  bookmarks: BookmarkInfo[]
+}
+
 export function listBookmarks(
   relativePath: string,
   db: Database.Database = getDatabase()
@@ -72,5 +79,68 @@ export function removeBookmark(
       WHERE line = ?
         AND book_id IN (SELECT id FROM books WHERE relative_path = ?)`
   ).run(line, relativePath)
+  return listBookmarks(relativePath, db)
+}
+
+/**
+ * 全库书签按书分组（方案 §2.7，与 Python list_library_bookmarks 同口径）：
+ * 按 relative_path 排序后顺序聚合，同一本书的书签天然聚在一起。
+ */
+export function listLibraryBookmarks(
+  db: Database.Database = getDatabase()
+): LibraryBookmarkGroupRow[] {
+  const rows = db
+    .prepare(
+      `SELECT b.relative_path AS relativePath, b.title, b.filename, m.line, m.note
+         FROM bookmarks AS m
+         JOIN books AS b ON b.id = m.book_id
+        ORDER BY b.relative_path COLLATE NOCASE, b.filename, m.line`
+    )
+    .all() as {
+    relativePath: string
+    title: string
+    filename: string
+    line: number
+    note: string
+  }[]
+  const groups = new Map<string, LibraryBookmarkGroupRow>()
+  for (const row of rows) {
+    let group = groups.get(row.relativePath)
+    if (!group) {
+      // title 可能为空（enrich 未跑到）：退回文件名去后缀，与最小书籍记录一致
+      const title = row.title || row.filename.replace(/\.[^./]+$/, '') || row.filename
+      group = { relativePath: row.relativePath, title, bookmarks: [] }
+      groups.set(row.relativePath, group)
+    }
+    group.bookmarks.push({ line: row.line, note: row.note })
+  }
+  return [...groups.values()]
+}
+
+/**
+ * 整体回写某本书的书签（方案 §2.7：编辑导致行号漂移后合并写入）。
+ * 行号重复时保留先出现的一条，避免撞 (book_id, line) 唯一约束。
+ */
+export function replaceBookmarks(
+  relativePath: string,
+  filename: string,
+  bookmarks: BookmarkInfo[],
+  db: Database.Database = getDatabase()
+): BookmarkInfo[] {
+  const bookId = ensureBookId(relativePath, filename, db)
+  const now = Date.now()
+  const insert = db.prepare(
+    'INSERT INTO bookmarks (book_id, line, note, created_at) VALUES (?, ?, ?, ?)'
+  )
+  const apply = db.transaction((rows: BookmarkInfo[]) => {
+    db.prepare('DELETE FROM bookmarks WHERE book_id = ?').run(bookId)
+    const seen = new Set<number>()
+    for (const row of rows) {
+      if (!Number.isFinite(row.line) || row.line < 1 || seen.has(row.line)) continue
+      seen.add(row.line)
+      insert.run(bookId, Math.round(row.line), row.note, now)
+    }
+  })
+  apply(bookmarks)
   return listBookmarks(relativePath, db)
 }

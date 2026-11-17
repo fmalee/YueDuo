@@ -5,15 +5,17 @@ import { useLibraryStore } from '@/stores/library'
 import { useSettingsStore } from '@/stores/settings'
 import { useChapters } from '@/composables/useChapters'
 import { useBookmarks } from '@/composables/useBookmarks'
+import { useLibraryBookmarks } from '@/composables/useLibraryBookmarks'
+import { onBookmarksFlushed } from '@/composables/useBookmarkDrift'
 import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../../shared/types'
 import ChapterPage from './right/ChapterPage.vue'
-import BookmarkList from './right/BookmarkList.vue'
+import LibraryBookmarkPage from './right/LibraryBookmarkPage.vue'
 import SidebarBookList from './sidebar/SidebarBookList.vue'
 
 /**
- * 右栏（方案 §2.6）：章节 / 书签 / 历史三页，跟随当前标签的书。
- * 章节与书签按当前标签 path 读取；历史复用左栏书库列表的最近阅读倒序。
- * 宽度与左栏同宽（共用设置），拖拽夹 160–640，松手落盘。
+ * 右栏（方案 §2.6/§2.7）：章节 / 书签 / 历史三页，跟随当前标签的书。
+ * 章节页含当前书书签；「书签」页是全库书签按书分组（Python LibraryBookmarkPanel 口径）。
+ * 历史复用左栏书库列表的最近阅读倒序。宽度与左栏同宽，拖拽夹 160–640，松手落盘。
  */
 type PageId = 'chapters' | 'bookmarks' | 'history'
 
@@ -22,6 +24,7 @@ const library = useLibraryStore()
 const settings = useSettingsStore()
 const { chapters, loadChapters } = useChapters()
 const { bookmarks, loadBookmarks } = useBookmarks()
+const { total: libraryBookmarkTotal, loadLibraryBookmarks } = useLibraryBookmarks()
 
 const page = ref<PageId>('chapters')
 const activePath = computed(() => store.activeTab?.path ?? '')
@@ -35,9 +38,19 @@ watch(
   { immediate: true }
 )
 
-// 进入历史页重取：阅读位置/评分会改库，不能只靠 init 时那一份
+// 右栏书签页是全库口径：即使停在章节页也先读一次，标签上的数量才准
+void loadLibraryBookmarks()
+
+// 进入页面时重取：阅读/评分/添加书签都会改库，列表不能只靠 init 时那一份
 watch(page, (next) => {
   if (next === 'history') void library.loadHistory()
+  else if (next === 'bookmarks') void loadLibraryBookmarks()
+})
+
+// 编辑导致的行号漂移落库后，当前书列表与全库分组一起刷新
+const unsubscribeFlush = onBookmarksFlushed((path) => {
+  if (path === activePath.value) void loadBookmarks(path)
+  void loadLibraryBookmarks()
 })
 
 const width = ref(settings.sidebarWidth)
@@ -82,6 +95,7 @@ function refreshHistory(): void {
 }
 
 onBeforeUnmount(() => {
+  unsubscribeFlush()
   window.removeEventListener('pointermove', onResizeMove)
   window.removeEventListener('pointerup', onResizeEnd)
   window.removeEventListener('pointercancel', onResizeEnd)
@@ -99,7 +113,7 @@ onBeforeUnmount(() => {
         :class="{ active: page === 'bookmarks' }"
         @click="page = 'bookmarks'"
       >
-        书签<span v-if="bookmarks.length" class="tab-count">{{ bookmarks.length }}</span>
+        书签<span v-if="libraryBookmarkTotal" class="tab-count">{{ libraryBookmarkTotal }}</span>
       </button>
       <button class="panel-tab" :class="{ active: page === 'history' }" @click="page = 'history'">
         历史
@@ -109,7 +123,7 @@ onBeforeUnmount(() => {
     <div class="panel-pages">
       <ChapterPage v-if="page === 'chapters'" :bookmarks="bookmarks" :path="activePath" />
       <div v-else-if="page === 'bookmarks'" class="bookmarks-page">
-        <BookmarkList :bookmarks="bookmarks" :path="activePath" empty-text="当前书暂无书签" />
+        <LibraryBookmarkPage />
       </div>
       <SidebarBookList
         v-else

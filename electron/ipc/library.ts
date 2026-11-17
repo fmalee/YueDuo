@@ -18,11 +18,18 @@ import { decodeBytes } from '../services/textCodec'
 import { parseMetadata } from '../services/metadataParser'
 import { writeFinderRating } from '../services/finderMetadata'
 import { parseChapters } from '../services/chapterParser'
-import { addBookmark, listBookmarks, removeBookmark } from '../services/bookmarkRepository'
+import {
+  addBookmark,
+  listBookmarks,
+  listLibraryBookmarks,
+  removeBookmark,
+  replaceBookmarks
+} from '../services/bookmarkRepository'
 import type {
   BookmarkInfo,
   ChapterInfo,
   LibraryBook,
+  LibraryBookmarkGroup,
   LibraryEnrichResult,
   LibraryEntry,
   LibraryOpenResult,
@@ -213,4 +220,37 @@ export async function removeBookBookmark(path: unknown, line: unknown): Promise<
   const relativePath = await relativeInLibrary(root, String(path))
   if (!relativePath) return []
   return removeBookmark(relativePath, Math.round(Number(line)))
+}
+
+/**
+ * 全库书签按书分组（方案 §2.7）：数据库只存相对路径，这里拼回绝对路径给渲染层打开。
+ * 未打开书库时返回空列表，右栏「书签」页保持空态（与其它书库查询一致）。
+ */
+export function libraryAllBookmarks(): LibraryBookmarkGroup[] {
+  if (!activeRoot) return []
+  return listLibraryBookmarks().map((group) => ({
+    path: join(activeRoot, group.relativePath),
+    title: group.title,
+    bookmarks: group.bookmarks
+  }))
+}
+
+/**
+ * 整体回写某本书的书签（方案 §2.7）：编辑后行号漂移由渲染层按差量调整，
+ * 这里只负责校验与落库，返回最新列表供右栏刷新。
+ */
+export async function replaceBookBookmarks(
+  path: unknown,
+  bookmarks: unknown
+): Promise<BookmarkInfo[]> {
+  const root = requireRoot()
+  const absolute = String(path)
+  const relativePath = await relativeInLibrary(root, absolute)
+  if (!relativePath) throw new Error('这本书不在当前书库中，无法更新书签')
+  const rows = Array.isArray(bookmarks) ? (bookmarks as BookmarkInfo[]) : []
+  const sanitized = rows.map((row) => ({
+    line: Math.round(Number(row.line)),
+    note: String(row.note ?? '').slice(0, 40)
+  }))
+  return replaceBookmarks(relativePath, basename(absolute), sanitized)
 }

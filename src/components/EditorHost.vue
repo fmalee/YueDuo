@@ -19,11 +19,19 @@ import { useSettingsStore } from '@/stores/settings'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import {
   applyRestoredView,
+  applyPendingLineJump,
   attachSessionEditor,
   captureProgress,
   focusEditor,
   schedulePersist
 } from '@/composables/useSession'
+import { useBookmarks } from '@/composables/useBookmarks'
+import {
+  handleBookmarkDrift,
+  flushBookmarkDrift,
+  trackBookmarkTab
+} from '@/composables/useBookmarkDrift'
+import { showStatusMessage } from '@/composables/useStatusMessage'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -35,6 +43,7 @@ const loading = ref(false)
 const store = useTabsStore()
 const settings = useSettingsStore()
 const { saveActive } = useEditorCommands()
+const { addBookmarkAtCaret } = useBookmarks()
 
 // 预载数量（方案 §1.9）：启动先注入设置值，变化时立即按新上限收敛驻留集合
 setPreloadCount(settings.preloadCount)
@@ -60,11 +69,17 @@ onMounted(() => {
   })
 
   // dirty 追踪：内容变化后以版本号对比（O(1)，方案 §1.3）
-  editor.value.onDidChangeModelContent(() => {
+  editor.value.onDidChangeModelContent((e) => {
     const id = store.activeTabId
     if (id) store.patchTab(id, { dirty: isDirty(id) })
     // 状态栏字数/行数（getValueLength/getLineCount 均为增量维护，O(1)）
     refreshStatusMetrics(editor.value?.getModel() ?? null)
+    // 书签行号漂移跟随（方案 §2.7）：按行数差量平移，800ms 防抖回写
+    const model = editor.value?.getModel()
+    const tab = id ? store.tabs.find((t) => t.id === id) : undefined
+    if (id && model && tab?.path) {
+      handleBookmarkDrift(id, tab.path, e.changes, model.getLineCount())
+    }
   })
 
   // 状态栏「行 x / y」：光标移动只更新行号
@@ -78,6 +93,20 @@ onMounted(() => {
     schedulePersist()
   })
   attachSessionEditor(editor.value)
+
+  // 右键「添加书签」（方案 §2.7，同 Python contextMenuEvent）：复用同一套添加逻辑
+  editor.value.addAction({
+    id: 'yueduo.addBookmark',
+    label: '添加书签',
+    contextMenuGroupId: 'bookmarks',
+    contextMenuOrder: 1,
+    precondition: '!editorReadonly',
+    run: () => {
+      void addBookmarkAtCaret()
+        .then((message) => showStatusMessage(message))
+        .catch((e) => showStatusMessage(e instanceof Error ? e.message : String(e)))
+    }
+  })
 
   // Cmd+S 保存（编辑器焦点内；命令随 editor 实例生命周期销毁）
   editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
@@ -108,6 +137,8 @@ watch(
       // 切走前先抓旧标签的视口顶部行，再存 viewState
       captureProgress(oldId)
       saveViewState(oldId, editor.value)
+      // 书签漂移是防抖写库的，切标签时先落盘（同 Python currentChanged → flush）
+      void flushBookmarkDrift()
     }
     void activateEditorFor(newId)
     scheduleEviction()
@@ -136,9 +167,11 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   if (entry) {
     loading.value = false
     editor.value.setModel(entry.model)
+    trackBookmarkTab(tabId, entry.model.getLineCount())
     applyStoredView(tabId)
     syncStatus(entry.model)
     restoreEditorFocus()
+    applyPendingLineJump(tabId)
     return
   }
   loading.value = true
@@ -156,11 +189,13 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   const reloaded = getTabModel(tabId)
   if (reloaded) {
     editor.value.setModel(reloaded.model)
+    trackBookmarkTab(tabId, reloaded.model.getLineCount())
     applyStoredView(tabId)
     syncStatus(reloaded.model)
     // 会话恢复的标签按需重读后补上源编码（状态栏展示，方案 §1.10）
     if (reloaded.encoding) store.patchTab(tabId, { encoding: reloaded.encoding })
     restoreEditorFocus()
+    applyPendingLineJump(tabId)
   }
 }
 
@@ -210,6 +245,8 @@ function scheduleEviction(): void {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
   if (evictTimer) clearInterval(evictTimer)
+  // 卸载前把未落库的书签漂移写掉（HMR 重挂载也不丢）
+  void flushBookmarkDrift()
   attachSessionEditor(null)
   for (const t of store.tabs) disposeTabModel(t.id)
   editor.value?.dispose()

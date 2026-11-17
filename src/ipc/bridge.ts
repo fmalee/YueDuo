@@ -8,6 +8,7 @@ import type {
   FileStat,
   IpcResult,
   LibraryBook,
+  LibraryBookmarkGroup,
   LibraryEnrichResult,
   LibraryEntry,
   LibraryOpenResult,
@@ -202,6 +203,19 @@ export function libraryAddBookmark(
 /** library:removeBookmark —— 删除书签 */
 export function libraryRemoveBookmark(path: string, line: number): Promise<BookmarkInfo[]> {
   return ipcInvoke<BookmarkInfo[]>('library:removeBookmark', path, line)
+}
+
+/** library:allBookmarks —— 全库书签按书分组（方案 §2.7） */
+export function libraryAllBookmarks(): Promise<LibraryBookmarkGroup[]> {
+  return ipcInvoke<LibraryBookmarkGroup[]>('library:allBookmarks')
+}
+
+/** library:replaceBookmarks —— 编辑行号漂移后整体回写某本书的书签 */
+export function libraryReplaceBookmarks(
+  path: string,
+  bookmarks: BookmarkInfo[]
+): Promise<BookmarkInfo[]> {
+  return ipcInvoke<BookmarkInfo[]>('library:replaceBookmarks', path, bookmarks)
 }
 
 /** 订阅书库扫描进度 */

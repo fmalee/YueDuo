@@ -22,9 +22,11 @@ import {
   librarySetBookRating,
   librarySetTagRating,
   libraryTags,
+  libraryAllBookmarks,
   markBookRead,
   openLibrary,
   removeBookBookmark,
+  replaceBookBookmarks,
   syncBookMetadata
 } from './library'
 import { settingsGet, settingsSet } from './settings'
@@ -77,6 +79,11 @@ export function registerIpcHandlers(): void {
     addBookBookmark(path, line, note)
   )
   handle('library:removeBookmark', (path: unknown, line: unknown) => removeBookBookmark(path, line))
+  // 2.7 全库书签分组 + 编辑漂移后的整体回写
+  handle('library:allBookmarks', () => libraryAllBookmarks())
+  handle('library:replaceBookmarks', (path: unknown, bookmarks: unknown) =>
+    replaceBookBookmarks(path, bookmarks)
+  )
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；

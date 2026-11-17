@@ -12,15 +12,46 @@ const scrollRef = ref<HTMLDivElement>()
 /** 当前标签外展圆弧 8px：滚动时留同宽余量，避免弧脚被滚动容器裁掉 */
 const SCROLL_PADDING = 8
 
-// 原生横向滚动条在底部且过粗，会压住标签标题；改为置顶 3px 自绘条
+// 原生横向滚动条在底部且过粗，会压住标签标题；改为置顶 3px 自绘条。
+// 不滚动时自动隐藏：滚动/拖拽/悬停才显示，淡出不影响标签栏高度与标签位置。
 const overflowing = ref(false)
+const scrollbarVisible = ref(false)
+const hovering = ref(false)
 const thumbWidth = ref(0)
 const thumbLeft = ref(0)
 const draggingScrollbar = ref(false)
 let scrollbarTrackWidth = 0
 let scrollbarStartX = 0
 let scrollbarStartLeft = 0
+let hideTimer: ReturnType<typeof setTimeout> | undefined
 let resizeObserver: ResizeObserver | undefined
+
+/** 滚动/拖拽结束后延时淡出；悬停或仍处于拖拽时不隐藏 */
+function scheduleScrollbarHide(): void {
+  if (hideTimer) clearTimeout(hideTimer)
+  hideTimer = setTimeout(() => {
+    hideTimer = undefined
+    if (!hovering.value && !draggingScrollbar.value) scrollbarVisible.value = false
+  }, 900)
+}
+
+function revealScrollbar(): void {
+  scrollbarVisible.value = true
+  scheduleScrollbarHide()
+}
+
+function onBarEnter(): void {
+  hovering.value = true
+  if (hideTimer) {
+    clearTimeout(hideTimer)
+    hideTimer = undefined
+  }
+}
+
+function onBarLeave(): void {
+  hovering.value = false
+  scheduleScrollbarHide()
+}
 
 /**
  * 标签栏自动横向滚动到当前标签（方案 §1.5：溢出横向滚动）。
@@ -106,12 +137,19 @@ function onScrollbarPointerMove(e: PointerEvent): void {
   el.scrollLeft = Math.max(0, Math.min(maxScroll, next))
 }
 
+/** 滚动时同步滑块并短暂显示滚动条，停手后淡出 */
+function onTabsScroll(): void {
+  syncScrollbar()
+  revealScrollbar()
+}
+
 function onScrollbarPointerEnd(): void {
   draggingScrollbar.value = false
   window.removeEventListener('pointermove', onScrollbarPointerMove)
   window.removeEventListener('pointerup', onScrollbarPointerEnd)
   window.removeEventListener('pointercancel', onScrollbarPointerEnd)
   syncScrollbar()
+  scheduleScrollbarHide()
 }
 
 watch([() => store.activeTabId, () => store.tabs.length], () => {
@@ -132,6 +170,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  if (hideTimer) clearTimeout(hideTimer)
   window.removeEventListener('pointermove', onScrollbarPointerMove)
   window.removeEventListener('pointerup', onScrollbarPointerEnd)
   window.removeEventListener('pointercancel', onScrollbarPointerEnd)
@@ -146,8 +185,10 @@ onBeforeUnmount(() => {
       'close-always': settings.closeButtonAlwaysVisible,
       'scrollbar-dragging': draggingScrollbar
     }"
+    @pointerenter="onBarEnter"
+    @pointerleave="onBarLeave"
   >
-    <div ref="scrollRef" class="tabs-scroll" @scroll="syncScrollbar">
+    <div ref="scrollRef" class="tabs-scroll" @scroll="onTabsScroll">
       <div
         v-for="(tab, i) in store.tabs"
         :key="tab.id"
@@ -186,11 +227,14 @@ onBeforeUnmount(() => {
         </svg>
       </div>
     </div>
-    <!-- 置顶细滚动条：占标签上方 3px 留白，不遮标题 -->
+    <!-- 置顶细滚动条：占标签上方 3px 留白，不遮标题；不滚动时淡出 -->
     <div
-      v-if="overflowing"
+      v-show="overflowing"
       class="tab-scrollbar"
-      :class="{ dragging: draggingScrollbar }"
+      :class="{
+        dragging: draggingScrollbar,
+        visible: hovering || draggingScrollbar || scrollbarVisible
+      }"
       @pointerdown="onScrollbarPointerDown"
     >
       <div
@@ -226,6 +270,13 @@ onBeforeUnmount(() => {
   height: var(--yd-tab-scrollbar-height);
   z-index: 3;
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 160ms ease;
+}
+.tab-scrollbar.visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 .tab-scrollbar-thumb {
   position: absolute;

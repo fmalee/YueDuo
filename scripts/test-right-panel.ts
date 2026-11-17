@@ -2,7 +2,13 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { parseChapters } from '../electron/services/chapterParser'
-import { addBookmark, listBookmarks, removeBookmark } from '../electron/services/bookmarkRepository'
+import {
+  addBookmark,
+  listBookmarks,
+  listLibraryBookmarks,
+  removeBookmark,
+  replaceBookmarks
+} from '../electron/services/bookmarkRepository'
 import { closeDatabase, getDatabase, initDatabase } from '../electron/services/database'
 
 function assert(condition: boolean, message: string): void {
@@ -48,6 +54,34 @@ assert(book.title === '笑傲江湖', '未入库书籍补最小记录，书名�
 list = removeBookmark(rel, 10)
 assert(list.length === 1 && list[0].line === 30, '删除指定行书签')
 assert(listBookmarks(rel).length === 1, 'listBookmarks 与返回值一致')
+
+// 3) 全库书签分组（方案 §2.7）：两本书各成一组，组内按行号升序
+const rel2 = '古龙/多情剑客无情剑.txt'
+addBookmark(rel2, '多情剑客无情剑.txt', 8, '小李飞刀')
+addBookmark(rel2, '多情剑客无情剑.txt', 3, '开篇')
+addBookmark(rel, '笑傲江湖.txt', 12, '令狐冲')
+const groups = listLibraryBookmarks()
+assert(groups.length === 2, `全库书签分 2 组（实际 ${groups.length}）`)
+assert(groups[0].title === '多情剑客无情剑' && groups[0].bookmarks.length === 2, '古龙组书名与条数')
+assert(
+  groups[0].bookmarks[0].line === 3 && groups[0].bookmarks[1].line === 8,
+  '组内按行号升序'
+)
+assert(groups[1].title === '笑傲江湖' && groups[1].bookmarks.length === 2, '金庸组书名与条数')
+
+// 4) 整体回写（漂移落库）：去重、过滤非法行号、删旧行
+const replaced = replaceBookmarks(rel, '笑傲江湖.txt', [
+  { line: 31, note: '漂移后' },
+  { line: 31, note: '重复行丢弃' },
+  { line: 0, note: '非法行号' },
+  { line: 45, note: '新增' }
+])
+assert(
+  replaced.length === 2 && replaced[0].line === 31 && replaced[0].note === '漂移后',
+  '整体回写去重且保留首条'
+)
+assert(replaced[1].line === 45, '整体回写写入新行号')
+assert(listBookmarks(rel).length === 2, '整体回写后旧书签被替换')
 closeDatabase()
 rmSync(dir, { recursive: true, force: true })
 console.log('ALL OK')

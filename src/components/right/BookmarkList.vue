@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { getTabModel } from '@/composables/useTabLifecycle'
 import { useBookmarks } from '@/composables/useBookmarks'
-import { caretSnapshot, focusEditor, jumpToLine } from '@/composables/useSession'
+import { focusEditor, jumpToLine } from '@/composables/useSession'
 import type { BookmarkInfo } from '../../../shared/types'
 
 /**
@@ -21,11 +21,10 @@ const props = withDefaults(
 )
 
 const SUMMARY_MAX_CHARS = 15
-const NOTE_MAX_CHARS = 40
 const INDENT = /^[ \t\u3000]+/
 
 const store = useTabsStore()
-const { addBookmark, removeBookmark } = useBookmarks()
+const { addBookmarkAtCaret, removeBookmark } = useBookmarks()
 const status = ref('')
 
 const entry = computed(() => {
@@ -55,30 +54,12 @@ function jump(line: number): void {
 
 /** 添加：从光标行向下找第一个非空行；文末全空则放弃（同 Python add_bookmark） */
 async function add(): Promise<void> {
-  const path = props.path
-  const model = entry.value?.model
-  if (!path || !model) {
+  if (!props.path) {
     status.value = '当前标签没有可收录的内容'
     return
   }
-  let line = caretSnapshot()?.line ?? 1
-  let text = ''
-  while (line <= model.getLineCount()) {
-    text = lineText(line)
-    if (text) break
-    line++
-  }
-  if (!text) {
-    status.value = '光标以下没有可收录的内容'
-    return
-  }
-  if (props.bookmarks.some((bookmark) => bookmark.line === line)) {
-    status.value = '该行已有书签'
-    return
-  }
   try {
-    await addBookmark(path, line, text.slice(0, NOTE_MAX_CHARS))
-    status.value = `已添加第 ${line} 行书签`
+    status.value = await addBookmarkAtCaret()
     focusEditor()
   } catch (e) {
     status.value = e instanceof Error ? e.message : String(e)
