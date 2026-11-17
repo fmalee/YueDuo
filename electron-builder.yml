@@ -24,12 +24,18 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  # 只保证本机运行：显式 ad-hoc 签名，不依赖开发者证书、不做公证。
+  # ad-hoc 与 hardenedRuntime 同开会触发库校验，这里关掉硬化运行时（本机运行不启用加固即可）。
+  identity: '-'
+  hardenedRuntime: false
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
-    - NSCameraUsageDescription: Application requests access to the device's camera.
-    - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
-    - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+    # Finder 注释同步要经 osascript 控制 Finder，缺少此说明时系统不会弹自动化授权
+    NSAppleEventsUsageDescription: 同步 Finder 注释需要控制 Finder 刷新一次索引。
+    NSCameraUsageDescription: Application requests access to the device's camera.
+    NSMicrophoneUsageDescription: Application requests access to the device's microphone.
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
   notarize: false
 dmg:
   artifactName: ${name}-${version}.${ext}
