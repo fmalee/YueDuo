@@ -1,8 +1,75 @@
+// 界面文案中文化：Monaco 的 ESM 入口用数字消息 ID + 全局 NLS 表，
+// 必须在任何 editor 模块求值前先注入 zh-cn 消息表；英文原文是各调用点的兜底，无需单独语言文件。
+import 'monaco-editor/nls/lang/zh-cn'
 import * as monaco from 'monaco-editor/editor/editor.api'
 // editor.api 是精简入口，不含右键菜单实现；单独引入 contextmenu 贡献（方案 §2.7 右键添加书签）
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu'
+// 富文本右键菜单的内置组：撤销/重做、剪切/复制/粘贴、全选、命令面板。
+// 精简入口只在 SimpleEditorContext 注册撤销/重做/全选，这里把等价菜单项补进 EditorContext。
+import 'monaco-editor/editor/contrib/clipboard/browser/clipboard'
+import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneCommandsQuickAccess'
+import { localize } from 'monaco-editor/nls'
+import { MenuId, MenuRegistry } from 'monaco-editor/platform/actions/common/actions'
+import {
+  ContextKeyExpr,
+  type ContextKeyExpression
+} from 'monaco-editor/platform/contextkey/common/contextkey'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
 import { DARK_COLORS, LIGHT_COLORS, READING } from './styles/theme'
+
+// 剪贴板贡献只给剪切/粘贴设了 when（只读时隐藏），没有按选区置灰；
+// 菜单项对象由 MenuRegistry 持有，这里补 precondition，让菜单按当前选区/只读状态置灰。
+const CLIPBOARD_PRECONDITIONS: Record<string, ContextKeyExpression> = {
+  'editor.action.clipboardCutAction': ContextKeyExpr.and(
+    ContextKeyExpr.has('editorHasSelection'),
+    ContextKeyExpr.not('editorReadonly')
+  ),
+  'editor.action.clipboardCopyAction': ContextKeyExpr.has('editorHasSelection'),
+  'editor.action.clipboardPasteAction': ContextKeyExpr.not('editorReadonly')
+}
+for (const item of MenuRegistry.getMenuItems(MenuId.EditorContext)) {
+  if ('command' in item) {
+    const precondition = CLIPBOARD_PRECONDITIONS[item.command.id]
+    if (precondition) item.command.precondition = precondition
+  }
+}
+
+// 精简入口只在 SimpleEditorContext 注册撤销/重做/全选，右键菜单里没有；
+// 补到 EditorContext，并用上下文键让不可用的项置灰（剪贴板项由贡献自带 when/precondition）。
+MenuRegistry.appendMenuItems([
+  {
+    id: MenuId.EditorContext,
+    item: {
+      command: {
+        id: 'undo',
+        title: localize(75, 'Undo'),
+        precondition: ContextKeyExpr.has('canUndo')
+      },
+      group: '1_do',
+      order: 1
+    }
+  },
+  {
+    id: MenuId.EditorContext,
+    item: {
+      command: {
+        id: 'redo',
+        title: localize(78, 'Redo'),
+        precondition: ContextKeyExpr.has('canRedo')
+      },
+      group: '1_do',
+      order: 2
+    }
+  },
+  {
+    id: MenuId.EditorContext,
+    item: {
+      command: { id: 'editor.action.selectAll', title: localize(81, 'Select All') },
+      group: '9_select',
+      order: 1
+    }
+  }
+])
 
 // 铁律：worker 只走这一条路径（Vite 原生 ?worker），
 // 不配 getWorkerUrl、不用 AMD loader；纯文本场景只需 editor.worker

@@ -9,6 +9,11 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Monaco 界面只保留 zh-cn（英文原文是代码内兜底，无需语言文件）；
+  # dev/min 是 AMD 分发形态，本项目不使用，语言资源整目录剔除。
+  - '!node_modules/monaco-editor/dev/vs/nls/lang/*'
+  - '!node_modules/monaco-editor/min/vs/nls/lang/*'
+  - '!node_modules/monaco-editor/esm/vs/nls/lang/{cs,de,es,fr,it,ja,ko,pl,pt-br,ru,tr,zh-tw}.*'
 asarUnpack:
   - resources/**
 win:
