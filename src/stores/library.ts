@@ -63,7 +63,9 @@ export const useLibraryStore = defineStore('library', {
     activeTag: null as string | null,
     tagBooks: [] as LibraryBook[],
     ratingFilter: null as number | null,
-    rated: [] as LibraryBook[]
+    rated: [] as LibraryBook[],
+    /** 文件增删改计数器：书架目录树是文件系统快照，靠它触发重读（数据库列表走 refreshLists） */
+    fileRevision: 0
   }),
   actions: {
     /**
@@ -118,6 +120,19 @@ export const useLibraryStore = defineStore('library', {
       } finally {
         this.scanning = false
       }
+    },
+
+    /**
+     * 文件被删除/改名后统一通知左栏（方案 §3.5 联动）：
+     * 计数器驱动书架目录树重读（保留展开态），数据库四类列表同时刷新；
+     * removedBook 为真时书架「共 N 本」同步减一，不必等下次 enrich。
+     */
+    async notifyFilesChanged(removedBook = false): Promise<void> {
+      if (removedBook && this.lastEnrich && this.lastEnrich.total > 0) {
+        this.lastEnrich = { ...this.lastEnrich, total: this.lastEnrich.total - 1 }
+      }
+      this.fileRevision++
+      await this.refreshLists()
     },
 
     async refreshLists(): Promise<void> {

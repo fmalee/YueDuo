@@ -67,6 +67,18 @@ async function reloadRoot(): Promise<void> {
   if (library.root) await loadDir('')
 }
 
+/**
+ * 文件增删改后重读已加载的目录（含根），保留展开状态。
+ * 不用 reloadRoot：那会清空展开集，每次删除都把整棵树折叠回去。
+ */
+async function reloadLoaded(): Promise<void> {
+  if (!library.root) return
+  openError.value = ''
+  const dirs = new Set(entries.keys())
+  dirs.add('')
+  await Promise.all([...dirs].map((dir) => loadDir(dir)))
+}
+
 async function activate(entry: LibraryEntry): Promise<void> {
   if (entry.isDir) {
     if (expanded.has(entry.relativePath)) {
@@ -92,6 +104,14 @@ watch(
     void reloadRoot()
   },
   { immediate: true }
+)
+
+// 删除/重命名后目录树跟着变（库内列表由同一个 notifyFilesChanged 刷新）
+watch(
+  () => library.fileRevision,
+  () => {
+    void reloadLoaded()
+  }
 )
 </script>
 

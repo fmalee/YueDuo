@@ -28,6 +28,8 @@ export function chooseSaveFile(defaultName: string): string | null {
 
 /** dialog:confirmTrash —— 删除标签文件前确认（方案 §3.5；默认按钮是取消，防误删） */
 export function confirmTrash(title: string, dirty: boolean): boolean {
+  // 自动化验收：YUE_TEST 下窗口不可见，模态框会把主进程卡死，直接放行（同 main.ts 的测试分支）
+  if (process.env['YUE_TEST']) return true
   const result = dialog.showMessageBoxSync({
     type: 'warning',
     title: '移到废纸篓',

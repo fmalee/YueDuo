@@ -23,7 +23,8 @@ import type {
   DraftTabMeta,
   FileReadResult,
   FileRenameResult,
-  FileStat
+  FileStat,
+  FileTrashResult
 } from '../../shared/types'
 
 function statOf(path: string): FileStat {
@@ -93,19 +94,20 @@ export async function fileRename(path: string, newName: unknown): Promise<FileRe
  * 先 realpath 取库内相对路径，再 shell.trashItem；成功后删 books 行（书签 FK CASCADE）。
  * 库记录清理失败只记日志，磁盘操作已成功，下次扫描对账会补齐。
  */
-export async function fileTrash(path: string): Promise<null> {
+export async function fileTrash(path: string): Promise<FileTrashResult> {
   if (!path) throw new Error('当前标签没有可删除的文件')
   const root = activeLibraryRoot()
   const relativePath = root ? await relativeInLibrary(root, path) : null
   await shell.trashItem(path)
+  let removedBook = false
   if (relativePath) {
     try {
-      deleteBookRecord(relativePath)
+      removedBook = deleteBookRecord(relativePath)
     } catch (e) {
       console.error('[file] 移入废纸篓后清理库记录失败:', e)
     }
   }
-  return null
+  return { removedBook }
 }
 
 /** file:reveal —— 在 Finder 中显示文件（方案 §3.5） */

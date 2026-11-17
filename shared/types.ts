@@ -46,6 +46,11 @@ export interface FileRenameResult {
   stat: FileStat
 }
 
+/** file:trash 返回：库内记录是否真的删掉了（书架「共 N 本」据此减一） */
+export interface FileTrashResult {
+  removedBook: boolean
+}
+
 /** 顶部「文件」菜单下发给渲染层的命令（保存/关闭类复用同一套标签动作） */
 export type AppMenuCommand = 'save' | 'closeTab' | 'closeOthers' | 'closeAll'
 

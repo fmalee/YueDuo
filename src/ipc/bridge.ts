@@ -9,6 +9,7 @@ import type {
   FileReadResult,
   FileRenameResult,
   FileStat,
+  FileTrashResult,
   IpcResult,
   LibraryBook,
   LibraryBookmarkGroup,
@@ -96,8 +97,8 @@ export function fileRename(path: string, newName: string): Promise<FileRenameRes
 }
 
 /** file:trash —— 移到系统废纸篓并清理库记录（方案 §3.5） */
-export function fileTrash(path: string): Promise<null> {
-  return ipcInvoke<null>('file:trash', path)
+export function fileTrash(path: string): Promise<FileTrashResult> {
+  return ipcInvoke<FileTrashResult>('file:trash', path)
 }
 
 /** file:reveal —— 在 Finder 中显示文件（方案 §3.5） */

@@ -198,7 +198,8 @@ export function useTabs(): {
       store.patchTab(id, { path: result.path, title: result.title })
       setStatCache(id, result.stat)
       await persistSessionNow()
-      void library.refreshLists()
+      // 改名同样改变书架显示的文件名：驱动目录树与库内列表一起重读
+      void library.notifyFilesChanged()
       return null
     } catch (e) {
       return cleanError(e)
@@ -213,15 +214,17 @@ export function useTabs(): {
     const confirmed = await confirmTrash(tab.title, dirty)
     if (!confirmed) return false
     await flushBookmarkDrift()
+    let removedBook: boolean
     try {
-      await fileTrash(tab.path)
+      removedBook = (await fileTrash(tab.path)).removedBook
     } catch (e) {
       void showError('移到废纸篓失败', cleanError(e)).catch(() => {})
       return false
     }
     await destroyTab(id)
     await persistSessionNow()
-    void library.refreshLists()
+    // 删除后书架目录树、历史/追更/评分/标签与计数立即刷新，不需要重启
+    void library.notifyFilesChanged(removedBook)
     return true
   }
 
