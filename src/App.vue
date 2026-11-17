@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
@@ -224,6 +224,11 @@ onMounted(async () => {
       })
       .finally(testIpc)
   }
+})
+
+// HMR 会重挂载根组件：不清理会让 window 上的 Cmd+N 监听器逐次叠加（一次按键新建多个标签）
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown)
 })
 </script>
 

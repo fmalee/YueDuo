@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { useSettingsStore } from '@/stores/settings'
@@ -6,12 +7,46 @@ import { useSettingsStore } from '@/stores/settings'
 const store = useTabsStore()
 const settings = useSettingsStore()
 const { activateTab, closeTab } = useTabs()
+const scrollRef = ref<HTMLDivElement>()
+/** 当前标签外展圆弧 8px：滚动时留同宽余量，避免弧脚被滚动容器裁掉 */
+const SCROLL_PADDING = 8
+
+/**
+ * 标签栏自动横向滚动到当前标签（方案 §1.5：溢出横向滚动）。
+ * 左栏「编辑」页可点到标签栏视口外的条目，此时只换 active 而不滚动，
+ * 看起来就像标签栏没跟着切；这里按可见区间做最小幅度滚动。
+ */
+function ensureActiveVisible(): void {
+  const container = scrollRef.value
+  if (!container) return
+  const active = container.querySelector<HTMLElement>('.tab.active')
+  if (!active) return
+  const viewRect = container.getBoundingClientRect()
+  const activeRect = active.getBoundingClientRect()
+  const leftOverflow = activeRect.left - viewRect.left
+  const rightOverflow = activeRect.right - viewRect.right
+  if (leftOverflow < SCROLL_PADDING) {
+    // 标签比视口还宽时优先露出标题开头，不再为右缘余量把开头滚出去
+    container.scrollLeft += leftOverflow - SCROLL_PADDING
+  } else if (
+    rightOverflow > -SCROLL_PADDING &&
+    activeRect.width <= viewRect.width - SCROLL_PADDING * 2
+  ) {
+    container.scrollLeft += rightOverflow + SCROLL_PADDING
+  }
+}
+
+watch([() => store.activeTabId, () => store.tabs.length], () => {
+  void nextTick(ensureActiveVisible)
+})
+
+onMounted(ensureActiveVisible)
 </script>
 
 <template>
   <!-- Chrome 风圆弧标签栏：当前标签底边外展圆弧（Python FlaredTabBar 同款，flare=8px 贝塞尔） -->
   <div class="tab-bar" :class="{ 'close-always': settings.closeButtonAlwaysVisible }">
-    <div class="tabs-scroll">
+    <div ref="scrollRef" class="tabs-scroll">
       <div
         v-for="(tab, i) in store.tabs"
         :key="tab.id"
