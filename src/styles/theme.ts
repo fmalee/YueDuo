@@ -47,6 +47,10 @@ export const METRICS = {
   statusBarPaddingX: 12,
   statusBarGap: 14,
   statusBarFontSize: 12,
+  // 状态栏「锁定阅读」开关（方案 §3.3）：描边小按钮，不抢阅读区注意力
+  statusLockHeight: 18,
+  statusLockPaddingX: 6,
+  statusLockRadius: 3,
   sidebarWidth: DEFAULT_SETTINGS.sidebarWidth, // 仅作 CSS 兜底，实际宽度由设置内联覆盖
   sidebarFontSize: 13,
   sidebarItemHeight: 26,
@@ -112,6 +116,9 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-statusbar-padding-x', `${METRICS.statusBarPaddingX}px`)
   root.style.setProperty('--yd-statusbar-gap', `${METRICS.statusBarGap}px`)
   root.style.setProperty('--yd-statusbar-font-size', `${METRICS.statusBarFontSize}px`)
+  root.style.setProperty('--yd-status-lock-height', `${METRICS.statusLockHeight}px`)
+  root.style.setProperty('--yd-status-lock-padding-x', `${METRICS.statusLockPaddingX}px`)
+  root.style.setProperty('--yd-status-lock-radius', `${METRICS.statusLockRadius}px`)
   root.style.setProperty('--yd-sidebar-width', `${METRICS.sidebarWidth}px`)
   root.style.setProperty('--yd-sidebar-font-size', `${METRICS.sidebarFontSize}px`)
   root.style.setProperty('--yd-sidebar-item-height', `${METRICS.sidebarItemHeight}px`)

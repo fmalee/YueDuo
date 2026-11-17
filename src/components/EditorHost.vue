@@ -17,6 +17,7 @@ import {
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
+import { useReaderStore } from '@/stores/reader'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import {
   applyRestoredView,
@@ -51,6 +52,7 @@ const loading = ref(false)
 const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
+const reader = useReaderStore()
 const { saveActive } = useEditorCommands()
 const { addBookmarkAtCaret } = useBookmarks()
 
@@ -79,7 +81,8 @@ onMounted(() => {
   if (!container.value) return
   editor.value = monaco.editor.create(container.value, {
     ...READER_EDITOR_OPTIONS,
-    value: ''
+    value: '',
+    readOnly: reader.locked
   })
 
   // dirty 追踪：内容变化后以版本号对比（O(1)，方案 §1.3）
@@ -168,6 +171,30 @@ onMounted(() => {
   editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     void saveActive(editor.value)
   })
+
+  // 回车补两个全角空格（方案 §3.3）：沿用当前行缩进，无缩进时 U+3000 ×2
+  editor.value.addCommand(
+    monaco.KeyCode.Enter,
+    () => insertNewline(true),
+    'editorTextFocus && !editorReadonly && !isComposing'
+  )
+  // Shift+回车只换行、不缩进（写标题行等场景，同 Python）
+  editor.value.addCommand(
+    monaco.KeyMod.Shift | monaco.KeyCode.Enter,
+    () => insertNewline(false),
+    'editorTextFocus && !editorReadonly && !isComposing'
+  )
+  // 锁定阅读（方案 §3.3）：空格向下、Shift+空格向上翻页
+  editor.value.addCommand(
+    monaco.KeyCode.Space,
+    () => pageBy(1),
+    'editorTextFocus && editorReadonly'
+  )
+  editor.value.addCommand(
+    monaco.KeyMod.Shift | monaco.KeyCode.Space,
+    () => pageBy(-1),
+    'editorTextFocus && editorReadonly'
+  )
 
   // 窗口级兜底（焦点在编辑器外时）
   window.addEventListener('keydown', onWindowKeydown)
@@ -272,6 +299,57 @@ async function runTidy(): Promise<void> {
   if (position) instance.setPosition(position)
   showStatusMessage('已整理完成，可用撤销恢复', 5000)
 }
+
+/**
+ * 回车换行（方案 §3.3）：普通回车沿用当前行行首缩进，没有缩进时补两个全角空格；
+ * Shift+回车只换行。缩进字符与 Python `_INDENT_CHARS` 一致：半角空格 / 制表符 / 全角空格。
+ */
+function insertNewline(withIndent: boolean): void {
+  const instance = editor.value
+  const model = instance?.getModel()
+  const selection = instance?.getSelection()
+  if (!instance || !model || !selection) return
+  if (instance.getOption(monaco.editor.EditorOption.readOnly)) return
+  let text = '\n'
+  if (withIndent) {
+    const lineNumber = instance.getPosition()?.lineNumber ?? selection.positionLineNumber
+    const line = model.getLineContent(lineNumber)
+    const indent = /^[ \t\u3000]*/.exec(line)?.[0] ?? ''
+    text += indent || '\u3000\u3000'
+  }
+  instance.pushUndoStop()
+  instance.executeEdits('yueduo.newline', [{ range: selection, text, forceMoveMarkers: true }])
+  instance.pushUndoStop()
+}
+
+/**
+ * 翻页（方案 §3.3，同 Python `_page`）：按当前视口可见行数整页滚动，
+ * 目标行置于顶部并把光标带过去；Shift+空格向上。
+ */
+function pageBy(direction: 1 | -1): void {
+  const instance = editor.value
+  const model = instance?.getModel()
+  if (!instance || !model) return
+  const ranges = instance.getVisibleRanges()
+  if (!ranges.length) return
+  const top = ranges[0].startLineNumber
+  const bottom = ranges[ranges.length - 1].endLineNumber
+  const pageLines = Math.max(1, bottom - top)
+  const target = Math.max(1, Math.min(model.getLineCount(), top + direction * pageLines))
+  // 目标行贴顶（同 Python 把滚动条设到该行），而不是只滚到「刚好可见」
+  instance.setScrollTop(instance.getTopForLineNumber(target), monaco.editor.ScrollType.Immediate)
+  instance.setPosition({ lineNumber: target, column: 1 })
+  showStatusMessage(`阅读到第 ${target} 行`, 2000)
+}
+
+// 锁定阅读（方案 §3.3）：只关闭输入，保留光标与滚动；锁定时焦点交还正文，空格才能翻页
+watch(
+  () => reader.locked,
+  (locked) => {
+    editor.value?.updateOptions({ readOnly: locked })
+    if (locked) editor.value?.focus()
+  }
+)
 
 // activeTabId 变化 → setModel + restoreViewState（model 缺失时走 LRU 重载）
 watch(

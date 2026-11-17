@@ -27,6 +27,7 @@ import {
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
+import { useReaderStore } from '@/stores/reader'
 import type { ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
@@ -36,11 +37,18 @@ const palette = useCommandPalette()
 const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
+const reader = useReaderStore()
 const status = ref('未打开')
 const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
-// Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）
+// Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）；
+// Cmd+L 锁定阅读（方案 §3.3，同 Python 视图菜单的 Ctrl+L）
 function onWindowKeydown(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
+    e.preventDefault()
+    if (!e.repeat) reader.toggle()
+    return
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
     e.preventDefault()
     e.stopPropagation()

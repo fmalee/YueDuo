@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
+import { useReaderStore } from '@/stores/reader'
 import { statusMetrics } from '@/composables/useStatusMetrics'
-import { statusMessage } from '@/composables/useStatusMessage'
+import { showStatusMessage, statusMessage } from '@/composables/useStatusMessage'
 
 /** 状态栏（方案 §1.10）：文件名 / 完整路径（中间省略，tooltip 全路径）/ 编码 / 字数 / 行 x / y */
 const store = useTabsStore()
+const reader = useReaderStore()
 const tab = computed(() => store.activeTab)
+
+/** 锁定阅读（方案 §3.3）：文案与 Python 一致；状态变化只在这里提示一次 */
+watch(
+  () => reader.locked,
+  (locked) =>
+    showStatusMessage(
+      locked ? '已锁定，空格向下翻页，Shift+空格向上翻页' : '已解锁，可继续编辑',
+      4000
+    )
+)
 
 /** 路径拆成目录 + 文件名：目录部分可收缩省略，文件名始终完整（即视觉上的中间省略） */
 const pathParts = computed(() => {
@@ -33,6 +45,16 @@ const encoding = computed(() => tab.value?.encoding.toUpperCase() || '—')
       <span>{{ encoding }}</span>
       <span>字数 {{ statusMetrics.charCount.toLocaleString() }}</span>
       <span>行 {{ statusMetrics.cursorLine }} / {{ statusMetrics.lineCount }}</span>
+      <span v-if="reader.locked" class="lock-hint">已锁定 · 空格翻页</span>
+      <button
+        class="lock-button"
+        :class="{ checked: reader.locked }"
+        :aria-pressed="reader.locked"
+        title="锁定后只能翻页：空格向下、Shift+空格向上；Cmd+L 是同一开关"
+        @click="reader.toggle()"
+      >
+        锁定阅读
+      </button>
     </div>
   </footer>
 </template>
@@ -84,5 +106,29 @@ const encoding = computed(() => tab.value?.encoding.toUpperCase() || '—')
 }
 .message {
   color: var(--yd-accent);
+}
+.lock-hint {
+  color: var(--yd-accent);
+  flex: none;
+}
+.lock-button {
+  flex: none;
+  height: var(--yd-status-lock-height);
+  padding: 0 var(--yd-status-lock-padding-x);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-status-lock-radius);
+  background: transparent;
+  box-shadow: 0 1px 2px var(--yd-shadow);
+  color: var(--yd-text-2);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+.lock-button:hover {
+  background: var(--yd-hover-1);
+}
+.lock-button.checked {
+  background: var(--yd-active-1);
+  color: var(--yd-text-1);
 }
 </style>

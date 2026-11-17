@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
+import { useReaderStore } from '@/stores/reader'
 import { useMetadataEdit } from '@/composables/useMetadataEdit'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
 import { getTabModel } from '@/composables/useTabLifecycle'
@@ -35,6 +36,7 @@ const HEAD_LINES = 10
 
 const store = useTabsStore()
 const library = useLibraryStore()
+const reader = useReaderStore()
 const { applyMetadataField } = useMetadataEdit()
 
 const title = ref('')
@@ -170,6 +172,14 @@ watch(
 
 onBeforeUnmount(() => detachActiveModel())
 
+// 锁定阅读（方案 §3.3，同 Python metadata_bar.set_locked）：正文只读时元数据也不可编辑
+watch(
+  () => reader.locked,
+  (locked) => {
+    if (locked) editing.value = null
+  }
+)
+
 function display(field: EditableField): string {
   if (field === 'title') return title.value
   if (field === 'author') return author.value
@@ -177,6 +187,7 @@ function display(field: EditableField): string {
 }
 
 function startEdit(field: EditableField): void {
+  if (reader.locked) return
   draft.value = display(field)
   editing.value = field
   void nextTick(() => {
@@ -208,7 +219,7 @@ async function commitEdit(field: EditableField): Promise<void> {
 /** 评分：同一链路写库 + Finder 星级；再点同分由 2.5 的手势判定清零 */
 function clickStar(star: number): void {
   const id = bookId.value
-  if (id === null) return
+  if (id === null || reader.locked) return
   const next = resolveRatingClick(`metadata-bar:${id}`, rating.value, star)
   rating.value = next
   void library.setBookRating(id, next)
@@ -216,7 +227,12 @@ function clickStar(star: number): void {
 </script>
 
 <template>
-  <div v-if="store.activeTab?.path" ref="barEl" class="metadata-bar">
+  <div
+    v-if="store.activeTab?.path"
+    ref="barEl"
+    class="metadata-bar"
+    :class="{ locked: reader.locked }"
+  >
     <div v-for="field in FIELDS" :key="field" class="meta-field" :class="field">
       <span class="meta-label">{{ LABELS[field] }}</span>
       <input
@@ -240,15 +256,21 @@ function clickStar(star: number): void {
     </div>
     <div
       class="meta-rating"
-      :class="{ disabled: bookId === null }"
+      :class="{ disabled: bookId === null || reader.locked }"
       :title="
-        bookId === null
-          ? '这本书不在当前书库中，评分只对库内书籍开放'
-          : '点第几颗星就是几分；隔一会儿再点同一分数可取消'
+        reader.locked
+          ? '已锁定，解锁后可编辑'
+          : bookId === null
+            ? '这本书不在当前书库中，评分只对库内书籍开放'
+            : '点第几颗星就是几分；隔一会儿再点同一分数可取消'
       "
     >
       <span class="meta-label">评分</span>
-      <StarRating :value="rating" :readonly="bookId === null" @select="clickStar" />
+      <StarRating
+        :value="rating"
+        :readonly="bookId === null || reader.locked"
+        @select="clickStar"
+      />
     </div>
   </div>
 </template>
@@ -300,6 +322,13 @@ function clickStar(star: number): void {
 }
 .meta-value:hover {
   background: var(--yd-hover-1);
+}
+.metadata-bar.locked .meta-value {
+  color: var(--yd-text-3);
+  cursor: default;
+}
+.metadata-bar.locked .meta-value:hover {
+  background: transparent;
 }
 .meta-input {
   border-color: var(--yd-border-1);
