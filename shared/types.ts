@@ -261,6 +261,22 @@ export interface MetadataEditResult {
   metadata: ParsedMetadata
 }
 
+/** 文本转换结果（方案 §3.2：全角转半角/简转繁/繁转简共用） */
+export interface ConvertResult {
+  text: string
+  /** 因一字多义而保留原字的位置数（宽度转换恒为 0） */
+  kept: number
+  /** 命中保护词而整词保留的次数 */
+  keptWords: number
+}
+
+/** 一键整理结果（方案 §3.2：转换计数供状态栏说明，text 为整理后的全文） */
+export interface TidyResult {
+  text: string
+  convertKept: number
+  convertKeptWords: number
+}
+
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 

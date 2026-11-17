@@ -2,6 +2,7 @@ import type {
   AppSettings,
   BookmarkInfo,
   ChapterInfo,
+  ConvertResult,
   DraftEntry,
   DraftTabMeta,
   FileReadResult,
@@ -22,7 +23,8 @@ import type {
   ParsedMetadata,
   SessionRestore,
   SessionSnapshot,
-  ThemeChanged
+  ThemeChanged,
+  TidyResult
 } from '../../shared/types'
 
 declare global {
@@ -231,8 +233,9 @@ export function metaReadMetadata(path: string): Promise<ParsedMetadata> {
   return ipcInvoke<ParsedMetadata>('meta:read', path)
 }
 
-/** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */
-export function libraryChapters(path: string): Promise<ChapterInfo[]> {
+/** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */ export function libraryChapters(
+  path: string
+): Promise<ChapterInfo[]> {
   return ipcInvoke<ChapterInfo[]>('library:chapters', path)
 }
 
@@ -273,4 +276,24 @@ export function onLibraryScanProgress(
   callback: (payload: LibraryScanProgress) => void
 ): () => void {
   return window.yue.onLibraryScanProgress(callback)
+}
+
+/** convert:toHalfwidth —— 全角字母/数字/加减号转半角（方案 §3.2，选区优先由调用方切范围） */
+export function convertToHalfwidth(text: string): Promise<ConvertResult> {
+  return ipcInvoke<ConvertResult>('convert:toHalfwidth', text)
+}
+
+/** convert:toTraditional —— 简转繁（标准字形，保护词与多义字策略在主进程） */
+export function convertToTraditional(text: string): Promise<ConvertResult> {
+  return ipcInvoke<ConvertResult>('convert:toTraditional', text)
+}
+
+/** convert:toSimplified —— 繁转简（标准字形） */
+export function convertToSimplified(text: string): Promise<ConvertResult> {
+  return ipcInvoke<ConvertResult>('convert:toSimplified', text)
+}
+
+/** convert:tidy —— 一键整理全文（固定五步顺序，返回转换保留项计数供状态栏提示） */
+export function convertTidy(text: string): Promise<TidyResult> {
+  return ipcInvoke<TidyResult>('convert:tidy', text)
 }

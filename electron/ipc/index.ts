@@ -37,6 +37,7 @@ import {
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
 import { applyMetadataEdit, readMetadata } from './meta'
+import { convertHalfwidth, convertSimplified, convertTraditional, tidyDocument } from './convert'
 import type { AppSettings, DraftTabMeta } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
@@ -103,6 +104,11 @@ export function registerIpcHandlers(): void {
   )
   // 元数据栏首屏（方案 §2.9）：库外文件按磁盘正文解析
   handle('meta:read', (path: unknown) => readMetadata(path))
+  // 文本转换（方案 §3.2）：右键「转换」组与一键整理，选区/整文范围由渲染层决定
+  handle('convert:toHalfwidth', (text: unknown) => convertHalfwidth(String(text ?? '')))
+  handle('convert:toTraditional', (text: unknown) => convertTraditional(String(text ?? '')))
+  handle('convert:toSimplified', (text: unknown) => convertSimplified(String(text ?? '')))
+  handle('convert:tidy', (text: unknown) => tidyDocument(String(text ?? '')))
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；

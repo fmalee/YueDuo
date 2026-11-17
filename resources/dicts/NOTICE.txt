@@ -1,0 +1,18 @@
+简繁转换词表来源
+================
+
+本目录下的四张词表取自 Open Chinese Convert (OpenCC)：
+https://github.com/BYVoid/OpenCC
+路径 data/dictionary/，下载日期 2026-11-15，许可证见同目录 LICENSE（Apache-2.0）。
+
+文件用途
+--------
+st_characters.txt  简体字 → 繁体字候选（源字<TAB>候选1 候选2 …）
+ts_characters.txt  繁体字 → 简体字候选
+st_phrases.txt     简体词组 → 繁体词组（最长匹配优先）
+ts_phrases.txt     繁体词组 → 简体词组
+keep.txt           本应用自定义的保护词，整词原样跳过
+ambiguous.txt      本应用自定义的多义字，单字保留不转换（如干、发、后）
+
+词表为纯文本，可直接按行增删；程序启动时加载并缓存，改完重启应用生效。
+单字表里一行有多个候选的字属于「一对多」，程序按保守策略保留原字不转换。

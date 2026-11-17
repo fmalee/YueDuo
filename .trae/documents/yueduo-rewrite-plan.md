@@ -173,7 +173,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
   - 高亮：`createDecorationsCollection` 标记全部匹配（当前项高亮更强；匹配数 > 5000 时仅标可视区附近）
   - **常用正则下拉**：纯 Vue 组件（规则从 Python `tidy_rules.py` 迁移：提取章节目录/多余空行/多个空格/非法字符/对话内容/全角字母数字等），选中即填入查找框（替换框一并填入规则自带 replacement），无私有 API、无轮询、无 DOM 定位 hack
   - 交互：Esc 关闭并返焦点编辑器；查找框改动实时刷新计数
-- [ ] **3.2** 简繁转换 + 一键整理：OpenCC 主进程服务；右键「转换」组（全角转半角/简转繁/繁转简，选区优先、可撤销）；一键整理固定顺序（UTF-16LE → 全角化 → 删段末不可见字符 → 繁转简 → 规则正则替换）
+- [x] **3.2** 简繁转换 + 一键整理：OpenCC 主进程服务；右键「转换」组（全角转半角/简转繁/繁转简，选区优先、可撤销）；一键整理固定顺序（UTF-16LE → 全角化 → 删段末不可见字符 → 繁转简 → 规则正则替换）。**已完成**：词表从 Python 项目 `assets/dicts` 原样复制到 `resources/dicts`（`asarUnpack: resources/**` 已覆盖打包），`electron/services/chineseConvert.ts` 按 Python `chinese_convert.py` 移植（保护词 → 词组最长匹配 → 单字 → 多义字保留计数，按码位建树/匹配），`textConvert.ts` 只转全角字母数字加减号，`tidy.ts` 五步顺序复用 `shared/findRules.ts` 的 blank_lines/illegal_chars（单一规则源）；IPC `convert:*` 四通道 + `EditorHost` 右键组（选区优先，无选区转全文，`executeEdits` 一次替换，`pushUndoStop` 保证 Cmd+Z 一次回退，切换/改动检测后放弃写回）；`scripts/test-convert.ts` 直接跑旧项目 Python 实现逐样本比对，并覆盖多义字/保护词/全角边界/五步顺序；CDP 验收覆盖右键菜单四项、全文繁转简 + dirty + 单次撤销、一键整理预期文本、选区优先与状态栏文案。**不新增依赖**（沿用旧项目 OpenCC 词表方案，未引入 opencc 包）。
 - [ ] **3.3** 正文操作：回车补两个全角空格 `U+3000`（Shift+回车只换行）、锁定阅读（空格翻页）
 - [ ] **3.4** 标签拖动排序：编辑器标签页左右拖动（VS Code 逻辑），拖动落点插入，`session_tabs.position` 同步
 - [ ] **3.5** 标签右键菜单：保存/关闭类复用文件菜单、重命名（同步磁盘与库身份）、删除移废纸篓（`shell.trashItem`）、Finder 显示（`shell.showItemInFolder`）

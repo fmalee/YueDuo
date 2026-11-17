@@ -33,6 +33,13 @@ import {
   trackBookmarkTab
 } from '@/composables/useBookmarkDrift'
 import { showStatusMessage } from '@/composables/useStatusMessage'
+import {
+  convertTidy,
+  convertToHalfwidth,
+  convertToSimplified,
+  convertToTraditional
+} from '@/ipc/bridge'
+import type { ConvertResult } from '../../shared/types'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -123,6 +130,40 @@ onMounted(() => {
     }
   })
 
+  // 右键「转换」组（方案 §3.2，同 Python contextMenuEvent）：有选区转选区，否则转全文，全部可撤销
+  editor.value.addAction({
+    id: 'yueduo.toHalfwidth',
+    label: '全角转半角',
+    contextMenuGroupId: 'convert',
+    contextMenuOrder: 1,
+    precondition: '!editorReadonly',
+    run: () => void runConvert(convertToHalfwidth)
+  })
+  editor.value.addAction({
+    id: 'yueduo.toTraditional',
+    label: '简转繁',
+    contextMenuGroupId: 'convert',
+    contextMenuOrder: 2,
+    precondition: '!editorReadonly',
+    run: () => void runConvert(convertToTraditional)
+  })
+  editor.value.addAction({
+    id: 'yueduo.toSimplified',
+    label: '繁转简',
+    contextMenuGroupId: 'convert',
+    contextMenuOrder: 3,
+    precondition: '!editorReadonly',
+    run: () => void runConvert(convertToSimplified)
+  })
+  editor.value.addAction({
+    id: 'yueduo.tidy',
+    label: '一键整理',
+    contextMenuGroupId: 'convert',
+    contextMenuOrder: 4,
+    precondition: '!editorReadonly',
+    run: () => void runTidy()
+  })
+
   // Cmd+S 保存（编辑器焦点内；命令随 editor 实例生命周期销毁）
   editor.value.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
     void saveActive(editor.value)
@@ -141,6 +182,95 @@ function onWindowKeydown(e: KeyboardEvent): void {
     e.preventDefault()
     void saveActive(editor.value)
   }
+}
+
+/** 简繁转换的保留项说明（Python ConvertResult.note 同款文案） */
+function conversionNote(result: ConvertResult): string {
+  const parts: string[] = []
+  if (result.kept) parts.push(`保留 ${result.kept} 处多义字`)
+  if (result.keptWords) parts.push(`保护词 ${result.keptWords} 处`)
+  return parts.join('，')
+}
+
+/**
+ * 转换类动作（方案 §3.2）：有选区就转选区，否则转全文；一次 executeEdits 应用，可用撤销恢复。
+ * 等主进程返回期间标签可能已切换、正文可能被改，写回前必须复核 model 与原文。
+ */
+async function runConvert(convert: (text: string) => Promise<ConvertResult>): Promise<void> {
+  const instance = editor.value
+  const model = instance?.getModel()
+  if (!instance || !model) return
+  const selection = instance.getSelection()
+  const hasSelection = !!selection && !selection.isEmpty()
+  const range = hasSelection ? selection : model.getFullModelRange()
+  const original = model.getValueInRange(range)
+  if (!original.trim()) {
+    showStatusMessage(hasSelection ? '选区没有可转换的内容' : '全文没有可转换的内容')
+    return
+  }
+  let result: ConvertResult
+  try {
+    result = await convert(original)
+  } catch (e) {
+    showStatusMessage(`转换失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+    return
+  }
+  if (model.isDisposed() || instance.getModel() !== model) return
+  if (model.getValueInRange(range) !== original) {
+    showStatusMessage('转换期间文本已修改，结果未应用', 5000)
+    return
+  }
+  if (result.text === original) {
+    showStatusMessage(hasSelection ? '选区没有可转换的内容' : '全文没有可转换的内容')
+    return
+  }
+  const position = instance.getPosition()
+  instance.pushUndoStop()
+  instance.executeEdits('convert', [{ range, text: result.text }])
+  instance.pushUndoStop()
+  // 全文整体替换会把光标挤到末尾，转换后按原行列放回（setPosition 自动夹到正文范围内）
+  if (!hasSelection && position) instance.setPosition(position)
+  const note = conversionNote(result)
+  const scope = hasSelection ? '选区' : '全文'
+  showStatusMessage(`已转换${scope}，可用撤销恢复${note ? `；${note}` : ''}`, 5000)
+}
+
+/** 一键整理（方案 §3.2）：固定五步顺序在主进程完成，整篇一次替换、可撤销 */
+async function runTidy(): Promise<void> {
+  const instance = editor.value
+  const model = instance?.getModel()
+  if (!instance || !model) return
+  const original = model.getValue()
+  if (!original.trim()) {
+    showStatusMessage('当前文档为空，无需整理')
+    return
+  }
+  showStatusMessage('正在整理…', 60_000)
+  let result: Awaited<ReturnType<typeof convertTidy>>
+  try {
+    result = await convertTidy(original)
+  } catch (e) {
+    showStatusMessage(`整理失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+    return
+  }
+  if (model.isDisposed() || instance.getModel() !== model) {
+    showStatusMessage('文档已切换，整理结果未应用', 5000)
+    return
+  }
+  if (model.getValue() !== original) {
+    showStatusMessage('整理期间文本已修改，结果未应用', 5000)
+    return
+  }
+  if (result.text === original) {
+    showStatusMessage('文本无需整理')
+    return
+  }
+  const position = instance.getPosition()
+  instance.pushUndoStop()
+  instance.executeEdits('tidy', [{ range: model.getFullModelRange(), text: result.text }])
+  instance.pushUndoStop()
+  if (position) instance.setPosition(position)
+  showStatusMessage('已整理完成，可用撤销恢复', 5000)
 }
 
 // activeTabId 变化 → setModel + restoreViewState（model 缺失时走 LRU 重载）

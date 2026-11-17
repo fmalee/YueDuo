@@ -56,6 +56,18 @@ export const DEFAULT_FIND_RULES: readonly FindRule[] = [
   }
 ]
 
+/**
+ * 转换类规则：不在查找下拉里（Python 注释明确「转换类规则不放进查找下拉」），
+ * 供右键「全角转半角」使用；字符换算由 electron/services/textConvert.ts 完成。
+ */
+export const TO_HALFWIDTH_RULE: FindRule = {
+  key: 'to_halfwidth',
+  label: '全角转半角',
+  pattern: '[ａ-ｚＡ-Ｚ０-９＋－]',
+  description: '把全角字母、数字与加减号转为半角，保留全角空格与中文标点。',
+  replacement: null
+}
+
 /** 复制一份可变副本：默认值只读，落盘与请求都要独立对象，避免调用方改到共享常量 */
 export function cloneFindRules(rules: readonly FindRule[] = DEFAULT_FIND_RULES): FindRule[] {
   return rules.map((rule) => ({ ...rule }))
