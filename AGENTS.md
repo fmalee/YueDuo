@@ -74,6 +74,9 @@
 
 - 每写完一个文件立即 `npm run typecheck`（node + web），不要攒着跑；提交前跑 `npm run lint`。
 - 开发用 `npm run dev`；自动化验收用 `YUE_TEST=1 npm run dev`（不显窗、不进 Dock、不抢前台），`YUE_DEBUG=1` 开 CDP 9222，配 `scripts/cdp-eval.mjs` / `cdp-shot.mjs`。
+- 开发态（存在 `ELECTRON_RENDERER_URL`）`userData` 固定指向项目内 `.dev/user-data`（已 gitignore、不进包），打包版仍用系统默认；开发态未设书库时默认 `/Users/Joey/Sites/Projects/小说`，切到其它路径先弹确认（扫描会写 Finder 星级/注释），`YUE_TEST` 下不弹框。
+- `YUE_TEST=1` 时删除（移废纸篓）的确认框直接放行，避免自动化卡在原生对话框。
+- 打包只保留 Electron 语言包 en/zh_CN（`electronLanguages`）；better-sqlite3 只带当前架构 prebuild（现为 `darwin-x64`），出 arm64 包需补回 `darwin-arm64.node` 或按 arch 配置。
 - 单实例锁：已有实例时重复启动会静默退出（退出码 0），排查「起不来」先查这个。
 - Electron 45 在 macOS 从 `node_modules` 启动时 `app.isPackaged` 为 true、`is.dev` 不可信；dev/生产以 `ELECTRON_RENDERER_URL` 是否存在判定。
 - native 模块只看 Electron 进程内真实 `require` 与建表插查（`npm run verify:native`），不看 rebuild 输出；better-sqlite3 13.2 自带 N-API prebuild，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`；升级 Electron 后先查 `process.versions.modules`。
