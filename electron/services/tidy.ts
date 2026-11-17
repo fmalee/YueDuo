@@ -1,5 +1,5 @@
 import iconv from 'iconv-lite'
-import { DEFAULT_FIND_RULES } from '../../shared/findRules'
+import { DEFAULT_RULES } from '../../shared/findRules'
 import type { TidyResult } from '../../shared/types'
 import { toSimplified } from './chineseConvert'
 import { WORK_ENCODING } from './textCodec'
@@ -21,7 +21,7 @@ const TRAILING_INVISIBLE = /[ \t\u3000\x0b\x0c\u00a0\u200b-\u200f\ufeff]+$/gm
 /** 一键整理只执行显式开启 tidyEnabled 的规则（Python TIDY_RULES：多余空行 + 非法字符） */
 const TIDY_RULE_KEYS = ['blank_lines', 'illegal_chars'] as const
 const TIDY_RULES = TIDY_RULE_KEYS.map((key) => {
-  const rule = DEFAULT_FIND_RULES.find((item) => item.key === key)
+  const rule = DEFAULT_RULES.find((item) => item.key === key)
   if (!rule || rule.replacement === null) throw new Error(`缺少整理规则：${key}`)
   return { pattern: new RegExp(rule.pattern, 'gm'), replacement: rule.replacement }
 })

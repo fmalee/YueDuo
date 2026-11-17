@@ -8,7 +8,7 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH
 } from '../../shared/types'
-import { cloneFindRules, DEFAULT_FIND_RULES } from '../../shared/findRules'
+import { cloneRules, DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
 import type { AppSettings, ThemeMode } from '../../shared/types'
 
@@ -21,7 +21,7 @@ const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
 
 /** 默认设置的可变副本：数组字段不能把共享常量暴露给调用方 */
 function defaultSettings(): AppSettings {
-  return { ...DEFAULT_SETTINGS, findRules: cloneFindRules(DEFAULT_FIND_RULES) }
+  return { ...DEFAULT_SETTINGS, rules: cloneRules(DEFAULT_RULES) }
 }
 
 function settingsPath(dir: string): string {
@@ -35,26 +35,34 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
 }
 
 /**
- * 常用正则整组校验：条目由产品定义，任一条残缺就整组回落默认值，
- * 不做逐条 salvage（半份列表会让下拉框与旧项目对不上，更难排查）。
+ * 规则表整组校验：条目由产品定义，任一条残缺就整组回落默认值，
+ * 不做逐条 salvage（半份列表会让下拉与转换菜单对不上，更难排查）。
  */
-function normalizeFindRules(raw: unknown): FindRule[] {
-  if (!Array.isArray(raw) || raw.length === 0) return cloneFindRules(DEFAULT_FIND_RULES)
+function normalizeRules(raw: unknown): FindRule[] {
+  if (!Array.isArray(raw) || raw.length === 0) return cloneRules(DEFAULT_RULES)
   const rules: FindRule[] = []
   for (const item of raw) {
-    if (typeof item !== 'object' || item === null) return cloneFindRules(DEFAULT_FIND_RULES)
+    if (typeof item !== 'object' || item === null) return cloneRules(DEFAULT_RULES)
     const value = item as Record<string, unknown>
-    const { key, label, pattern, description, replacement } = value
+    const { key, label, pattern, description, replacement, searchEnabled } = value
     if (
       typeof key !== 'string' ||
       typeof label !== 'string' ||
       typeof pattern !== 'string' ||
       typeof description !== 'string' ||
-      (replacement !== null && typeof replacement !== 'string')
+      (replacement !== null && typeof replacement !== 'string') ||
+      typeof searchEnabled !== 'boolean'
     ) {
-      return cloneFindRules(DEFAULT_FIND_RULES)
+      return cloneRules(DEFAULT_RULES)
     }
-    rules.push({ key, label, pattern, description, replacement: replacement ?? null })
+    rules.push({
+      key,
+      label,
+      pattern,
+      description,
+      replacement: replacement ?? null,
+      searchEnabled
+    })
   }
   return rules
 }
@@ -88,7 +96,7 @@ function normalize(raw: unknown): AppSettings {
       typeof value.closeButtonAlwaysVisible === 'boolean'
         ? value.closeButtonAlwaysVisible
         : DEFAULT_SETTINGS.closeButtonAlwaysVisible,
-    findRules: normalizeFindRules(value.findRules)
+    rules: normalizeRules(value.rules)
   }
 }
 

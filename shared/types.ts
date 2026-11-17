@@ -1,4 +1,4 @@
-import { cloneFindRules, DEFAULT_FIND_RULES } from './findRules'
+import { cloneRules, DEFAULT_RULES } from './findRules'
 import type { FindRule } from './findRules'
 
 export type { FindRule }
@@ -292,8 +292,8 @@ export interface AppSettings {
   preloadCount: number
   /** 标签关闭按钮是否常驻（false = 仅 hover / 当前标签显示） */
   closeButtonAlwaysVisible: boolean
-  /** 查找框常用正则（阶段 3.1 的数据，随设置持久化；默认值见 shared/findRules.ts） */
-  findRules: FindRule[]
+  /** 查找/转换规则表（阶段 3.1 的数据，随设置持久化；searchEnabled 控制是否进查找下拉） */
+  rules: FindRule[]
 }
 
 /** 侧栏宽度约束（AGENTS.md 界面约定：拖拽夹 160–640） */
@@ -311,7 +311,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   libraryRoot: '',
   preloadCount: 10,
   closeButtonAlwaysVisible: true,
-  findRules: cloneFindRules(DEFAULT_FIND_RULES)
+  rules: cloneRules(DEFAULT_RULES)
 }
 
 /** 当前生效主题（主进程 nativeTheme 判定后推给渲染层，方案 §1.10） */
