@@ -191,7 +191,11 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
   - **语言资源精简**：`electron-builder.yml` 剔除 `monaco-editor/dev|min/vs/nls/lang/*`（AMD 分发形态，本项目不用）与 `esm/vs/nls/lang/` 下除 zh-cn 外的全部语言；打包 asar 内 `nls/lang` 只剩 `zh-cn.js`。
   - **顶部菜单**：新增 `electron/menu.ts`，用 `Menu.buildFromTemplate` 自建中文模板（文件/编辑/显示/窗口/帮助，macOS 含应用菜单）；行为全部走 `role`（加速键不变），label 显式中文，未给 label 的 role 项由 Electron 回落英文。验收：菜单栏显示「文件 编辑 显示 窗口 帮助」，编辑子项「撤消/恢复/剪切/复制/粘贴」为中文。
   - **口径**：Monaco NLS 与 Electron 原生菜单是两套机制，前者靠全局消息表，后者靠独立模板，互不影响；后续新增菜单项同样在 `electron/menu.ts` 里写中文 label。
-- [ ] **3.9** 打包体积盘点（**3.6 验收之后**再做）：按产物实际占用裁剪，先量再砍。重点三块：Electron 自带语言包（`*.lproj`）、Monaco 未使用的语言特性与 worker、better-sqlite3 非目标平台的预编译产物；先记录 asar/安装包体积与各项占比，再决定剔哪些，不凭猜测先删。
+- [x] **3.9** 打包体积盘点（**3.6 验收之后**再做）：按产物实际占用裁剪，先量再砍。重点三块：Electron 自带语言包（`*.lproj`）、Monaco 未使用的语言特性与 worker、better-sqlite3 非目标平台的预编译产物；先记录 asar/安装包体积与各项占比，再决定剔哪些，不凭猜测先删。
+  - **裁剪前实测**：`.app` 495M、dmg 171M、zip 166M；`app.asar` 203M（`.dev` 98M、monaco-editor 93M、renderer-only 依赖约 2.8M、`out` 11M、`public/test` 4.9M、其余约 0.3M），`app.asar.unpacked` 28M（better-sqlite3：7 平台 prebuild 17M + sqlite3 源码 `deps` 9.9M），Framework 内语言包 60 个约 17.7M；`resources.pak` 13M、`icudtl.dat` 10M 属 Chromium 固定开销，不做处理。
+  - **裁剪项（1–6 全做）**：排除 `.dev`（开发态 userData，Chromium 缓存 98M，且含开发库路径/草稿）、`.trae`、`2026-11-17`、`AGENTS.md`、`scripts`、`electron`、`shared` 等非运行文件；整包排除 `node_modules/monaco-editor`（renderer 已由 Vite 打包）与 `dompurify/marked/pinia`；排除 `public/test` 与 `out/renderer/test` 两份测试书；`electronLanguages: [en, zh_CN]` 剔除 Framework 其余 `.lproj`；better-sqlite3 去掉 `deps/src`，prebuild 只留 `darwin-x64.node`。
+  - **裁剪后实测**：`.app` 266M（−229M，−46%）、dmg 122M（−49M，−29%）、zip 118M（−48M，−29%）；`app.asar` 7.3M、`app.asar.unpacked` 3.2M，asar 顶层只剩 `out/`、`resources/`、`package.json` 与主进程运行依赖；Framework 语言包 60 → 12 个（en/zh_CN 及变体），Framework 257M → 248M。
+  - **验收**：裁剪后的包用隔离 userData 指向既有测试库启动，`library:current` 正常、`allBooks` 读出书目、`file:readText` 正确返回 UTF-8 正文，`native:sanity` 报告 better-sqlite3 13.2.0 加载执行正常（Electron 45.3.3 / ABI 150）；图标与 Finder 显示正常；用户已验收通过。注意：当前仅带 `darwin-x64` prebuild，将来出 arm64 包需把 `darwin-arm64.node` 加回（或按 arch 配置）。
 
 ## 六、验证方式
 
