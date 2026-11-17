@@ -14,6 +14,7 @@ export const LIGHT_COLORS = {
   'text-1': '#333333',
   'text-2': '#4a3f2f',
   'text-3': '#8a7f6e',
+  accent: '#b07d2b', // 星级等强调色
   cursor: '#4a3f2f',
   selection: '#e6dcc9'
 }
@@ -31,6 +32,7 @@ export const DARK_COLORS: ThemeColors = {
   'text-1': '#d9d3c7',
   'text-2': '#e8e2d5',
   'text-3': '#9b9384',
+  accent: '#d8ab55',
   cursor: '#e8e2d5',
   selection: '#4a4233'
 }
@@ -45,7 +47,18 @@ export const METRICS = {
   sidebarFontSize: 13,
   sidebarItemHeight: 26,
   sidebarPaddingX: 10,
-  sidebarGap: 8
+  sidebarGap: 8,
+  // 左栏六页与书库列表（方案 §2.5）
+  sidebarTabFontSize: 12,
+  sidebarTabPaddingY: 3,
+  sidebarTabPaddingX: 5,
+  panelPadding: 8,
+  panelGap: 6,
+  libraryRowHeight: 38,
+  librarySmallFontSize: 11,
+  libraryIndent: 12,
+  libraryCountWidth: 48,
+  starSize: 13
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -70,5 +83,15 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-sidebar-item-height', `${METRICS.sidebarItemHeight}px`)
   root.style.setProperty('--yd-sidebar-padding-x', `${METRICS.sidebarPaddingX}px`)
   root.style.setProperty('--yd-sidebar-gap', `${METRICS.sidebarGap}px`)
+  root.style.setProperty('--yd-sidebar-tab-font-size', `${METRICS.sidebarTabFontSize}px`)
+  root.style.setProperty('--yd-sidebar-tab-padding-y', `${METRICS.sidebarTabPaddingY}px`)
+  root.style.setProperty('--yd-sidebar-tab-padding-x', `${METRICS.sidebarTabPaddingX}px`)
+  root.style.setProperty('--yd-panel-padding', `${METRICS.panelPadding}px`)
+  root.style.setProperty('--yd-panel-gap', `${METRICS.panelGap}px`)
+  root.style.setProperty('--yd-library-row-height', `${METRICS.libraryRowHeight}px`)
+  root.style.setProperty('--yd-library-small-font-size', `${METRICS.librarySmallFontSize}px`)
+  root.style.setProperty('--yd-library-indent', `${METRICS.libraryIndent}px`)
+  root.style.setProperty('--yd-library-count-width', `${METRICS.libraryCountWidth}px`)
+  root.style.setProperty('--yd-star-size', `${METRICS.starSize}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

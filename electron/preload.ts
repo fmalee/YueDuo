@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { IpcResult, ThemeChanged } from '../shared/types'
+import type { IpcResult, LibraryScanProgress, ThemeChanged } from '../shared/types'
 
 /** preload 与主进程保持一致的域前缀白名单 */
 const DOMAINS = [
@@ -40,4 +40,19 @@ function onSessionFlush(callback: () => void): () => void {
   }
 }
 
-contextBridge.exposeInMainWorld('yue', { invoke, onThemeUpdated, onSessionFlush })
+/** 书库扫描进度：固定通道名，enrich 每 10 个文件推送一次 */
+function onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: LibraryScanProgress): void =>
+    callback(payload)
+  ipcRenderer.on('library:scanProgress', listener)
+  return (): void => {
+    ipcRenderer.removeListener('library:scanProgress', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('yue', {
+  invoke,
+  onThemeUpdated,
+  onSessionFlush,
+  onLibraryScanProgress
+})

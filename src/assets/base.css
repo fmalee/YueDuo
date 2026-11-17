@@ -23,3 +23,46 @@ button {
   font: inherit;
   cursor: pointer;
 }
+
+/* 左栏书库页共用骨架（方案 §2.5：历史/追更/标签/评分/书架同一套面板/底栏/空态） */
+.yd-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.yd-panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.yd-panel-footer {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--yd-panel-gap);
+  padding: 4px var(--yd-panel-padding);
+  font-size: var(--yd-library-small-font-size);
+  color: var(--yd-text-3);
+}
+.yd-text-button {
+  flex: none;
+  padding: 2px 5px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--yd-text-3);
+  font-size: var(--yd-library-small-font-size);
+}
+.yd-text-button:hover {
+  background: var(--yd-hover-1);
+  color: var(--yd-text-1);
+}
+.yd-sidebar-empty {
+  padding: var(--yd-panel-padding);
+  color: var(--yd-text-3);
+  font-size: var(--yd-sidebar-font-size);
+  line-height: 1.5;
+}

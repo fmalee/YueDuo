@@ -21,6 +21,7 @@ import {
 } from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
+import { useLibraryStore } from '@/stores/library'
 import type { ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
@@ -28,6 +29,7 @@ const { openFile, newBlankTab, activateTab } = useTabs()
 const { saveActive } = useEditorCommands()
 const store = useTabsStore()
 const settings = useSettingsStore()
+const library = useLibraryStore()
 const status = ref('未打开')
 const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
@@ -44,12 +46,13 @@ function onAppearanceChange(e: Event): void {
   void settings.setAppearance((e.target as HTMLSelectElement).value as ThemeMode)
 }
 
-/** 书库根目录（方案 §1.9）：本次只做选择与持久化，阶段 2 起作为书库根消费 */
+/** 书库根目录（方案 §1.9）：选择后持久化，并立即作为活动书库打开（§2.5） */
 async function pickLibrary(): Promise<void> {
   try {
     const root = await chooseLibrary()
     if (!root) return
     await settings.setLibraryRoot(root)
+    await library.open(root)
     status.value = `书库根目录：${root}`
   } catch (e) {
     status.value = `选择书库失败：${String(e)}`
@@ -130,6 +133,12 @@ onMounted(async () => {
   } catch (e) {
     console.error('[session] 恢复会话失败:', e)
   }
+  // 书库（方案 §2.5）：按设置里的根打开，列表秒读库、元数据后台补
+  try {
+    await library.init()
+  } catch (e) {
+    console.error('[library] 打开书库失败:', e)
+  }
   if (new URLSearchParams(location.search).get('auto') === '1') {
     Object.assign(globalThis, {
       __yueTest: {
@@ -182,7 +191,25 @@ onMounted(async () => {
         settingsState: () => settings.snapshot(),
         setLibraryRoot: (root: string) => settings.setLibraryRoot(root),
         setPreloadCount: (count: number) => settings.setPreloadCount(count),
-        setSidebarWidth: (width: number) => settings.setSidebarWidth(width)
+        setSidebarWidth: (width: number) => settings.setSidebarWidth(width),
+        // 书库验收通道（方案 §2.5）：四类列表 + 标签下钻 + 评分筛选状态
+        libraryState: () => ({
+          root: library.root,
+          scanning: library.scanning,
+          scanned: library.scanned,
+          lastEnrich: library.lastEnrich,
+          error: library.error,
+          history: library.history.map((b) => b.title),
+          following: library.following.map((b) => b.title),
+          tags: library.tags.map((t) => `${t.name}:${t.count}:${t.rating}`),
+          activeTag: library.activeTag,
+          tagBooks: library.tagBooks.map((b) => b.title),
+          ratingFilter: library.ratingFilter,
+          rated: library.rated.map((b) => b.title)
+        }),
+        openLibraryRoot: (root: string) => library.open(root),
+        libraryRefresh: () => library.refreshLists(),
+        libraryEnrich: () => library.enrich()
       }
     })
     openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')

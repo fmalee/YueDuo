@@ -143,6 +143,48 @@ export interface LibraryScanResult {
   books: ScannedBook[]
 }
 
+/** library:open 返回：书库根统一 realpath 后的路径 */
+export interface LibraryOpenResult {
+  root: string
+}
+
+/** 书库书籍记录（方案 §2.5：历史/追更/标签/评分共用；path 已拼成绝对路径便于直接打开） */
+export interface LibraryBook {
+  id: number
+  /** 相对书库根、POSIX 分隔（方案 §四） */
+  relativePath: string
+  /** 绝对路径 = 书库根 + relativePath */
+  path: string
+  filename: string
+  title: string
+  author: string
+  tags: string[]
+  rating: number
+  wordCount: number
+  progressLine: number
+  /** 最近阅读时间（ms；0 = 未读，2.11 起写入） */
+  lastReadAt: number
+}
+
+/** 标签页一行的三列：名称 / 书目数量 / 标签评分（方案 §2.5） */
+export interface LibraryTagSummary {
+  name: string
+  count: number
+  rating: number
+}
+
+/** library:enrich 结果：扫描 + 对账摘要（UI 状态行/日志用） */
+export interface LibraryEnrichResult {
+  total: number
+  skipped: number
+  /** 对账识别出的移动数 */
+  moved: number
+  /** 本轮零匹配挂起数 */
+  pending: number
+  /** 达到阈值删除的记录数 */
+  deleted: number
+}
+
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
@@ -189,4 +231,6 @@ export interface YueBridge {
   onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
   /** 订阅退出/关窗前的会话落盘请求（返回取消订阅）；渲染层保存完成后回 session:flushDone */
   onSessionFlush(callback: () => void): () => void
+  /** 订阅书库扫描进度（方案 §2.5：enrich 每 10 个文件推送一次，返回取消订阅） */
+  onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void
 }

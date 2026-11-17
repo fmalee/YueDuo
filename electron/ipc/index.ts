@@ -9,6 +9,17 @@ import {
   fileClearDraft
 } from './file'
 import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
+import {
+  enrichLibrary,
+  fastScanLibrary,
+  libraryBooksByTag,
+  libraryFollowing,
+  libraryHistory,
+  libraryRated,
+  librarySetTagRating,
+  libraryTags,
+  openLibrary
+} from './library'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
 import type { AppSettings, DraftTabMeta } from '../../shared/types'
@@ -34,6 +45,18 @@ export function registerIpcHandlers(): void {
   handle('dialog:confirmClose', (title: unknown) => confirmClose(String(title)))
   handle('dialog:saveFile', (name: unknown) => chooseSaveFile(String(name)))
   handle('dialog:chooseLibrary', () => chooseLibrary())
+  // 书库（方案 §2.5）：打开/惰性目录树/后台补元数据/四类列表查询
+  handle('library:open', (root: unknown) => openLibrary(root))
+  handle('library:fastScan', (relativeDir: unknown) => fastScanLibrary(relativeDir))
+  handle('library:enrich', () => enrichLibrary())
+  handle('library:history', () => libraryHistory())
+  handle('library:following', () => libraryFollowing())
+  handle('library:tags', () => libraryTags())
+  handle('library:booksByTag', (tag: unknown) => libraryBooksByTag(tag))
+  handle('library:rated', (rating: unknown) => libraryRated(rating))
+  handle('library:setTagRating', (tag: unknown, rating: unknown) =>
+    librarySetTagRating(tag, rating)
+  )
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；

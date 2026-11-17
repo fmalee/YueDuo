@@ -5,6 +5,12 @@ import type {
   FileReadResult,
   FileStat,
   IpcResult,
+  LibraryBook,
+  LibraryEnrichResult,
+  LibraryEntry,
+  LibraryOpenResult,
+  LibraryScanProgress,
+  LibraryTagSummary,
   NativeSanity,
   SessionRestore,
   SessionSnapshot,
@@ -17,6 +23,7 @@ declare global {
       invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
       onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
       onSessionFlush(callback: () => void): () => void
+      onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void
     }
   }
 }
@@ -108,4 +115,56 @@ export function sessionFlushDone(): Promise<null> {
 /** 订阅退出/关窗前落盘请求（主进程 before-quit / 关窗时发） */
 export function onSessionFlush(callback: () => void): () => void {
   return window.yue.onSessionFlush(callback)
+}
+
+/** library:open —— 打开/切换书库根（realpath 归一，方案 §2.5） */
+export function libraryOpen(root: string): Promise<LibraryOpenResult> {
+  return ipcInvoke<LibraryOpenResult>('library:open', root)
+}
+
+/** library:fastScan —— 书架惰性树的一层目录（目录在前、TXT 在后） */
+export function libraryFastScan(relativeDir = ''): Promise<LibraryEntry[]> {
+  return ipcInvoke<LibraryEntry[]>('library:fastScan', relativeDir)
+}
+
+/** library:enrich —— 后台补元数据 + 对账，完成前进度经 onLibraryScanProgress 推送 */
+export function libraryEnrich(): Promise<LibraryEnrichResult> {
+  return ipcInvoke<LibraryEnrichResult>('library:enrich')
+}
+
+/** 历史：last_read_at 倒序（方案 §2.5） */
+export function libraryHistory(): Promise<LibraryBook[]> {
+  return ipcInvoke<LibraryBook[]>('library:history')
+}
+
+/** 追更：标签精确匹配「追更」 */
+export function libraryFollowing(): Promise<LibraryBook[]> {
+  return ipcInvoke<LibraryBook[]>('library:following')
+}
+
+/** 标签：名称/数量/标签评分三列 */
+export function libraryTags(): Promise<LibraryTagSummary[]> {
+  return ipcInvoke<LibraryTagSummary[]>('library:tags')
+}
+
+/** 某个标签下的书（精确匹配） */
+export function libraryBooksByTag(tag: string): Promise<LibraryBook[]> {
+  return ipcInvoke<LibraryBook[]>('library:booksByTag', tag)
+}
+
+/** 评分页：rating=null 取全部有评分的书（最多 100 本） */
+export function libraryRated(rating: number | null): Promise<LibraryBook[]> {
+  return ipcInvoke<LibraryBook[]>('library:rated', rating)
+}
+
+/** 标签评分：只写库，不写正文（0 分也落一行） */
+export function librarySetTagRating(tag: string, rating: number): Promise<number> {
+  return ipcInvoke<number>('library:setTagRating', tag, rating)
+}
+
+/** 订阅书库扫描进度 */
+export function onLibraryScanProgress(
+  callback: (payload: LibraryScanProgress) => void
+): () => void {
+  return window.yue.onLibraryScanProgress(callback)
 }
