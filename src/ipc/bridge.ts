@@ -18,6 +18,7 @@ import type {
   MetadataEditResult,
   MetadataField,
   NativeSanity,
+  ParsedMetadata,
   SessionRestore,
   SessionSnapshot,
   ThemeChanged
@@ -173,6 +174,11 @@ export function libraryMarkRead(path: string): Promise<number> {
   return ipcInvoke<number>('library:markRead', path)
 }
 
+/** library:bookByPath —— 元数据栏读取当前书的库记录（书名/作者/标签/评分与 id） */
+export function libraryBookByPath(path: string): Promise<LibraryBook | null> {
+  return ipcInvoke<LibraryBook | null>('library:bookByPath', path)
+}
+
 /** library:setBookRating —— 书籍评分：库内评分 + Finder 星级（xattr）一起写 */
 export function librarySetBookRating(id: number, rating: number): Promise<number> {
   return ipcInvoke<number>('library:setBookRating', id, rating)
@@ -194,6 +200,11 @@ export function metaApplyEdit(
   value: string
 ): Promise<MetadataEditResult> {
   return ipcInvoke<MetadataEditResult>('meta:applyEdit', path, text, field, value)
+}
+
+/** meta:read —— 元数据栏首屏：库外文件按磁盘正文解析书名/作者/标签 */
+export function metaReadMetadata(path: string): Promise<ParsedMetadata> {
+  return ipcInvoke<ParsedMetadata>('meta:read', path)
 }
 
 /** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */

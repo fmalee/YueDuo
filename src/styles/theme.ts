@@ -63,7 +63,16 @@ export const METRICS = {
   bookmarkRowHeight: 40,
   // 标签栏自绘横向滚动条：置顶细条，避开标签标题（原生滚动条在底部且过粗）
   tabScrollbarHeight: 3,
-  tabScrollbarMinThumbWidth: 24
+  tabScrollbarMinThumbWidth: 24,
+  // 元数据栏（方案 §2.9）：编辑器下方、状态栏上方的单行编辑条
+  metadataBarHeight: 30,
+  metadataPaddingX: 10,
+  metadataGap: 8,
+  metadataLabelGap: 4,
+  metadataFontSize: 12,
+  metadataInputPaddingY: 2,
+  metadataInputPaddingX: 6,
+  metadataRadius: 3
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -104,5 +113,13 @@ export function applyTheme(dark: boolean): void {
     '--yd-tab-scrollbar-min-thumb-width',
     `${METRICS.tabScrollbarMinThumbWidth}px`
   )
+  root.style.setProperty('--yd-metadata-bar-height', `${METRICS.metadataBarHeight}px`)
+  root.style.setProperty('--yd-metadata-padding-x', `${METRICS.metadataPaddingX}px`)
+  root.style.setProperty('--yd-metadata-gap', `${METRICS.metadataGap}px`)
+  root.style.setProperty('--yd-metadata-label-gap', `${METRICS.metadataLabelGap}px`)
+  root.style.setProperty('--yd-metadata-font-size', `${METRICS.metadataFontSize}px`)
+  root.style.setProperty('--yd-metadata-input-padding-y', `${METRICS.metadataInputPaddingY}px`)
+  root.style.setProperty('--yd-metadata-input-padding-x', `${METRICS.metadataInputPaddingX}px`)
+  root.style.setProperty('--yd-metadata-radius', `${METRICS.metadataRadius}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

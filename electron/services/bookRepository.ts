@@ -186,6 +186,17 @@ export function setBookRating(
   return { rating: value, relativePath: row?.relative_path ?? null }
 }
 
+/** 按相对路径取单本（方案 §2.9 元数据栏读取评分与展示字段；未入库返回 null） */
+export function findBookByRelativePath(
+  root: string,
+  relativePath: string,
+  db: Database.Database = getDatabase()
+): LibraryBook | null {
+  const row = db.prepare('SELECT * FROM books WHERE relative_path = ?').get(relativePath) as
+    BookRow | undefined
+  return row ? toBook(row, root) : null
+}
+
 /** 保存后回写当前文件的元数据（书名/作者/标签），不触发全库重扫 */
 export function updateBookMetadata(
   relativePath: string,

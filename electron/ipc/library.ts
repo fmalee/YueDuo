@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import { listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
 import {
+  findBookByRelativePath,
   listBooksByTag,
   listFollowing,
   listHistory,
@@ -132,6 +133,16 @@ export function librarySetTagRating(tag: unknown, rating: unknown): number {
 export function markBookRead(path: unknown): Promise<number> {
   if (typeof path !== 'string' || !path) return Promise.resolve(0)
   return markRead(requireRoot(), path)
+}
+
+/**
+ * 当前打开这本书的库记录（方案 §2.9）：元数据栏读取书名/作者/标签/评分与 book id。
+ * 不在活动书库内或尚未入库返回 null，评分入口随之禁用。
+ */
+export async function libraryBookByPath(path: unknown): Promise<LibraryBook | null> {
+  if (!activeRoot || typeof path !== 'string' || !path) return null
+  const relativePath = await relativeInLibrary(activeRoot, path)
+  return relativePath ? findBookByRelativePath(activeRoot, relativePath) : null
 }
 
 /**

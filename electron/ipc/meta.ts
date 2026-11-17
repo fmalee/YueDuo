@@ -1,10 +1,27 @@
+import { readFile } from 'fs/promises'
 import { basename, dirname } from 'path'
 import { parseMetadata, splitTags } from '../services/metadataParser'
+import { decodeBytes } from '../services/textCodec'
 import { applyTextEdit, rewriteHeader } from '../services/metadataWriter'
 import { syncBookMetadataFromText } from './library'
-import type { MetadataEditResult, MetadataField, MetadataTextEdit } from '../../shared/types'
+import type {
+  MetadataEditResult,
+  MetadataField,
+  MetadataTextEdit,
+  ParsedMetadata
+} from '../../shared/types'
 
 const FIELDS: MetadataField[] = ['title', 'author', 'tags']
+
+/**
+ * meta:read（方案 §2.9）：按磁盘正文解析元数据，供元数据栏首屏展示。
+ * 文件已在库内时元数据栏优先读库记录，这里只覆盖库外/尚未入库的文件。
+ */
+export async function readMetadata(path: unknown): Promise<ParsedMetadata> {
+  if (typeof path !== 'string' || !path) throw new Error('缺少文件路径')
+  const data = await readFile(path)
+  return parseMetadata(decodeBytes(data).text, basename(path), basename(dirname(path)))
+}
 
 /**
  * meta:applyEdit（方案 §2.8）：

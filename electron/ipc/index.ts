@@ -15,6 +15,7 @@ import {
   bookChapters,
   enrichLibrary,
   fastScanLibrary,
+  libraryBookByPath,
   libraryBooksByTag,
   libraryFollowing,
   libraryHistory,
@@ -31,7 +32,7 @@ import {
 } from './library'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
-import { applyMetadataEdit } from './meta'
+import { applyMetadataEdit, readMetadata } from './meta'
 import type { AppSettings, DraftTabMeta } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
@@ -63,6 +64,8 @@ export function registerIpcHandlers(): void {
   handle('library:following', () => libraryFollowing())
   handle('library:tags', () => libraryTags())
   handle('library:booksByTag', (tag: unknown) => libraryBooksByTag(tag))
+  // 元数据栏（方案 §2.9）：按当前路径取库记录（书名/作者/标签/评分）
+  handle('library:bookByPath', (path: unknown) => libraryBookByPath(path))
   handle('library:rated', (rating: unknown) => libraryRated(rating))
   handle('library:setTagRating', (tag: unknown, rating: unknown) =>
     librarySetTagRating(tag, rating)
@@ -89,6 +92,8 @@ export function registerIpcHandlers(): void {
   handle('meta:applyEdit', (path: unknown, text: unknown, field: unknown, value: unknown) =>
     applyMetadataEdit(path, text, field, value)
   )
+  // 元数据栏首屏（方案 §2.9）：库外文件按磁盘正文解析
+  handle('meta:read', (path: unknown) => readMetadata(path))
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；
