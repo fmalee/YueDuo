@@ -24,8 +24,7 @@ const MENU_HEIGHT = 72
 
 function openMenu(e: MouseEvent, tabId: string): void {
   e.preventDefault()
-  // 右键先激活该条（VS Code 行为），再弹菜单
-  activateTab(tabId)
+  // 右键只弹菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
   menu.value = {
     x: Math.min(e.clientX, window.innerWidth - MENU_WIDTH),
     y: Math.min(e.clientY, window.innerHeight - MENU_HEIGHT),

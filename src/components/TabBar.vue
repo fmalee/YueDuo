@@ -303,8 +303,7 @@ const renameInput = ref<HTMLInputElement>()
 
 function openTabMenu(e: MouseEvent, tabId: string): void {
   e.preventDefault()
-  // 右键即激活（VS Code 同款）：菜单动作与当前标签保持一致
-  activateTab(tabId)
+  // 右键只弹菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
   menu.value = {
     x: Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_WIDTH - 4)),
     y: Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_HEIGHT - 4)),
