@@ -137,7 +137,7 @@ export async function scanLibrary(
   `)
 
   const seen = new Set<string>()
-  const result: LibraryScanResult = { total: 0, skipped: 0 }
+  const result: LibraryScanResult = { total: 0, skipped: 0, books: [] }
   let realRoot: string
   try {
     realRoot = await realpath(root)
@@ -190,6 +190,14 @@ export async function scanLibrary(
       if (existing) updateBook.run({ ...params, id: existing.id })
       else insertBook.run({ ...params, now })
       result.total++
+      result.books.push({
+        relativePath,
+        filename: params.filename,
+        title: params.title,
+        wordCount: params.wordCount,
+        sizeBytes: params.sizeBytes,
+        inserted: !existing
+      })
       if (index % 10 === 0) options.onProgress?.({ scanned: index, path: resolved })
     } catch {
       result.skipped++ // 权限/删除/解码异常只跳过该文件

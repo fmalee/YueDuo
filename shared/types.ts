@@ -122,12 +122,25 @@ export interface LibraryScanProgress {
   path: string
 }
 
+/** 一次扫描命中的书目（对账用，方案 §2.3：移动识别与删除清理的判断依据） */
+export interface ScannedBook {
+  relativePath: string
+  filename: string
+  title: string
+  wordCount: number
+  sizeBytes: number
+  /** true = 本次扫描新插入的行（移动识别的候选）；false = 命中了已有记录 */
+  inserted: boolean
+}
+
 /** library:enrich 结果 */
 export interface LibraryScanResult {
   /** 本次成功解析入库的书数 */
   total: number
   /** 不可读或重复而跳过的文件数 */
   skipped: number
+  /** 本次命中的书目（对账输入；不经 IPC 暴露给渲染层） */
+  books: ScannedBook[]
 }
 
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
