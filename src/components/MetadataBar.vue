@@ -1,10 +1,14 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
 import { useMetadataEdit } from '@/composables/useMetadataEdit'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
+import { getTabModel } from '@/composables/useTabLifecycle'
+import { statusMetrics } from '@/composables/useStatusMetrics'
 import { libraryBookByPath, metaReadMetadata } from '@/ipc/bridge'
+import { monaco } from '@/monaco'
+import { parseMetadata } from '../../shared/metadataParser'
 import StarRating from './sidebar/StarRating.vue'
 import type { MetadataField, ParsedMetadata } from '../../shared/types'
 
@@ -12,6 +16,9 @@ import type { MetadataField, ParsedMetadata } from '../../shared/types'
  * 元数据栏（方案 §2.9）：编辑器下方、状态栏上方，编辑名称/作者/标签/评分四项。
  * 文本三项只走 useMetadataEdit（§2.8 写回链路：最小可撤销编辑、保留光标与 dirty）；
  * 评分只走 2.5 的 library.setBookRating（库内评分 + Finder 星级），不另开写入路径。
+ * 双向同步（§2.9/§2.10 补正）：正文前 10 行是基准，直接用 shared/metadataParser
+ * 在渲染层本地解析（与主进程同一份正则），只在头部真的变化时刷新；正在栏内编辑的
+ * 那一项以栏内草稿为准，刷新不触碰焦点。
  * 交互：点击进入编辑、回车提交上屏、失焦取消；星星沿用「再点同分清零」手势。
  */
 type EditableField = MetadataField
@@ -23,6 +30,8 @@ const PLACEHOLDERS: Record<EditableField, string> = {
   author: '作者',
   tags: '空格或逗号分隔'
 }
+/** 与主进程扫描同一切法：元数据只在前 10 行，不复制全文 */
+const HEAD_LINES = 10
 
 const store = useTabsStore()
 const library = useLibraryStore()
@@ -42,6 +51,11 @@ const barEl = ref<HTMLElement | null>(null)
 /** 标签页切换/连续提交时丢弃过期结果 */
 let loadGeneration = 0
 
+/** 当前挂上监听的 model 与上次头部文本（相同则不刷新栏位） */
+let attachedModel: monaco.editor.ITextModel | null = null
+let detachModel: monaco.IDisposable | null = null
+let lastHead = ''
+
 function assignMetadata(meta: Pick<ParsedMetadata, 'title' | 'author' | 'tags'>): void {
   title.value = meta.title
   author.value = meta.author
@@ -56,42 +70,105 @@ function clear(): void {
   bookId.value = null
 }
 
-/** 首屏：库内记录一次拿全（含评分）；库外/未入库回退按磁盘正文解析 */
+function fileName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
+}
+
+function dirName(path: string): string {
+  const parent = path.slice(0, path.lastIndexOf('/'))
+  return parent.slice(parent.lastIndexOf('/') + 1)
+}
+
+/** 正文前 10 行 → 本地解析；正在编辑的那一项保留栏内草稿（以栏内为准） */
+function applyTextMetadata(head: string): void {
+  const path = store.activeTab?.path
+  if (!path) return
+  const meta = parseMetadata(head, fileName(path), dirName(path))
+  if (editing.value !== 'title') title.value = meta.title
+  if (editing.value !== 'author') author.value = meta.author
+  if (editing.value !== 'tags') tags.value = meta.tags.join(' ')
+}
+
+function headText(model: monaco.editor.ITextModel): string {
+  const count = Math.min(HEAD_LINES, model.getLineCount())
+  const lines: string[] = []
+  for (let i = 1; i <= count; i++) lines.push(model.getLineContent(i))
+  return lines.join('\n')
+}
+
+/**
+ * 挂当前标签的 model 监听：切换/重载后 model 变了就重挂。
+ * 返回 false 表示暂时没有 model（调用方回退读盘解析）。
+ */
+function attachToActiveModel(): boolean {
+  const tab = store.activeTab
+  const model = tab?.path ? (getTabModel(tab.id)?.model ?? null) : null
+  if (model === attachedModel) return model !== null
+
+  detachModel?.dispose()
+  detachModel = null
+  attachedModel = model
+  if (!model) return false
+
+  lastHead = headText(model)
+  applyTextMetadata(lastHead)
+  detachModel = model.onDidChangeContent(() => {
+    if (attachedModel !== model) return
+    const head = headText(model)
+    if (head === lastHead) return
+    lastHead = head
+    applyTextMetadata(head)
+  })
+  return true
+}
+
+function detachActiveModel(): void {
+  detachModel?.dispose()
+  detachModel = null
+  attachedModel = null
+  lastHead = ''
+}
+
+/**
+ * 首屏：文本三项以编辑器正文为准（有 model 就在本地解析，不读盘也不走 IPC），
+ * 评分不在正文里，仍从库记录取；库外/尚未入库回退磁盘正文并禁用评分。
+ */
 async function load(): Promise<void> {
   const gen = ++loadGeneration
   editing.value = null
   const path = store.activeTab?.path ?? ''
   if (!path) {
     clear()
+    detachActiveModel()
     return
   }
-  try {
-    const book = await libraryBookByPath(path)
-    if (gen !== loadGeneration) return
-    if (book) {
-      bookId.value = book.id
-      rating.value = book.rating
-      assignMetadata(book)
-      return
+
+  if (!attachToActiveModel()) {
+    try {
+      const meta = await metaReadMetadata(path)
+      if (gen === loadGeneration) assignMetadata(meta)
+    } catch {
+      if (gen === loadGeneration) assignMetadata({ title: '', author: '', tags: [] })
     }
-  } catch {
-    // 书库尚未打开或查询失败：继续走读盘解析，不打扰阅读
   }
+
+  const book = await libraryBookByPath(path).catch(() => null)
   if (gen !== loadGeneration) return
-  bookId.value = null
-  rating.value = 0
-  try {
-    const meta = await metaReadMetadata(path)
-    if (gen !== loadGeneration) return
-    assignMetadata(meta)
-  } catch {
-    if (gen === loadGeneration) clear()
-  }
+  bookId.value = book?.id ?? null
+  rating.value = book?.rating ?? 0
 }
 
 watch([() => store.activeTabId, () => store.activeTab?.path], () => void load(), {
   immediate: true
 })
+
+// 标签从 LRU 重载回来时 model 才驻留：状态栏指标随 setModel 刷新，借此补挂监听
+watch(
+  () => [statusMetrics.lineCount, statusMetrics.charCount],
+  () => void attachToActiveModel()
+)
+
+onBeforeUnmount(() => detachActiveModel())
 
 function display(field: EditableField): string {
   if (field === 'title') return title.value
