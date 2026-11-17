@@ -158,9 +158,9 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  /* 与编辑器标签栏同高（--yd-tab-bar-height），列表首行和正文首行齐平 */
-  min-height: var(--yd-tab-bar-height);
-  padding: 0 var(--yd-panel-padding);
+  /* 对齐文字而非容器：页签行只按内容撑高（上下 3px 呼吸），整体下移让文字基线与标签栏齐平 */
+  margin-top: var(--yd-tab-row-offset-top);
+  padding: var(--yd-tab-row-padding-y) var(--yd-panel-padding);
   border-bottom: 1px solid var(--yd-border-1);
 }
 .sidebar-tab {
