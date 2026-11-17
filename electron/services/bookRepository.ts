@@ -57,6 +57,17 @@ function queryBooks(
   return (db.prepare(sql).all(...params) as BookRow[]).map((row) => toBook(row, root))
 }
 
+/** 快速检索快照：全量书目，最近读过的在前（方案 §2.12，对齐 Python list_all_books） */
+export function listAllBooks(root: string, db: Database.Database = getDatabase()): LibraryBook[] {
+  return queryBooks(
+    `SELECT * FROM books
+      ORDER BY (last_read_at = 0), last_read_at DESC, title`,
+    root,
+    [],
+    db
+  )
+}
+
 /** 历史：有阅读记录的书，按最近阅读时间倒序（方案 §2.5） */
 export function listHistory(root: string, db: Database.Database = getDatabase()): LibraryBook[] {
   return queryBooks(

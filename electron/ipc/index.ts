@@ -19,6 +19,7 @@ import {
   libraryBooksByTag,
   libraryFollowing,
   libraryHistory,
+  libraryAllBooks,
   libraryRated,
   librarySetBookRating,
   librarySetTagRating,
@@ -61,6 +62,8 @@ export function registerIpcHandlers(): void {
   handle('library:fastScan', (relativeDir: unknown) => fastScanLibrary(relativeDir))
   handle('library:enrich', () => enrichLibrary())
   handle('library:history', () => libraryHistory())
+  // 快速检索（方案 §2.12）：唤出面板时读一遍全量快照，输入过滤在渲染层内存完成
+  handle('library:allBooks', () => libraryAllBooks())
   handle('library:following', () => libraryFollowing())
   handle('library:tags', () => libraryTags())
   handle('library:booksByTag', (tag: unknown) => libraryBooksByTag(tag))

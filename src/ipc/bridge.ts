@@ -144,6 +144,11 @@ export function libraryHistory(): Promise<LibraryBook[]> {
   return ipcInvoke<LibraryBook[]>('library:history')
 }
 
+/** 快速检索快照（方案 §2.12）：全量书目，最近阅读优先；未打开书库返回空列表 */
+export function libraryAllBooks(): Promise<LibraryBook[]> {
+  return ipcInvoke<LibraryBook[]>('library:allBooks')
+}
+
 /** 追更：标签精确匹配「追更」 */
 export function libraryFollowing(): Promise<LibraryBook[]> {
   return ipcInvoke<LibraryBook[]>('library:following')

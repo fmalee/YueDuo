@@ -5,6 +5,7 @@ import { listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
 import {
   findBookByRelativePath,
+  listAllBooks,
   listBooksByTag,
   listFollowing,
   listHistory,
@@ -105,6 +106,14 @@ export function enrichLibrary(): Promise<LibraryEnrichResult> {
 
 export function libraryHistory(): LibraryBook[] {
   return listHistory(requireRoot())
+}
+
+/**
+ * 快速检索快照（方案 §2.12）：每次唤出面板读一遍全量书目，
+ * 未打开书库返回空列表（面板显示空态，不报错）。
+ */
+export function libraryAllBooks(): LibraryBook[] {
+  return activeRoot ? listAllBooks(activeRoot) : []
 }
 
 export function libraryFollowing(): LibraryBook[] {

@@ -16,7 +16,9 @@ export const LIGHT_COLORS = {
   'text-3': '#8a7f6e',
   accent: '#b07d2b', // 星级等强调色
   cursor: '#4a3f2f',
-  selection: '#e6dcc9'
+  selection: '#e6dcc9',
+  overlay: 'rgba(0, 0, 0, 0.25)', // 命令面板遮罩
+  shadow: 'rgba(0, 0, 0, 0.18)'
 }
 
 export type ThemeColors = typeof LIGHT_COLORS
@@ -34,7 +36,9 @@ export const DARK_COLORS: ThemeColors = {
   'text-3': '#9b9384',
   accent: '#d8ab55',
   cursor: '#e8e2d5',
-  selection: '#4a4233'
+  selection: '#4a4233',
+  overlay: 'rgba(0, 0, 0, 0.45)',
+  shadow: 'rgba(0, 0, 0, 0.5)'
 }
 
 /** 组件尺寸 token（CSS 变量 --yd-statusbar-height 等由 applyTheme 注入） */
@@ -72,7 +76,23 @@ export const METRICS = {
   metadataFontSize: 12,
   metadataInputPaddingY: 2,
   metadataInputPaddingX: 6,
-  metadataRadius: 3
+  metadataRadius: 3,
+  // 命令面板（方案 §2.12）：居中偏上的浮层，宽度与行高对齐 Python METRICS
+  paletteWidth: 560,
+  paletteMaxHeight: 420,
+  paletteTopOffset: 88,
+  paletteRadius: 6,
+  paletteInputPaddingY: 9,
+  paletteInputPaddingX: 12,
+  paletteInputFontSize: 14,
+  paletteRowPaddingY: 6,
+  paletteRowPaddingX: 12,
+  paletteRowGap: 10,
+  paletteFontSize: 13,
+  paletteMetaFontSize: 11,
+  paletteHintFontSize: 11,
+  paletteKeyPaddingX: 4,
+  paletteKeyRadius: 3
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -121,5 +141,20 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-metadata-input-padding-y', `${METRICS.metadataInputPaddingY}px`)
   root.style.setProperty('--yd-metadata-input-padding-x', `${METRICS.metadataInputPaddingX}px`)
   root.style.setProperty('--yd-metadata-radius', `${METRICS.metadataRadius}px`)
+  root.style.setProperty('--yd-palette-width', `${METRICS.paletteWidth}px`)
+  root.style.setProperty('--yd-palette-max-height', `${METRICS.paletteMaxHeight}px`)
+  root.style.setProperty('--yd-palette-top-offset', `${METRICS.paletteTopOffset}px`)
+  root.style.setProperty('--yd-palette-radius', `${METRICS.paletteRadius}px`)
+  root.style.setProperty('--yd-palette-input-padding-y', `${METRICS.paletteInputPaddingY}px`)
+  root.style.setProperty('--yd-palette-input-padding-x', `${METRICS.paletteInputPaddingX}px`)
+  root.style.setProperty('--yd-palette-input-font-size', `${METRICS.paletteInputFontSize}px`)
+  root.style.setProperty('--yd-palette-row-padding-y', `${METRICS.paletteRowPaddingY}px`)
+  root.style.setProperty('--yd-palette-row-padding-x', `${METRICS.paletteRowPaddingX}px`)
+  root.style.setProperty('--yd-palette-row-gap', `${METRICS.paletteRowGap}px`)
+  root.style.setProperty('--yd-palette-font-size', `${METRICS.paletteFontSize}px`)
+  root.style.setProperty('--yd-palette-meta-font-size', `${METRICS.paletteMetaFontSize}px`)
+  root.style.setProperty('--yd-palette-hint-font-size', `${METRICS.paletteHintFontSize}px`)
+  root.style.setProperty('--yd-palette-key-padding-x', `${METRICS.paletteKeyPaddingX}px`)
+  root.style.setProperty('--yd-palette-key-radius', `${METRICS.paletteKeyRadius}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

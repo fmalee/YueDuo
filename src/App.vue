@@ -6,8 +6,10 @@ import EditorHost from '@/components/EditorHost.vue'
 import MetadataBar from '@/components/MetadataBar.vue'
 import RightPanel from '@/components/RightPanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
+import CommandPalette from '@/components/CommandPalette.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
+import { useCommandPalette } from '@/composables/useCommandPalette'
 import { fileReadDraft, fileReadText, nativeSanity, chooseLibrary } from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
@@ -29,14 +31,21 @@ import type { ThemeMode } from '../shared/types'
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
 const { openFile, newBlankTab, activateTab } = useTabs()
 const { saveActive } = useEditorCommands()
+const palette = useCommandPalette()
 const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
 const status = ref('未打开')
 const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
-// Cmd+N 新建空白标签（方案 §1.5：不弹保存框）
+// Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）
 function onWindowKeydown(e: KeyboardEvent): void {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
+    e.preventDefault()
+    e.stopPropagation()
+    palette.toggle()
+    return
+  }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
     e.preventDefault()
     newBlankTab()
@@ -127,7 +136,8 @@ async function testIpc(): Promise<void> {
 }
 
 onMounted(async () => {
-  window.addEventListener('keydown', onWindowKeydown)
+  // 捕获阶段接管 Cmd+P：Monaco 的 textarea 会先收到按键，冒泡阶段拦截不稳
+  window.addEventListener('keydown', onWindowKeydown, true)
   // 会话恢复先于任何打开动作：先挂退出握手，再按库还原标签顺序/active/进度
   initSession()
   try {
@@ -213,7 +223,19 @@ onMounted(async () => {
         }),
         openLibraryRoot: (root: string) => library.open(root),
         libraryRefresh: () => library.refreshLists(),
-        libraryEnrich: () => library.enrich()
+        libraryEnrich: () => library.enrich(),
+        // 快速检索验收通道（方案 §2.12）：走真实快照 + 120ms 防抖链路
+        paletteState: () => ({
+          visible: palette.visible.value,
+          query: palette.query.value,
+          results: palette.results.value.map((entry) => entry.title),
+          selected: palette.selectedIndex.value
+        }),
+        openPalette: () => palette.open(),
+        closePalette: () => palette.close(),
+        setPaletteQuery: (value: string) => {
+          palette.query.value = value
+        }
       }
     })
     openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
@@ -230,7 +252,7 @@ onMounted(async () => {
 
 // HMR 会重挂载根组件：不清理会让 window 上的 Cmd+N 监听器逐次叠加（一次按键新建多个标签）
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onWindowKeydown)
+  window.removeEventListener('keydown', onWindowKeydown, true)
 })
 </script>
 
@@ -290,6 +312,8 @@ onBeforeUnmount(() => {
       <RightPanel />
     </div>
     <StatusBar />
+    <!-- 命令面板（方案 §2.12）：Cmd+P 唤出，Teleport 到 body -->
+    <CommandPalette />
   </div>
 </template>
 
