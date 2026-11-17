@@ -9,13 +9,29 @@ files:
   - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-  # Monaco 界面只保留 zh-cn（英文原文是代码内兜底，无需语言文件）；
-  # dev/min 是 AMD 分发形态，本项目不使用，语言资源整目录剔除。
-  - '!node_modules/monaco-editor/dev/vs/nls/lang/*'
-  - '!node_modules/monaco-editor/min/vs/nls/lang/*'
-  - '!node_modules/monaco-editor/esm/vs/nls/lang/{cs,de,es,fr,it,ja,ko,pl,pt-br,ru,tr,zh-tw}.*'
+  # 非运行文件：开发态 userData（Chromium 缓存就占 98M）、测试书、方案文档与 TS 源码
+  # （主进程/共享代码已由 electron-vite 编译进 out/，运行时不读原文件）
+  - '!.dev/**'
+  - '!.trae/**'
+  - '!2026-11-17/**'
+  - '!AGENTS.md'
+  - '!scripts/**'
+  - '!electron/**'
+  - '!shared/**'
+  - '!public/test/**'
+  - '!out/renderer/test/**'
+  # renderer 已由 Vite 打进 out/renderer，这些包主进程不 require，整包不打
+  - '!node_modules/monaco-editor/**'
+  - '!node_modules/{dompurify,marked,pinia}/**'
+  # 原生模块只带本平台预编译产物：sqlite3 源码（deps/src）与其它平台 prebuild 不进包
+  - '!node_modules/better-sqlite3/{deps,src}/**'
+  - '!node_modules/better-sqlite3/prebuilds/{darwin-arm64,linux-arm64,linux-x64,linuxmusl-arm64,linuxmusl-x64,win32-arm64,win32-x64}.node'
 asarUnpack:
   - resources/**
+# Electron 自带语言包只保留中英，Framework 里其余 .lproj（约 17M）打包时剔除
+electronLanguages:
+  - en
+  - zh_CN
 win:
   executableName: yueduo
 nsis:
