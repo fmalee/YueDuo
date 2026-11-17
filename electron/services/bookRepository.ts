@@ -80,21 +80,24 @@ export function listHistory(root: string, db: Database.Database = getDatabase())
   )
 }
 
-/** 追更：标签精确匹配「追更」，最近读过的在前（同 Python list_following） */
+/** 追更：标签精确匹配「追更」；与标签/评分页统一按评分、最近阅读排序 */
 export function listFollowing(root: string, db: Database.Database = getDatabase()): LibraryBook[] {
   return queryBooks(
     `SELECT * FROM books
       WHERE instr(' ' || tags || ' ', ?) > 0
-      ORDER BY (last_read_at = 0), last_read_at DESC, title`,
+      ORDER BY rating DESC, (last_read_at = 0), last_read_at DESC, title`,
     root,
     [tagPattern(FOLLOWING_TAG)],
     db
   )
 }
 
-/** 标签页：名称/数量/标签评分；按评分高低、数量、名称排序（方案 §2.5） */
+/** 标签页：名称/数量/标签评分；先按标签评分、再按该标签下最近阅读时间排序（方案 §2.5） */
 export function listTags(db: Database.Database = getDatabase()): LibraryTagSummary[] {
-  const rows = db.prepare('SELECT tags FROM books').all() as { tags: string }[]
+  const rows = db.prepare('SELECT tags, last_read_at FROM books').all() as {
+    tags: string
+    last_read_at: number
+  }[]
   const rated = new Map<string, number>()
   for (const row of db.prepare('SELECT tag, rating FROM tag_ratings').all() as {
     tag: string
@@ -103,21 +106,27 @@ export function listTags(db: Database.Database = getDatabase()): LibraryTagSumma
     rated.set(row.tag, row.rating)
   }
   const counts = new Map<string, number>()
+  /** 标签下所有书的最近阅读时间（取最大值），同分时排在最近读过的标签前 */
+  const latestRead = new Map<string, number>()
   for (const row of rows) {
     for (const tag of row.tags.split(' ')) {
-      if (tag) counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      if (!tag) continue
+      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+      latestRead.set(tag, Math.max(latestRead.get(tag) ?? 0, row.last_read_at))
     }
   }
   return [...counts.entries()]
     .map(([name, count]) => ({ name, count, rating: rated.get(name) ?? 0 }))
     .sort((a, b) => {
       if (a.rating !== b.rating) return b.rating - a.rating
+      const readDiff = (latestRead.get(b.name) ?? 0) - (latestRead.get(a.name) ?? 0)
+      if (readDiff !== 0) return readDiff
       if (a.count !== b.count) return b.count - a.count
       return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
     })
 }
 
-/** 某个标签下的书：精确匹配，最近读过的在前 */
+/** 某个标签下的书：评分优先，同分按最近阅读时间（与追更/评分页统一） */
 export function listBooksByTag(
   root: string,
   tag: string,
@@ -126,7 +135,7 @@ export function listBooksByTag(
   return queryBooks(
     `SELECT * FROM books
       WHERE instr(' ' || tags || ' ', ?) > 0
-      ORDER BY (last_read_at = 0), last_read_at DESC, title`,
+      ORDER BY rating DESC, (last_read_at = 0), last_read_at DESC, title`,
     root,
     [tagPattern(tag)],
     db
