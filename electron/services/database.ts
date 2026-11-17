@@ -5,7 +5,7 @@ import Database from 'better-sqlite3'
  * 数据库骨架（方案 §1.8 第一步 / §四 schema）：
  * - 库文件放 userData（书库根目录在阶段 2 才确定，届时按方案迁到库根并回落 userData）
  * - WAL + `PRAGMA user_version` 迁移执行器，重复启动幂等
- * - 本步只建会话恢复所需的 session_state / session_tabs，不含任何读写逻辑
+ * - v1/v2 建会话恢复表；v3 建书库主表（books/bookmarks/tag_ratings）
  * 纯 Node 实现（AGENTS.md：services 不 import Electron），目录由调用方注入
  */
 type Migration = (db: Database.Database) => void
@@ -39,6 +39,45 @@ const MIGRATIONS: readonly Migration[] = [
       ALTER TABLE session_tabs ADD COLUMN cursor_line INTEGER NOT NULL DEFAULT 0;
       ALTER TABLE session_tabs ADD COLUMN cursor_column INTEGER NOT NULL DEFAULT 0;
     `)
+  },
+  // v3：书库主表（方案 §四）。miss_count 供 2.3 对账跟踪连续零匹配次数
+  (db) => {
+    db.exec(`
+      CREATE TABLE books (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        relative_path TEXT UNIQUE NOT NULL,
+        filename TEXT NOT NULL DEFAULT '',
+        title TEXT NOT NULL DEFAULT '',
+        author TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '',
+        rating INTEGER NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
+        word_count INTEGER NOT NULL DEFAULT 0,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        progress_line INTEGER NOT NULL DEFAULT 0,
+        encoding TEXT NOT NULL DEFAULT '',
+        last_read_at INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        miss_count INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE INDEX idx_books_last_read ON books(last_read_at DESC);
+
+      CREATE TABLE bookmarks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        book_id INTEGER NOT NULL REFERENCES books(id) ON DELETE CASCADE,
+        line INTEGER NOT NULL CHECK (line > 0),
+        note TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        UNIQUE (book_id, line)
+      );
+
+      CREATE TABLE tag_ratings (
+        tag TEXT PRIMARY KEY,
+        rating INTEGER NOT NULL DEFAULT 0 CHECK (rating BETWEEN 0 AND 5),
+        updated_at INTEGER NOT NULL
+      );
+    `)
   }
 ]
 
@@ -60,6 +99,8 @@ export function initDatabase(dir: string): void {
   if (handle) return
   const db = new Database(join(dir, 'yueduo.db'))
   db.pragma('journal_mode = WAL')
+  // 书签随书删除靠 FK CASCADE；pragma 在事务外设置才对后续连接生效（迁移内部的事务不受影响）
+  db.pragma('foreign_keys = ON')
   migrate(db)
   handle = db
 }

@@ -146,7 +146,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 
 ### 阶段 2：书库与元数据
 
-- [ ] **2.1** `database` 服务：全新 schema 建表 + 增量迁移 + WAL
+- [x] **2.1** `database` 服务：全新 schema 建表 + 增量迁移 + WAL。**已完成**：v3 迁移建 `books`/`bookmarks`/`tag_ratings`（`miss_count` 预留给 2.3 对账，`relative_path` 唯一、评分 0–5 CHECK、书签 `(book_id, line)` 唯一且随书 CASCADE），连接开启 `foreign_keys`、保持 WAL；纯 Node 脚本验过全新库建表、v2 旧库（真实 15 标签）增量迁移、约束/CASCADE 与重复启动幂等。
 - [ ] **2.2** `libraryScanner`：递归扫 `.txt`；两阶段（fastScan 先建目录树秒开，后台 enrich 补元数据）——此设计源自用户本人、Python 旧项目已有实现，以 Python 实现为准翻译
 - [ ] **2.3** `reconcile` 服务：§四对账三步，含 `miss_count` 跟踪与对账日志
 - [ ] **2.4** `metadataParser`：书名（前两行书名号，否则文件名）、作者（前十行 `作者：`，否则佚名）、标签（前十行 `主题：`，否则目录名）
