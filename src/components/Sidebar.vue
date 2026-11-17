@@ -68,6 +68,20 @@ function onResizeEnd(): void {
   void settings.setSidebarWidth(width.value)
 }
 
+/** 追更空态：查询语义不变，只把「怎么让书出现在这里」讲清楚 */
+const followingEmpty =
+  '没有带「追更」标签的书\n正文前十行写「主题：追更」，或放进名为「追更」的目录后重新扫描'
+
+// 进入页面时重取：阅读/评分/保存都会改库，列表不能只靠 init 时那一份
+watch(activePage, (page) => {
+  if (page === 'history') void library.loadHistory()
+  else if (page === 'rating') void library.loadRated()
+  else if (page === 'tags') {
+    void library.loadTags()
+    if (library.activeTag) void library.loadTagBooks()
+  }
+})
+
 function refreshHistory(): void {
   void library.loadHistory()
 }
@@ -109,7 +123,7 @@ onBeforeUnmount(() => {
       <SidebarBookList
         v-else-if="activePage === 'following'"
         :books="library.following"
-        empty-text="没有带「追更」标签的书"
+        :empty-text="followingEmpty"
         @refresh="refreshFollowing"
       />
       <SidebarTags v-else-if="activePage === 'tags'" />

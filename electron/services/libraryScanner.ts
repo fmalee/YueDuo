@@ -3,6 +3,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import type { Dirent } from 'fs'
 import { decodeBytes } from './textCodec'
 import { parseMetadata } from './metadataParser'
+import { readFinderRating } from './finderMetadata'
 import { getDatabase } from './database'
 import type { LibraryEntry, LibraryScanProgress, LibraryScanResult } from '../../shared/types'
 
@@ -124,16 +125,17 @@ export async function scanLibrary(
     UPDATE books SET
       filename = @filename, title = @title, author = @author, tags = @tags,
       word_count = @wordCount, size_bytes = @sizeBytes, encoding = @encoding,
+      rating = COALESCE(@rating, rating),
       updated_at = @updatedAt
     WHERE id = @id
   `)
   const insertBook = db.prepare(`
     INSERT INTO books
-      (relative_path, filename, title, author, tags, word_count, size_bytes, encoding,
+      (relative_path, filename, title, author, tags, word_count, size_bytes, encoding, rating,
        created_at, updated_at)
     VALUES
       (@relativePath, @filename, @title, @author, @tags, @wordCount, @sizeBytes, @encoding,
-       @now, @now)
+       COALESCE(@rating, 0), @now, @now)
   `)
 
   const seen = new Set<string>()
@@ -171,7 +173,13 @@ export async function scanLibrary(
     const relativePath = rel.split(sep).join('/')
 
     try {
-      const [data, info] = await Promise.all([readFile(resolved), stat(resolved)])
+      // Finder 星级与文件系统/正文并行读：macOS 上无属性视为 0（Python 口径），
+      // 非 macOS 返回 null，靠 COALESCE 保留库内评分
+      const [data, info, rating] = await Promise.all([
+        readFile(resolved),
+        stat(resolved),
+        readFinderRating(resolved)
+      ])
       const { text, encoding } = decodeBytes(data)
       const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
       const now = Date.now()
@@ -184,6 +192,7 @@ export async function scanLibrary(
         wordCount: meta.wordCount,
         sizeBytes: info.size,
         encoding,
+        rating,
         updatedAt: now
       }
       const existing = selectBook.get(relativePath) as { id: number } | undefined

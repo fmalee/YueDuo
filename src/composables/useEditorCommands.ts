@@ -1,5 +1,6 @@
 import { fileClearDraft, fileWriteText } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
+import { useLibraryStore } from '@/stores/library'
 import { getTabModel, isDirty, resetBaseline, setStatCache } from './useTabLifecycle'
 
 /** 保存当前标签：全文只在保存瞬间取自 model（方案：全文不进 reactive store） */
@@ -7,6 +8,7 @@ export function useEditorCommands(): {
   saveActive: (editor?: import('monaco-editor').editor.IStandaloneCodeEditor) => Promise<boolean>
 } {
   const store = useTabsStore()
+  const library = useLibraryStore()
 
   async function saveActive(
     editor?: import('monaco-editor').editor.IStandaloneCodeEditor
@@ -25,6 +27,8 @@ export function useEditorCommands(): {
     store.patchTab(tab.id, { dirty: false, encoding: 'UTF-16LE' })
     setStatCache(tab.id, stat)
     await fileClearDraft(tab.id)
+    // 保存即按新正文重解析书名/作者/标签并刷新左栏；不做全库重扫
+    void library.syncMetadata(tab.path)
     return true
   }
 

@@ -1,4 +1,5 @@
-import { join } from 'path'
+import { isAbsolute, join, relative, sep } from 'path'
+import { realpath } from 'fs/promises'
 import type Database from 'better-sqlite3'
 import { getDatabase } from './database'
 import type { LibraryBook, LibraryTagSummary } from '../../shared/types'
@@ -142,6 +143,63 @@ export function listRated(
     params.push(RATED_LIST_LIMIT)
   }
   return queryBooks(sql, root, params, db)
+}
+
+/**
+ * 打开/激活标签即写最近阅读时间（方案 §2.5 验收补丁；60 秒防抖留给 §2.11）。
+ * 返回写入的时间戳；文件不在书库内或尚未入库返回 0，打开任意 txt 都不报错。
+ */
+export async function markRead(
+  root: string,
+  absolutePath: string,
+  db: Database.Database = getDatabase()
+): Promise<number> {
+  let resolved: string
+  let realRoot: string
+  try {
+    ;[resolved, realRoot] = await Promise.all([realpath(absolutePath), realpath(root)])
+  } catch {
+    return 0
+  }
+  const rel = relative(realRoot, resolved)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return 0
+  const now = Date.now()
+  const result = db
+    .prepare('UPDATE books SET last_read_at = ?, updated_at = ? WHERE relative_path = ?')
+    .run(now, now, rel.split(sep).join('/'))
+  return result.changes > 0 ? now : 0
+}
+
+/**
+ * 书籍评分：只写库（0～5）；Finder 星级由调用方拿到 relativePath 后另行写 xattr。
+ * 返回归一后的分值与库内相对路径（未命中为 null），供 IPC 层定位文件。
+ */
+export function setBookRating(
+  id: number,
+  rating: number,
+  db: Database.Database = getDatabase()
+): { rating: number; relativePath: string | null } {
+  const value = Math.max(0, Math.min(5, Math.round(rating)))
+  const row = db.prepare('SELECT relative_path FROM books WHERE id = ?').get(id) as
+    { relative_path: string } | undefined
+  db.prepare('UPDATE books SET rating = ?, updated_at = ? WHERE id = ?').run(value, Date.now(), id)
+  return { rating: value, relativePath: row?.relative_path ?? null }
+}
+
+/** 保存后回写当前文件的元数据（书名/作者/标签），不触发全库重扫 */
+export function updateBookMetadata(
+  relativePath: string,
+  title: string,
+  author: string,
+  tags: string,
+  db: Database.Database = getDatabase()
+): boolean {
+  const result = db
+    .prepare(
+      'UPDATE books SET title = ?, author = ?, tags = ?, updated_at = ? WHERE relative_path = ?'
+    )
+    .run(title, author, tags, Date.now(), relativePath)
+  return result.changes > 0
 }
 
 /** 标签评分只进数据库、不写正文；0 分也保留一行，避免反复插入 */

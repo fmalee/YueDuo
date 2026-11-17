@@ -16,9 +16,12 @@ import {
   libraryFollowing,
   libraryHistory,
   libraryRated,
+  librarySetBookRating,
   librarySetTagRating,
   libraryTags,
-  openLibrary
+  markBookRead,
+  openLibrary,
+  syncBookMetadata
 } from './library'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
@@ -57,6 +60,12 @@ export function registerIpcHandlers(): void {
   handle('library:setTagRating', (tag: unknown, rating: unknown) =>
     librarySetTagRating(tag, rating)
   )
+  // 2.5 验收补丁：阅读时间/书籍评分（库 + Finder 星级）/保存后同步当前文件元数据
+  handle('library:markRead', (path: unknown) => markBookRead(path))
+  handle('library:setBookRating', (id: unknown, rating: unknown) =>
+    librarySetBookRating(id, rating)
+  )
+  handle('library:syncMetadata', (path: unknown) => syncBookMetadata(path))
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；

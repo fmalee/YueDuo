@@ -4,9 +4,12 @@ import {
   libraryEnrich,
   libraryFollowing,
   libraryHistory,
+  libraryMarkRead,
   libraryOpen,
   libraryRated,
+  librarySetBookRating,
   librarySetTagRating,
+  librarySyncMetadata,
   libraryTags,
   onLibraryScanProgress,
   chooseLibrary
@@ -16,6 +19,11 @@ import type { LibraryBook, LibraryEnrichResult, LibraryTagSummary } from '../../
 
 /** 订阅只挂一次（HMR 重挂载不重复注册） */
 let progressSubscribed = false
+
+/** 同一路径短时间去重：openFile 后紧跟 activateTab 只写一次库、查一次历史 */
+const MARK_READ_DEDUPE_MS = 500
+let lastMarkPath = ''
+let lastMarkAt = 0
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
@@ -185,6 +193,48 @@ export const useLibraryStore = defineStore('library', {
       if (!this.root) return
       try {
         this.rated = await libraryRated(this.ratingFilter)
+      } catch (e) {
+        this.error = message(e)
+      }
+    },
+
+    /**
+     * 打开/激活标签：写 last_read_at 后刷新历史（方案 §2.5 验收补丁）。
+     * 不在书库内的文件静默跳过——打开任意 txt 都不应报错。
+     */
+    async markRead(path: string): Promise<void> {
+      if (!this.root || !path) return
+      const now = Date.now()
+      if (path === lastMarkPath && now - lastMarkAt < MARK_READ_DEDUPE_MS) return
+      lastMarkPath = path
+      lastMarkAt = now
+      try {
+        const timestamp = await libraryMarkRead(path)
+        if (timestamp > 0) await this.loadHistory()
+      } catch {
+        // 书库尚未打开或路径在库外：不打扰阅读
+      }
+    },
+
+    /** 书籍评分：库内评分与 Finder 星级同写，随后按新评分刷新评分页 */
+    async setBookRating(id: number, rating: number): Promise<void> {
+      try {
+        const value = await librarySetBookRating(id, rating)
+        for (const list of [this.history, this.following, this.tagBooks, this.rated]) {
+          for (const book of list) if (book.id === id) book.rating = value
+        }
+        await this.loadRated()
+      } catch (e) {
+        this.error = message(e)
+      }
+    },
+
+    /** 保存后同步当前文件元数据，命中库内记录才刷新左栏（不做全库重扫） */
+    async syncMetadata(path: string): Promise<void> {
+      if (!this.root || !path) return
+      try {
+        const result = await librarySyncMetadata(path)
+        if (result.updated) await this.refreshLists()
       } catch (e) {
         this.error = message(e)
       }

@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron'
-import { realpath, stat } from 'fs/promises'
+import { readFile, realpath, stat } from 'fs/promises'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import { listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
 import {
@@ -8,14 +9,21 @@ import {
   listHistory,
   listRated,
   listTags,
-  setTagRating
+  markRead,
+  setBookRating,
+  setTagRating,
+  updateBookMetadata
 } from '../services/bookRepository'
+import { decodeBytes } from '../services/textCodec'
+import { parseMetadata } from '../services/metadataParser'
+import { writeFinderRating } from '../services/finderMetadata'
 import type {
   LibraryBook,
   LibraryEnrichResult,
   LibraryEntry,
   LibraryOpenResult,
   LibraryScanProgress,
+  LibrarySyncResult,
   LibraryTagSummary
 } from '../../shared/types'
 
@@ -107,4 +115,58 @@ export function libraryRated(rating: unknown): LibraryBook[] {
 
 export function librarySetTagRating(tag: unknown, rating: unknown): number {
   return setTagRating(String(tag), Number(rating))
+}
+
+/** 打开/激活标签时写 last_read_at；不在书库内返回 0（打开任意 txt 不报错） */
+export function markBookRead(path: unknown): Promise<number> {
+  if (typeof path !== 'string' || !path) return Promise.resolve(0)
+  return markRead(requireRoot(), path)
+}
+
+/**
+ * 书籍评分：写库 + 写 Finder 星级（xattr）。
+ * 路径由库内 relative_path 拼出，不接受渲染层传路径；xattr 失败静默，不影响库内评分。
+ */
+export async function librarySetBookRating(id: unknown, rating: unknown): Promise<number> {
+  const result = setBookRating(Number(id), Number(rating))
+  if (result.relativePath) {
+    const absolute = join(requireRoot(), result.relativePath)
+    await writeFinderRating(absolute, result.rating)
+  }
+  return result.rating
+}
+
+/** 绝对路径 → 库内相对路径（POSIX 分隔）；不在书库内返回 null */
+async function relativeInLibrary(root: string, path: string): Promise<string | null> {
+  let resolved: string
+  try {
+    resolved = await realpath(path)
+  } catch {
+    return null
+  }
+  const rel = relative(root, resolved)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  return rel.split(sep).join('/')
+}
+
+/**
+ * 保存文件后同步元数据（方案 §2.5 验收补丁）：读保存后的正文，按扫描同口径解析
+ * 书名/作者/标签并只更新这一本，不做全库重扫。
+ */
+export async function syncBookMetadata(path: unknown): Promise<LibrarySyncResult> {
+  if (typeof path !== 'string' || !path) return { updated: false }
+  const root = requireRoot()
+  const relativePath = await relativeInLibrary(root, path)
+  if (!relativePath) return { updated: false }
+  const resolved = join(root, relativePath)
+  let data: Buffer
+  try {
+    data = await readFile(resolved)
+  } catch {
+    return { updated: false }
+  }
+  const { text } = decodeBytes(data)
+  const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
+  const updated = updateBookMetadata(relativePath, meta.title, meta.author, meta.tags.join(' '))
+  return { updated }
 }

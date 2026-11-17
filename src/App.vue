@@ -139,6 +139,8 @@ onMounted(async () => {
   } catch (e) {
     console.error('[library] 打开书库失败:', e)
   }
+  // 恢复出来的 active 标签不会经过 openFile/activateTab，这里补一次最近阅读时间
+  if (store.activeTab?.path) void library.markRead(store.activeTab.path)
   if (new URLSearchParams(location.search).get('auto') === '1') {
     Object.assign(globalThis, {
       __yueTest: {

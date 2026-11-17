@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useTabs } from '@/composables/useTabs'
+import { useLibraryStore } from '@/stores/library'
+import { resolveRatingClick } from '@/composables/useRatingGesture'
 import StarRating from './StarRating.vue'
 import type { LibraryBook } from '../../../shared/types'
 
 /**
  * 书库两行列表（方案 §2.5：历史/追更/标签下钻/评分共用）：
  * 首行书名 + 星级，次行作者 · 字数 · 最近阅读；点条目走统一打开流程。
- * 2.5 只展示评分，改分入口留给 2.9 元数据栏与 2.10 Finder 同步。
+ * 星级可就地改分（库内评分 + Finder 星级同写），再点同分取消。
  */
 const props = defineProps<{
   books: LibraryBook[]
@@ -17,6 +19,7 @@ const props = defineProps<{
 defineEmits<{ refresh: [] }>()
 
 const { openFile, activateTab } = useTabs()
+const library = useLibraryStore()
 const status = ref('')
 
 function formatWords(value: number): string {
@@ -29,6 +32,11 @@ function formatTime(value: number): string {
   const date = new Date(value)
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+function rateBook(book: LibraryBook, clicked: number): void {
+  const next = resolveRatingClick(`book:${book.id}`, book.rating, clicked)
+  void library.setBookRating(book.id, next)
 }
 
 async function openBook(book: LibraryBook): Promise<void> {
@@ -56,17 +64,18 @@ async function openBook(book: LibraryBook): Promise<void> {
       >
         <div class="row-top">
           <span class="book-title">{{ book.title || book.filename }}</span>
-          <StarRating :value="book.rating" readonly />
+          <StarRating :value="book.rating" @select="rateBook(book, $event)" />
         </div>
         <div class="row-sub">
           {{ book.author || '佚名' }} · {{ formatWords(book.wordCount) }} ·
           {{ formatTime(book.lastReadAt) }}
         </div>
       </div>
+      <div v-if="!props.books.length" class="yd-sidebar-empty">{{ props.emptyText }}</div>
     </div>
     <footer class="yd-panel-footer">
       <span class="status">{{
-        status || (props.books.length ? `共 ${props.books.length} 本` : props.emptyText)
+        status || (props.books.length ? `共 ${props.books.length} 本` : '')
       }}</span>
       <button
         class="yd-text-button"
@@ -112,6 +121,10 @@ async function openBook(book: LibraryBook): Promise<void> {
   font-size: var(--yd-library-small-font-size);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.yd-sidebar-empty {
+  /* 追更空态是多行操作提示，保留换行 */
+  white-space: pre-line;
 }
 .status {
   min-width: 0;

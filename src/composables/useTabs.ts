@@ -1,5 +1,6 @@
 import { fileClearDraft, fileReadText, fileStat, ipcInvoke } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
+import { useLibraryStore } from '@/stores/library'
 import {
   createTabModel,
   getTabModel,
@@ -25,6 +26,7 @@ export function useTabs(): {
   activateTab: (id: string) => void
 } {
   const store = useTabsStore()
+  const library = useLibraryStore()
   const { saveActive } = useEditorCommands()
 
   /**
@@ -47,6 +49,7 @@ export function useTabs(): {
     const byPath = store.tabs.find((t) => t.path === normalized)
     if (byPath) {
       store.setActive(byPath.id)
+      void library.markRead(normalized)
       return byPath.id
     }
 
@@ -55,6 +58,7 @@ export function useTabs(): {
     const dup = findSameFile(stat)
     if (dup) {
       store.setActive(dup)
+      void library.markRead(normalized)
       return dup
     }
 
@@ -74,6 +78,8 @@ export function useTabs(): {
       lastFocusedAt: Date.now()
     })
     store.setActive(id)
+    // 打开即写最近阅读时间（方案 §2.5 验收补丁；60 秒防抖留给 §2.11）
+    void library.markRead(normalized)
     schedulePersist()
     return id
   }
@@ -133,6 +139,8 @@ export function useTabs(): {
     schedulePersist()
     // 切到同一标签时 activeTabId 不变、激活流程不触发，这里直接还焦点
     focusEditor()
+    const tab = store.tabs.find((t) => t.id === id)
+    if (tab?.path) void library.markRead(tab.path)
   }
 
   return { openFile, newBlankTab, closeTab, activateTab }

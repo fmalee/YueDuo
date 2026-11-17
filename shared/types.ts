@@ -185,6 +185,11 @@ export interface LibraryEnrichResult {
   deleted: number
 }
 
+/** library:syncMetadata 返回：该文件是否在 books 命中并更新 */
+export interface LibrarySyncResult {
+  updated: boolean
+}
+
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 

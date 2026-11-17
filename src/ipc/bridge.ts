@@ -10,6 +10,7 @@ import type {
   LibraryEntry,
   LibraryOpenResult,
   LibraryScanProgress,
+  LibrarySyncResult,
   LibraryTagSummary,
   NativeSanity,
   SessionRestore,
@@ -160,6 +161,21 @@ export function libraryRated(rating: number | null): Promise<LibraryBook[]> {
 /** 标签评分：只写库，不写正文（0 分也落一行） */
 export function librarySetTagRating(tag: string, rating: number): Promise<number> {
   return ipcInvoke<number>('library:setTagRating', tag, rating)
+}
+
+/** library:markRead —— 打开/激活标签写 last_read_at（返回写入时间戳，0 = 不在书库） */
+export function libraryMarkRead(path: string): Promise<number> {
+  return ipcInvoke<number>('library:markRead', path)
+}
+
+/** library:setBookRating —— 书籍评分：库内评分 + Finder 星级（xattr）一起写 */
+export function librarySetBookRating(id: number, rating: number): Promise<number> {
+  return ipcInvoke<number>('library:setBookRating', id, rating)
+}
+
+/** library:syncMetadata —— 保存后按当前正文重解析书名/作者/标签，只更新这一本 */
+export function librarySyncMetadata(path: string): Promise<LibrarySyncResult> {
+  return ipcInvoke<LibrarySyncResult>('library:syncMetadata', path)
 }
 
 /** 订阅书库扫描进度 */
