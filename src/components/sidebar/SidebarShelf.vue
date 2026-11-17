@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { libraryFastScan } from '@/ipc/bridge'
 import { useLibraryStore } from '@/stores/library'
 import { useTabs } from '@/composables/useTabs'
+import { chooseAndSwitchLibrary } from '@/composables/useLibrarySwitch'
 import type { LibraryEntry } from '../../../shared/types'
 
 /**
@@ -120,7 +121,7 @@ watch(
       </template>
       <div v-else class="yd-sidebar-empty">
         <div>{{ library.error || '尚未选择书架目录' }}</div>
-        <button class="yd-text-button choose" @click="library.chooseAndOpen()">选择书库</button>
+        <button class="yd-text-button choose" @click="chooseAndSwitchLibrary()">选择书库</button>
       </div>
     </div>
     <footer class="yd-panel-footer">

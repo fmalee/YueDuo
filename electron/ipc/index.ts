@@ -13,8 +13,11 @@ import {
   addBookBookmark,
   bookBookmarks,
   bookChapters,
+  activateLibrarySwitch,
+  abortLibrarySwitch,
   enrichLibrary,
   fastScanLibrary,
+  libraryCurrent,
   libraryBookByPath,
   libraryBooksByTag,
   libraryFollowing,
@@ -57,8 +60,11 @@ export function registerIpcHandlers(): void {
   handle('dialog:confirmClose', (title: unknown) => confirmClose(String(title)))
   handle('dialog:saveFile', (name: unknown) => chooseSaveFile(String(name)))
   handle('dialog:chooseLibrary', () => chooseLibrary())
-  // 书库（方案 §2.5）：打开/惰性目录树/后台补元数据/四类列表查询
+  // 书库（方案 §2.5 / §2.13）：启动状态、换库三步（open 准备 / activate 提交 / abort 回滚）
+  handle('library:current', () => libraryCurrent())
   handle('library:open', (root: unknown) => openLibrary(root))
+  handle('library:activate', () => activateLibrarySwitch())
+  handle('library:abort', () => abortLibrarySwitch())
   handle('library:fastScan', (relativeDir: unknown) => fastScanLibrary(relativeDir))
   handle('library:enrich', () => enrichLibrary())
   handle('library:history', () => libraryHistory())

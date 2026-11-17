@@ -10,6 +10,7 @@ import CommandPalette from '@/components/CommandPalette.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { useCommandPalette } from '@/composables/useCommandPalette'
+import { switchLibrary } from '@/composables/useLibrarySwitch'
 import { fileReadDraft, fileReadText, nativeSanity, chooseLibrary } from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
@@ -57,14 +58,13 @@ function onAppearanceChange(e: Event): void {
   void settings.setAppearance((e.target as HTMLSelectElement).value as ThemeMode)
 }
 
-/** 书库根目录（方案 §1.9）：选择后持久化，并立即作为活动书库打开（§2.5） */
+/** 书库根目录（方案 §1.9 / §2.13）：选择后走换库事务，成功才持久化新根 */
 async function pickLibrary(): Promise<void> {
   try {
     const root = await chooseLibrary()
     if (!root) return
-    await settings.setLibraryRoot(root)
-    await library.open(root)
-    status.value = `书库根目录：${root}`
+    const ok = await switchLibrary(root)
+    status.value = ok ? `书库根目录：${root}` : `换库失败：${library.error}`
   } catch (e) {
     status.value = `选择书库失败：${String(e)}`
   }
@@ -209,6 +209,7 @@ onMounted(async () => {
         // 书库验收通道（方案 §2.5）：四类列表 + 标签下钻 + 评分筛选状态
         libraryState: () => ({
           root: library.root,
+          fallback: library.fallback,
           scanning: library.scanning,
           scanned: library.scanned,
           lastEnrich: library.lastEnrich,
@@ -221,7 +222,7 @@ onMounted(async () => {
           ratingFilter: library.ratingFilter,
           rated: library.rated.map((b) => b.title)
         }),
-        openLibraryRoot: (root: string) => library.open(root),
+        openLibraryRoot: (root: string) => switchLibrary(root),
         libraryRefresh: () => library.refreshLists(),
         libraryEnrich: () => library.enrich(),
         // 快速检索验收通道（方案 §2.12）：走真实快照 + 120ms 防抖链路

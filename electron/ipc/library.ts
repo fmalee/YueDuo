@@ -1,8 +1,11 @@
-import { BrowserWindow } from 'electron'
-import { readFile, realpath, stat } from 'fs/promises'
+import { app, BrowserWindow } from 'electron'
+import { readFile, realpath } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import { listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
+import { LibraryDatabaseManager } from '../services/libraryDatabase'
+import { readSettings } from '../services/settingsStore'
+import { closeDatabase } from '../services/database'
 import {
   findBookByRelativePath,
   listAllBooks,
@@ -32,6 +35,7 @@ import type {
   ChapterInfo,
   LibraryBook,
   LibraryBookmarkGroup,
+  LibraryCurrentState,
   LibraryEnrichResult,
   LibraryEntry,
   LibraryOpenResult,
@@ -41,33 +45,88 @@ import type {
 } from '../../shared/types'
 
 /**
- * 书库 IPC（方案 §2.5）：activeRoot 是当前活动书库，root 来自设置里的书库根。
- * 数据库仍在 userData（2.13 换库流程再按库根建库/切库），本步只做查询与扫描编排。
+ * 书库 IPC（方案 §2.5 / §2.13）：activeRoot 是当前活动书库，每个书库一份数据库。
+ * 换库顺序：library:open（建新库 + 停扫描 + 读新会话）→ 渲染层存档旧会话 →
+ * library:activate（切活动库）→ 渲染层恢复新会话；任一步失败用 library:abort 回到原库。
  */
 let activeRoot = ''
-let enriching: Promise<LibraryEnrichResult> | null = null
+let startupError = ''
+let libraryManager: LibraryDatabaseManager | null = null
+
+/** 另有 enrich 在跑时用于取消（换库必须先停扫描，不能让旧库扫描继续写） */
+let enrichToken = 0
+let enriching: { token: number; promise: Promise<LibraryEnrichResult> } | null = null
+
+function manager(): LibraryDatabaseManager {
+  if (!libraryManager) {
+    libraryManager = new LibraryDatabaseManager(app.getPath('userData'))
+  }
+  return libraryManager
+}
 
 function requireRoot(): string {
   if (!activeRoot) throw new Error('尚未打开书库')
   return activeRoot
 }
 
-/** library:open —— realpath 归一后作为活动书库；目录不存在/不是目录直接报错（保留原活动书库） */
+/**
+ * 启动：按设置里的书库根打开它自己的数据库（main.ts 在建窗前调用）。
+ * 根无效/库打不开时回落 userData 默认会话库，错误留给渲染层展示，不阻断启动。
+ */
+export function initActiveLibrary(): LibraryCurrentState {
+  const userData = app.getPath('userData')
+  const state = manager().init(readSettings(userData).libraryRoot)
+  activeRoot = state.root
+  startupError = state.error
+  return { root: state.root, error: state.error, fallback: state.fallback }
+}
+
+/** library:current —— 渲染层启动时读取主进程已打开的活动书库（不再触发切换） */
+export function libraryCurrent(): LibraryCurrentState {
+  return {
+    root: activeRoot,
+    error: startupError,
+    fallback: manager().currentFallback()
+  }
+}
+
+/**
+ * library:open —— 换库第一步：建新库并读出新会话，旧库仍保持活动。
+ * 同一书库直接返回 switched=false；目录无效或新库建不起来时抛错，原库不受影响。
+ */
 export async function openLibrary(root: unknown): Promise<LibraryOpenResult> {
   if (typeof root !== 'string' || !root.trim()) {
     throw new Error('尚未设置书库根目录')
   }
-  let resolved: string
-  try {
-    resolved = await realpath(root)
-  } catch {
-    throw new Error(`书库目录不存在：${root}`)
+  const prepared = manager().prepare(root)
+  if (prepared.result.switched) {
+    // 建好新库后再停扫描（顺序按 AGENTS.md：建新库 → 停扫描 → 存档旧会话 → …）
+    await stopEnrichment()
+    startupError = ''
   }
-  if (!(await stat(resolved)).isDirectory()) {
-    throw new Error(`书库路径不是目录：${resolved}`)
-  }
-  activeRoot = resolved
-  return { root: resolved }
+  return prepared.result
+}
+
+/** library:activate —— 换库第四步：关闭旧库连接并激活新库（提交点，不会失败） */
+export function activateLibrarySwitch(): { root: string } {
+  const root = manager().commit()
+  activeRoot = root
+  startupError = ''
+  return { root }
+}
+
+/** library:abort —— 存档失败/取消：关掉待切换的新库，原库仍可继续使用 */
+export function abortLibrarySwitch(): null {
+  manager().abort()
+  return null
+}
+
+/** 退出前收尾：待切换库与活动库一起关闭 */
+export function shutdownLibrary(): void {
+  if (libraryManager) libraryManager.close()
+  else closeDatabase()
+  libraryManager = null
+  activeRoot = ''
 }
 
 /** library:fastScan —— 只读一层目录（书架惰性树按需展开） */
@@ -76,20 +135,40 @@ export function fastScanLibrary(relativeDir: unknown): Promise<LibraryEntry[]> {
 }
 
 /**
+ * 取消在跑的 enrich 并等它退出（换库前的「停扫描」）：
+ * 扫描内每次读文件前检查 token，最多写完当前这一本；不用强杀线程，数据不会被撕裂。
+ */
+async function stopEnrichment(): Promise<void> {
+  if (!enriching) return
+  enrichToken++
+  await enriching.promise.catch(() => undefined)
+}
+
+/**
  * library:enrich —— 后台补元数据 + 对账，进度经 library:scanProgress 推送。
  * 同一时刻只跑一次，重复调用复用同一个 Promise（启动与手动刷新撞车时不重复扫盘）。
+ * 被换库中止的扫描不做对账：半份结果会把没扫到的书误记成「连续零匹配」。
  */
 export function enrichLibrary(): Promise<LibraryEnrichResult> {
   const root = requireRoot()
-  if (enriching) return enriching
-  enriching = (async (): Promise<LibraryEnrichResult> => {
+  if (enriching) return enriching.promise
+  const token = ++enrichToken
+  let cancelled = false
+  const promise = (async (): Promise<LibraryEnrichResult> => {
     const result = await scanLibrary(root, {
       onProgress: (progress: LibraryScanProgress) => {
         for (const win of BrowserWindow.getAllWindows()) {
           win.webContents.send('library:scanProgress', progress)
         }
+      },
+      shouldContinue: () => {
+        if (token !== enrichToken) cancelled = true
+        return !cancelled
       }
     })
+    if (cancelled || token !== enrichToken) {
+      return { total: result.total, skipped: result.skipped, moved: 0, pending: 0, deleted: 0 }
+    }
     const log = reconcileLibrary(result.books)
     return {
       total: result.total,
@@ -99,9 +178,10 @@ export function enrichLibrary(): Promise<LibraryEnrichResult> {
       deleted: log.deleted.length
     }
   })().finally(() => {
-    enriching = null
+    if (enriching?.token === token) enriching = null
   })
-  return enriching
+  enriching = { token, promise }
+  return promise
 }
 
 export function libraryHistory(): LibraryBook[] {

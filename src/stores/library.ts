@@ -1,21 +1,24 @@
 import { defineStore } from 'pinia'
 import {
   libraryBooksByTag,
+  libraryCurrent,
   libraryEnrich,
   libraryFollowing,
   libraryHistory,
   libraryMarkRead,
-  libraryOpen,
   libraryRated,
   librarySetBookRating,
   librarySetTagRating,
   librarySyncMetadata,
   libraryTags,
-  onLibraryScanProgress,
-  chooseLibrary
+  onLibraryScanProgress
 } from '@/ipc/bridge'
-import { useSettingsStore } from '@/stores/settings'
-import type { LibraryBook, LibraryEnrichResult, LibraryTagSummary } from '../../shared/types'
+import type {
+  LibraryBook,
+  LibraryEnrichResult,
+  LibraryOpenResult,
+  LibraryTagSummary
+} from '../../shared/types'
 
 /** 订阅只挂一次（HMR 重挂载不重复注册） */
 let progressSubscribed = false
@@ -46,6 +49,8 @@ function message(e: unknown): string {
 export const useLibraryStore = defineStore('library', {
   state: () => ({
     root: '',
+    /** 活动库数据库是否回落到 userData（书库根不可写） */
+    fallback: false,
     initialized: false,
     scanning: false,
     /** 本轮 enrich 已检查的文件数（进度推送） */
@@ -61,7 +66,10 @@ export const useLibraryStore = defineStore('library', {
     rated: [] as LibraryBook[]
   }),
   actions: {
-    /** 启动时按设置里的书库根打开；未设置则保持空书架 */
+    /**
+     * 启动：主进程已在建窗前按设置打开活动书库（每库一份数据库），
+     * 这里只读取状态、刷列表并后台 enrich（方案 §2.13）。
+     */
     async init(): Promise<void> {
       if (this.initialized) return
       this.initialized = true
@@ -71,42 +79,30 @@ export const useLibraryStore = defineStore('library', {
           this.scanned = progress.scanned
         })
       }
-      const settings = useSettingsStore()
-      if (!settings.libraryRoot) return
-      await this.open(settings.libraryRoot)
-    },
-
-    /** 选择目录并切换书库（设置持久化 + 打开） */
-    async chooseAndOpen(): Promise<void> {
       try {
-        const root = await chooseLibrary()
-        if (!root) return
-        const settings = useSettingsStore()
-        await settings.setLibraryRoot(root)
-        await this.open(root)
-      } catch (e) {
-        this.error = message(e)
-      }
-    },
-
-    /**
-     * 打开书库：realpath 归一 → 重读四类列表 → 后台 enrich。
-     * 失败时保留原来的书库与列表（切换失败不丢当前状态）
-     */
-    async open(root: string): Promise<void> {
-      try {
-        const result = await libraryOpen(root)
-        this.root = result.root
-        this.error = ''
-        this.activeTag = null
-        this.tagBooks = []
-        this.ratingFilter = null
-        this.scanned = 0
+        const state = await libraryCurrent()
+        this.root = state.root
+        this.fallback = state.fallback
+        if (state.error) this.error = state.error
+        if (!this.root) return
         await this.refreshLists()
         void this.enrich()
       } catch (e) {
         this.error = message(e)
       }
+    },
+
+    /** 换库完成（或启动同库）后应用新根：重置筛选态并重读列表 + 后台 enrich */
+    async applyOpened(result: LibraryOpenResult): Promise<void> {
+      this.root = result.root
+      this.fallback = result.fallback
+      this.error = ''
+      this.activeTag = null
+      this.tagBooks = []
+      this.ratingFilter = null
+      this.scanned = 0
+      await this.refreshLists()
+      void this.enrich()
     },
 
     /** 后台补元数据 + 对账；完成后刷新列表（书架目录树不走库） */

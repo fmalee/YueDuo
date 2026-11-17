@@ -7,10 +7,16 @@ import {
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
-import { getTabModel, isDirty, restoreViewState, saveViewState } from './useTabLifecycle'
-import { flushBookmarkDrift } from './useBookmarkDrift'
+import {
+  getTabModel,
+  isDirty,
+  resetTabLifecycle,
+  restoreViewState,
+  saveViewState
+} from './useTabLifecycle'
+import { flushBookmarkDrift, resetBookmarkDrift } from './useBookmarkDrift'
 import { monaco } from '@/monaco'
-import type { SessionSnapshot } from '../../shared/types'
+import type { SessionRestore, SessionSnapshot } from '../../shared/types'
 
 /**
  * 会话持久化（方案 §1.8 / §1.12）
@@ -191,9 +197,37 @@ export async function persistSessionNow(): Promise<void> {
 
 /** 启动时恢复标签顺序/active/阅读进度（model 由 EditorHost 懒加载） */
 export async function restoreSession(): Promise<void> {
-  const store = useTabsStore()
-  const restored = await sessionRestore()
-  if (restored.tabs.length === 0) return
+  applyRestoredSession(await sessionRestore())
+}
+
+/**
+ * 换库时清空渲染层会话（方案 §2.13）：
+ * 编辑器解绑 → 释放全部 model 与身份缓存 → 清空进度/恢复视图/待跳转 → 清空标签元信息。
+ * 顺序必须先解绑再 dispose，避免编辑器仍挂着一个已释放的 model。
+ */
+function resetSessionForSwitch(): void {
+  if (timer) {
+    clearTimeout(timer)
+    timer = null
+  }
+  editor?.setModel(null)
+  resetBookmarkDrift()
+  resetTabLifecycle()
+  progress.clear()
+  carets.clear()
+  restoredView.clear()
+  pendingJumps.clear()
+  useTabsStore().hydrate([], null)
+}
+
+/**
+ * 恢复一份会话（启动 / 换库共用）：
+ * 先重置渲染层再灌入新库的标签行与阅读位置；草稿仍由 EditorHost 激活时按 tabId 懒读，
+ * 因为此时活动库已经是新库，读到的只会是新库自己的草稿。
+ */
+export function applyRestoredSession(restored: SessionRestore | null): void {
+  resetSessionForSwitch()
+  if (!restored || restored.tabs.length === 0) return
   for (const row of restored.tabs) {
     if (row.progressLine > 0) progress.set(row.id, row.progressLine)
     if (row.cursorLine > 0) {
@@ -206,7 +240,7 @@ export async function restoreSession(): Promise<void> {
       })
     }
   }
-  store.hydrate(
+  useTabsStore().hydrate(
     restored.tabs.map((row) => ({
       id: row.id,
       path: row.path,
@@ -217,6 +251,27 @@ export async function restoreSession(): Promise<void> {
     })),
     restored.activeTabId
   )
+}
+
+/**
+ * 换库前存档旧会话（方案 §2.13）：
+ * 1. 书签漂移与最近阅读先落库（它们有自己的防抖）
+ * 2. 会话快照落盘（顺序/active/进度/光标）
+ * 3. 驻留脏标签补写草稿全文与视图状态
+ * 任一步失败都抛错，调用方据此放弃换库——旧库仍是活动库、数据未动。
+ */
+export async function archiveSessionForSwitch(): Promise<void> {
+  await flushBookmarkDrift()
+  try {
+    await useLibraryStore().flushReadStamps()
+  } catch (e) {
+    console.error('[session] 换库前最近阅读落盘失败:', e)
+  }
+  await persistSessionNow()
+  const failed = await persistDirtyResidentTabs()
+  if (failed > 0) {
+    throw new Error(`有 ${failed} 个标签草稿存档失败，已取消换库`)
+  }
 }
 
 /**
@@ -253,9 +308,13 @@ async function flushForQuit(): Promise<void> {
   }
 }
 
-/** 草稿并行写：每个任务单独兜底，任意一个 reject 都不影响其余任务与快照 */
-async function persistDirtyResidentTabs(): Promise<void> {
+/**
+ * 草稿并行写：每个任务单独兜底，任意一个 reject 都不影响其余任务与快照；
+ * 返回失败数（退出时忽略，换库存档时据此回滚）。
+ */
+async function persistDirtyResidentTabs(): Promise<number> {
   const store = useTabsStore()
+  let failed = 0
   const writes: Promise<void>[] = []
   for (const tab of store.tabs) {
     const entry = getTabModel(tab.id)
@@ -274,9 +333,15 @@ async function persistDirtyResidentTabs(): Promise<void> {
     } else {
       write = fileWriteDraft(tab.id, entry.model.getValue(), entry.viewState, meta)
     }
-    writes.push(write.catch((e) => console.error(`[session] 草稿落盘失败 ${tab.title}:`, e)))
+    writes.push(
+      write.catch((e) => {
+        failed++
+        console.error(`[session] 草稿落盘失败 ${tab.title}:`, e)
+      })
+    )
   }
   await Promise.all(writes)
+  return failed
 }
 
 /** 订阅主进程退出握手（只挂一次；HMR 重挂载不重复注册） */

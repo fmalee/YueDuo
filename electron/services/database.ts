@@ -93,16 +93,48 @@ function migrate(db: Database.Database): void {
 }
 
 let handle: Database.Database | null = null
+let activeFile = ''
 
-/** 打开（必要时创建）yueduo.db 并执行迁移；重复调用直接复用连接 */
-export function initDatabase(dir: string): void {
-  if (handle) return
-  const db = new Database(join(dir, 'yueduo.db'))
+/**
+ * 打开（必要时创建）一个库文件并执行迁移，不切换活动库。
+ * 换库（方案 §2.13）要先把新库建好并读出会话，旧库在 commit 前仍保持可写。
+ */
+export function openDatabase(file: string): Database.Database {
+  const db = new Database(file)
   db.pragma('journal_mode = WAL')
   // 书签随书删除靠 FK CASCADE；pragma 在事务外设置才对后续连接生效（迁移内部的事务不受影响）
   db.pragma('foreign_keys = ON')
   migrate(db)
+  return db
+}
+
+/** 把已打开的库设为活动库（旧连接由调用方决定何时关闭） */
+export function activateDatabase(db: Database.Database, file: string): void {
   handle = db
+  activeFile = file
+}
+
+/**
+ * 原子切换活动库：先换全局引用再返回旧连接，调用方在切换成功后关闭旧连接。
+ * 该函数本身不失败，因此换库的提交点是安全的（失败只会发生在准备阶段）。
+ */
+export function swapDatabase(next: Database.Database, file: string): Database.Database | null {
+  const previous = handle
+  handle = next
+  activeFile = file
+  return previous
+}
+
+/** 当前活动库文件（诊断/验收用） */
+export function getDatabaseFile(): string {
+  return activeFile
+}
+
+/** 打开（必要时创建）yueduo.db 并设为活动库；重复调用直接复用连接 */
+export function initDatabase(dir: string): void {
+  if (handle) return
+  const file = join(dir, 'yueduo.db')
+  activateDatabase(openDatabase(file), file)
 }
 
 /** 取库连接（session/draft 服务用）；未初始化即抛错，由 registry 收敛为 {ok:false} */
@@ -115,4 +147,5 @@ export function getDatabase(): Database.Database {
 export function closeDatabase(): void {
   handle?.close()
   handle = null
+  activeFile = ''
 }

@@ -155,6 +155,18 @@ export function handleBookmarkDrift(
   scheduleFlush(path)
 }
 
+/**
+ * 换库时清空内存基线（方案 §2.13）：旧库的路径/行号/防抖计时不能带到新库。
+ * flush 已由存档流程先行完成；这里只丢弃数据，订阅者（右栏）保持不动。
+ */
+export function resetBookmarkDrift(): void {
+  for (const timer of timers.values()) clearTimeout(timer)
+  timers.clear()
+  linesByPath.clear()
+  lineCounts.clear()
+  pendingAgain.clear()
+}
+
 /** 立即回写所有待落库的漂移（切标签/保存/退出前调用） */
 export async function flushBookmarkDrift(): Promise<void> {
   for (let round = 0; round < 3; round++) {

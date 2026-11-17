@@ -9,6 +9,7 @@ import type {
   IpcResult,
   LibraryBook,
   LibraryBookmarkGroup,
+  LibraryCurrentState,
   LibraryEnrichResult,
   LibraryEntry,
   LibraryOpenResult,
@@ -124,9 +125,27 @@ export function onSessionFlush(callback: () => void): () => void {
   return window.yue.onSessionFlush(callback)
 }
 
-/** library:open —— 打开/切换书库根（realpath 归一，方案 §2.5） */
+/** library:current —— 主进程启动时按设置打开的活动书库（方案 §2.13） */
+export function libraryCurrent(): Promise<LibraryCurrentState> {
+  return ipcInvoke<LibraryCurrentState>('library:current')
+}
+
+/**
+ * library:open —— 换库第一步：建新库 + 停扫描 + 读新会话（旧库仍活动）；
+ * 同一书库返回 switched=false。方案 §2.13
+ */
 export function libraryOpen(root: string): Promise<LibraryOpenResult> {
   return ipcInvoke<LibraryOpenResult>('library:open', root)
+}
+
+/** library:activate —— 换库提交：关闭旧库连接并激活新库（方案 §2.13） */
+export function libraryActivate(): Promise<{ root: string }> {
+  return ipcInvoke<{ root: string }>('library:activate')
+}
+
+/** library:abort —— 放弃待切换的新库，原库保持可用（方案 §2.13） */
+export function libraryAbort(): Promise<null> {
+  return ipcInvoke<null>('library:abort')
 }
 
 /** library:fastScan —— 书架惰性树的一层目录（目录在前、TXT 在后） */

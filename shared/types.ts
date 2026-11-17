@@ -143,9 +143,27 @@ export interface LibraryScanResult {
   books: ScannedBook[]
 }
 
-/** library:open 返回：书库根统一 realpath 后的路径 */
+/**
+ * library:open 返回（方案 §2.13）：打开/准备切换书库。
+ * switched=false 表示该根已是活动书库（启动时按设置打开，无需再切）；
+ * switched=true 时主进程已建好新库并读出其会话，旧库仍保持活动直到 library:activate。
+ */
 export interface LibraryOpenResult {
   root: string
+  switched: boolean
+  /** 新库会话（switched=false 时为 null）；草稿正文仍在库里，激活后按 tabId 懒读 */
+  session: SessionRestore | null
+  /** true = 书库根不可写，数据库落在 userData（按库根隔离） */
+  fallback: boolean
+}
+
+/** library:current 返回：主进程启动时按设置打开的活动书库 */
+export interface LibraryCurrentState {
+  root: string
+  /** 启动时打开失败的原因（空 = 正常） */
+  error: string
+  /** 活动库是否回落到 userData */
+  fallback: boolean
 }
 
 /** 书库书籍记录（方案 §2.5：历史/追更/标签/评分共用；path 已拼成绝对路径便于直接打开） */

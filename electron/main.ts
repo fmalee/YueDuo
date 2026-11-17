@@ -5,7 +5,7 @@ import icon from '../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc'
 import { initTheme } from './ipc/theme'
 import { requestRendererFlush } from './ipc/session'
-import { closeDatabase, initDatabase } from './services/database'
+import { initActiveLibrary, shutdownLibrary } from './ipc/library'
 
 // 自动化验收：YUE_DEBUG=1 时开 CDP 远程调试端口
 if (process.env['YUE_DEBUG']) {
@@ -95,7 +95,8 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     registerIpcHandlers()
-    initDatabase(app.getPath('userData'))
+    // 每书库一份数据库（方案 §2.13）：建窗前按设置打开活动书库，渲染层启动即恢复它的会话
+    initActiveLibrary()
     initTheme()
     createWindow()
 
@@ -125,5 +126,5 @@ app.on('before-quit', (e) => {
 
 // 退出前关库：WAL 正常 checkpoint，避免残留 -wal/-shm
 app.on('will-quit', () => {
-  closeDatabase()
+  shutdownLibrary()
 })

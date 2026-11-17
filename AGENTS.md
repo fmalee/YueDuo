@@ -32,7 +32,8 @@
 
 ## 数据库与书库
 
-- 书库根目录接入后 `yueduo.db` 随库搬迁到书库根、不可写时回落 `userData`；当前阶段暂放 `userData`（`c453d87`）。`relative_path` 相对书库根、不含根目录名。
+- 每个书库一份数据库：首选 `<书库根>/yueduo.db`；根目录不可写时回落 `userData/library-db/<realpath 哈希>.db`（按库隔离，不许共用一份）。`relative_path` 相对书库根、不含根目录名。
+- 换库固定顺序：`library:open` 建新库 + 停扫描 + 读新会话（旧库仍活动）→ 渲染层存档旧会话（快照 + 驻留脏标签草稿写旧库）→ `library:activate` 切活动库（提交点）→ 恢复新会话；失败/取消用 `library:abort`，旧库必须仍可用。
 - 迁移用 `PRAGMA user_version` + 缺列 `ALTER TABLE`；建表语句只对新库生效；WAL 模式。
 - better-sqlite3 只在主进程用；路径比较前统一 `realpath`。
 - 换库顺序固定：建新库 → 停扫描 → 存档旧会话 → 切活动库 → 恢复新会话。

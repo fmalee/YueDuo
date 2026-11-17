@@ -41,6 +41,12 @@ const unloadInFlight = new Map<string, Promise<void>>()
 const reloadInFlight = new Map<string, Promise<void>>()
 
 /**
+ * 换库代际（方案 §2.13）：切库时整体清空 model 注册表并自增，
+ * 之前发出的异步重载/卸载发现代际变了就直接放弃，避免把旧库内容写进新库。
+ */
+let epoch = 0
+
+/**
  * 文件身份缓存 —— 独立于 model 生命周期（model 可被 LRU 卸载，stat 必须常驻）
  * 供同文件去重（inode 优先 realPath 兜底）
  */
@@ -116,6 +122,19 @@ export function residentModelCount(): number {
   return registry.size
 }
 
+/**
+ * 换库时整体重置（方案 §2.13）：释放所有 model、清空身份缓存与在途标记，并自增代际。
+ * 调用方需先把编辑器从 model 上解绑（useSession 负责 setModel(null)）。
+ */
+export function resetTabLifecycle(): void {
+  epoch++
+  for (const entry of registry.values()) entry.model.dispose()
+  registry.clear()
+  statCache.clear()
+  unloadInFlight.clear()
+  reloadInFlight.clear()
+}
+
 /** 等待某标签的在途卸载完成（无在途则立即返回；永不 reject） */
 export function waitUnloadSettled(tabId: string): Promise<void> {
   return unloadInFlight.get(tabId) ?? Promise.resolve()
@@ -147,6 +166,7 @@ export function unloadModel(
   getTabs: () => TabMeta[],
   getActiveTabId: () => string | null
 ): Promise<void> {
+  const myEpoch = epoch
   const run = (async () => {
     const entry = registry.get(tabId)
     if (!entry) return
@@ -166,6 +186,8 @@ export function unloadModel(
           }
         : undefined
     )
+    // 换库已发生：这次卸载属于旧库，绝不能再动新库的注册表
+    if (myEpoch !== epoch) return
     if (computeResidentSet(getTabs(), getActiveTabId()).has(tabId)) return
     disposeTabModel(tabId)
   })()
@@ -188,11 +210,12 @@ export function unloadModel(
 export function reloadModel(tabId: string, path: string): Promise<void> {
   const existing = reloadInFlight.get(tabId)
   if (existing) return existing
+  const myEpoch = epoch
   const run = (async () => {
     await waitUnloadSettled(tabId) // 卸载在途：等 draft 落定再读
-    if (registry.has(tabId)) return
+    if (myEpoch !== epoch || registry.has(tabId)) return
     const draft = await fileReadDraft(tabId)
-    if (registry.has(tabId)) return
+    if (myEpoch !== epoch || registry.has(tabId)) return
     let text: string
     let encoding = ''
     if (draft && draft.text != null) {
@@ -201,11 +224,12 @@ export function reloadModel(tabId: string, path: string): Promise<void> {
       const r = await fileReadText(path)
       text = r.text
       encoding = r.encoding
+      if (myEpoch !== epoch) return
       setStatCache(tabId, r.stat)
     } else {
       text = '' // 空白标签
     }
-    if (registry.has(tabId)) return // 读取在途时被并发处理
+    if (myEpoch !== epoch || registry.has(tabId)) return // 读取在途时被并发处理/换库
     const entry = createTabModel(tabId, text, encoding)
     if (draft && draft.viewState != null) {
       entry.viewState = draft.viewState as monaco.editor.ICodeEditorViewState
