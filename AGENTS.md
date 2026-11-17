@@ -49,6 +49,7 @@
 - 元数据：名称取前两行书名号内，否则文件名；作者取前十行 `作者：`，否则「佚名」；标签取前十行 `主题：`，否则目录名；评分 5 分制。
 - 元数据写回用一次最小区间替换生成可撤销 TextEdit，保留光标与未保存标记，再同步库；评分只写库 + 文件星级。
 - Finder 星级/注释只走 `spawn('xattr')` + Python plistlib 风格 bplist00：float marker `0x23` + 8 字节 BE double；字符串 UTF-16BE marker `0x60|字符数` 或 `0x6F`+2 字节字符数；trailer 32 字节；禁止 `plist` 包 `buildBinary`。写前读旧值，相同跳过。
+- 注释写完再 `spawn('osascript')` 让 Finder `set comment` 同步一次：Finder/Path Finder 显示的是 Spotlight 索引，raw xattr 会滞后甚至滞留旧值；`mdimport` 对 mtime 未变的文件无效。路径与注释走 argv、不拼脚本；`writeFinderComment` 返回 `refreshed/written/skipped/failed`，同步失败记 warning 并返回 `written`，不阻塞保存。
 - `last_read_at` 打开即写，阅读位置变化 60 秒防抖。
 
 ## Monaco 硬约束

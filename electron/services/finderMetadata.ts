@@ -231,15 +231,74 @@ export async function readFinderComment(path: string): Promise<string | null> {
 }
 
 /**
- * 写 Finder 注释（方案 §2.10）：无主题跳过；写前读旧注释，内容相同也跳过，
- * 减少写操作、避免反复改动文件。失败静默返回 false，不影响保存与库内元数据。
+ * 注释写入结果：
+ * - refreshed：xattr 已写入，Finder 也同步完成（简介立即可见）
+ * - written：xattr 已写入，但 Finder 同步失败（无授权 / osascript 异常），调用方需知道
+ * - skipped：非 macOS、无内容或与旧值相同，未写
+ * - failed：xattr 写入本身失败
  */
-export async function writeFinderComment(path: string, text: string | null): Promise<boolean> {
-  if (process.platform !== 'darwin') return false
-  if (!text) return false
+export type FinderCommentWriteStatus = 'refreshed' | 'written' | 'skipped' | 'failed'
+
+/**
+ * 让 Finder 写入同一条注释：raw xattr 只改文件本身，Finder／Path Finder 的简介
+ * 不总是直接读 xattr——Spotlight 索引会滞后，Finder 自己的缓存还可能长期停在旧值；
+ * 经 Finder 走它自己的元数据 API 才会立即刷新（Path Finder 的
+ * setSpotlightCommentUsingTheFinder 就是 `set comment of item ...`）。失败不影响已写入的 xattr。
+ *
+ * 路径与注释都作为 osascript 的 argv 传入，不拼进脚本文本，双引号／反斜杠／换行／中文
+ * 不会破坏语法，也不会被当成脚本执行。
+ */
+function syncFinderComment(path: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    execFile(
+      'osascript',
+      [
+        '-e',
+        'on run argv',
+        '-e',
+        'tell application "Finder" to set comment of (POSIX file (item 1 of argv) as alias) to (item 2 of argv)',
+        '-e',
+        'end run',
+        path,
+        text
+      ],
+      { timeout: 2000 },
+      (error, _stdout, stderr) => {
+        if (error) resolve({ ok: false, error: stderr?.trim() || error.message })
+        else resolve({ ok: true })
+      }
+    )
+  })
+}
+
+/**
+ * 写 Finder 注释（方案 §2.10）：无主题跳过；写前读旧注释，内容相同也跳过，
+ * 减少写操作、避免反复改动文件。xattr 写成功后尝试让 Finder 同步；
+ * 同步失败只降级为 'written'，不抛出、不阻塞保存主流程。
+ */
+export async function writeFinderComment(
+  path: string,
+  text: string | null,
+  /** 测试注入口：默认走真实 osascript，单测可替换为失败实现验证降级 */
+  sync: (path: string, text: string) => Promise<{ ok: boolean; error?: string }> = syncFinderComment
+): Promise<FinderCommentWriteStatus> {
+  if (process.platform !== 'darwin') return 'skipped'
+  if (!text) return 'skipped'
   const current = await readFinderComment(path)
-  if (current === text) return false
+  if (current === text) return 'skipped'
   const hex = buildBplistString(text).toString('hex')
   const stdout = await runXattr(['-w', '-x', COMMENT_ATTR, hex, path])
-  return stdout !== null
+  if (stdout === null) {
+    console.warn(`[finder] 注释 xattr 写入失败：${path}`)
+    return 'failed'
+  }
+  // xattr 已落盘；再让 Finder 同步一次索引，Finder 简介里立即能看到
+  const synced = await sync(path, text)
+  if (!synced.ok) {
+    console.warn(
+      `[finder] 注释已写入 xattr，但 Finder 同步失败：${synced.error ?? '未知原因'}（${path}）`
+    )
+    return 'written'
+  }
+  return 'refreshed'
 }
