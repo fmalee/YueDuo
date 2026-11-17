@@ -18,7 +18,8 @@ export const LIGHT_COLORS = {
   cursor: '#4a3f2f',
   selection: '#e6dcc9',
   overlay: 'rgba(0, 0, 0, 0.25)', // 命令面板遮罩
-  shadow: 'rgba(0, 0, 0, 0.18)'
+  shadow: 'rgba(0, 0, 0, 0.18)',
+  danger: '#a33a2a' // 表单校验/文件操作失败
 }
 
 export type ThemeColors = typeof LIGHT_COLORS
@@ -38,7 +39,8 @@ export const DARK_COLORS: ThemeColors = {
   cursor: '#e8e2d5',
   selection: '#4a4233',
   overlay: 'rgba(0, 0, 0, 0.45)',
-  shadow: 'rgba(0, 0, 0, 0.5)'
+  shadow: 'rgba(0, 0, 0, 0.5)',
+  danger: '#e0806f'
 }
 
 /** 组件尺寸 token（CSS 变量 --yd-statusbar-height 等由 applyTheme 注入） */
@@ -123,7 +125,19 @@ export const METRICS = {
   findBarRulesRowPaddingX: 8,
   findBarRulesRadius: 3,
   findBarRulesGap: 2,
-  findBarRulesDescriptionFontSize: 11
+  findBarRulesDescriptionFontSize: 11,
+  // 标签右键菜单与重命名浮层（方案 §3.5）
+  tabMenuMinWidth: 148,
+  tabMenuPaddingY: 4,
+  tabMenuItemPaddingY: 5,
+  tabMenuItemPaddingX: 12,
+  tabMenuFontSize: 12,
+  tabMenuRadius: 6,
+  renameWidth: 360,
+  renamePadding: 16,
+  renameGap: 10,
+  renameButtonPaddingY: 4,
+  renameButtonPaddingX: 12
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -215,5 +229,16 @@ export function applyTheme(dark: boolean): void {
     '--yd-find-rules-description-font-size',
     `${METRICS.findBarRulesDescriptionFontSize}px`
   )
+  root.style.setProperty('--yd-tab-menu-min-width', `${METRICS.tabMenuMinWidth}px`)
+  root.style.setProperty('--yd-tab-menu-padding-y', `${METRICS.tabMenuPaddingY}px`)
+  root.style.setProperty('--yd-tab-menu-item-padding-y', `${METRICS.tabMenuItemPaddingY}px`)
+  root.style.setProperty('--yd-tab-menu-item-padding-x', `${METRICS.tabMenuItemPaddingX}px`)
+  root.style.setProperty('--yd-tab-menu-font-size', `${METRICS.tabMenuFontSize}px`)
+  root.style.setProperty('--yd-tab-menu-radius', `${METRICS.tabMenuRadius}px`)
+  root.style.setProperty('--yd-rename-width', `${METRICS.renameWidth}px`)
+  root.style.setProperty('--yd-rename-padding', `${METRICS.renamePadding}px`)
+  root.style.setProperty('--yd-rename-gap', `${METRICS.renameGap}px`)
+  root.style.setProperty('--yd-rename-button-padding-y', `${METRICS.renameButtonPaddingY}px`)
+  root.style.setProperty('--yd-rename-button-padding-x', `${METRICS.renameButtonPaddingX}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

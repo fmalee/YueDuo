@@ -1,9 +1,17 @@
-import { Menu, type MenuItemConstructorOptions } from 'electron'
+import { BrowserWindow, Menu, type BaseWindow, type MenuItemConstructorOptions } from 'electron'
+import type { AppMenuCommand } from '../shared/types'
+
+/** 保存/关闭类命令下发给渲染层：与标签右键菜单复用同一套动作（方案 §3.5） */
+function sendMenuCommand(command: AppMenuCommand, win?: BaseWindow): void {
+  const target = win instanceof BrowserWindow ? win : BrowserWindow.getFocusedWindow()
+  target?.webContents.send('app:menuCommand', command)
+}
 
 /**
  * 顶部应用菜单：Electron 默认模板是英文，这里按平台习惯自建中文模板。
- * 行为全部走 role（加速键由 role 自带），label 给中文；未显式给 label 的 role
+ * 系统行为走 role（加速键由 role 自带），label 给中文；未显式给 label 的 role
  * 项由 Electron 回落到英文默认文字，英文即兜底。
+ * 「文件」里的保存/关闭类为自定义项：点击后把命令发给渲染层，与标签右键菜单共用实现。
  */
 export function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin'
@@ -31,7 +39,30 @@ export function installApplicationMenu(): void {
   template.push(
     {
       label: '文件',
-      submenu: [isMac ? { role: 'close', label: '关闭窗口' } : { role: 'quit', label: '退出' }]
+      submenu: [
+        {
+          label: '保存',
+          accelerator: 'CmdOrCtrl+S',
+          click: (_item, win) => sendMenuCommand('save', win)
+        },
+        {
+          label: '关闭标签',
+          accelerator: 'CmdOrCtrl+W',
+          click: (_item, win) => sendMenuCommand('closeTab', win)
+        },
+        {
+          label: '关闭其他标签',
+          click: (_item, win) => sendMenuCommand('closeOthers', win)
+        },
+        {
+          label: '关闭全部标签',
+          click: (_item, win) => sendMenuCommand('closeAll', win)
+        },
+        { type: 'separator' },
+        isMac
+          ? { role: 'close', label: '关闭窗口', accelerator: 'CmdOrCtrl+Shift+W' }
+          : { role: 'quit', label: '退出' }
+      ]
     },
     {
       label: '编辑',

@@ -1,4 +1,5 @@
 import type {
+  AppMenuCommand,
   AppSettings,
   BookmarkInfo,
   ChapterInfo,
@@ -6,6 +7,7 @@ import type {
   DraftEntry,
   DraftTabMeta,
   FileReadResult,
+  FileRenameResult,
   FileStat,
   IpcResult,
   LibraryBook,
@@ -34,6 +36,7 @@ declare global {
       onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
       onSessionFlush(callback: () => void): () => void
       onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void
+      onAppMenuCommand(callback: (command: AppMenuCommand) => void): () => void
     }
   }
 }
@@ -87,6 +90,31 @@ export function fileClearDraft(tabId: string): Promise<void> {
   return ipcInvoke<void>('file:clearDraft', tabId)
 }
 
+/** file:rename —— 重命名标签文件并同步库身份（方案 §3.5） */
+export function fileRename(path: string, newName: string): Promise<FileRenameResult> {
+  return ipcInvoke<FileRenameResult>('file:rename', path, newName)
+}
+
+/** file:trash —— 移到系统废纸篓并清理库记录（方案 §3.5） */
+export function fileTrash(path: string): Promise<null> {
+  return ipcInvoke<null>('file:trash', path)
+}
+
+/** file:reveal —— 在 Finder 中显示文件（方案 §3.5） */
+export function fileReveal(path: string): Promise<null> {
+  return ipcInvoke<null>('file:reveal', path)
+}
+
+/** dialog:confirmTrash —— 删除文件前的确认框（默认取消） */
+export function confirmTrash(title: string, dirty: boolean): Promise<boolean> {
+  return ipcInvoke<boolean>('dialog:confirmTrash', title, dirty)
+}
+
+/** dialog:showError —— 文件操作失败的可见提示 */
+export function showError(title: string, message: string): Promise<null> {
+  return ipcInvoke<null>('dialog:showError', title, message)
+}
+
 /** settings:get —— 读设置（方案 §1.9；缺失/损坏由主进程回落默认值） */
 export function settingsGet(): Promise<AppSettings> {
   return ipcInvoke<AppSettings>('settings:get')
@@ -125,6 +153,11 @@ export function sessionFlushDone(): Promise<null> {
 /** 订阅退出/关窗前落盘请求（主进程 before-quit / 关窗时发） */
 export function onSessionFlush(callback: () => void): () => void {
   return window.yue.onSessionFlush(callback)
+}
+
+/** 订阅顶部「文件」菜单命令（保存/关闭类与标签右键菜单共用动作） */
+export function onAppMenuCommand(callback: (command: AppMenuCommand) => void): () => void {
+  return window.yue.onAppMenuCommand(callback)
 }
 
 /** library:current —— 主进程启动时按设置打开的活动书库（方案 §2.13） */

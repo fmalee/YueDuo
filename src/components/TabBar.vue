@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
@@ -8,7 +8,16 @@ import { METRICS } from '@/styles/theme'
 
 const store = useTabsStore()
 const settings = useSettingsStore()
-const { activateTab, closeTab } = useTabs()
+const {
+  activateTab,
+  closeTab,
+  saveTab,
+  closeOtherTabs,
+  closeAllTabs,
+  renameTab,
+  deleteTabFile,
+  revealTabFile
+} = useTabs()
 const scrollRef = ref<HTMLDivElement>()
 /** 当前标签外展圆弧 8px：滚动时留同宽余量，避免弧脚被滚动容器裁掉 */
 const SCROLL_PADDING = 8
@@ -281,6 +290,122 @@ function onTabClick(id: string): void {
   activateTab(id)
 }
 
+// —— 标签右键菜单与重命名浮层（方案 §3.5）——
+/** 菜单实际高度约 200px；用于贴近窗口底边时向上收，避免被裁掉 */
+const MENU_WIDTH = 168
+const MENU_HEIGHT = 210
+const menu = ref<{ x: number; y: number; tabId: string } | null>(null)
+const menuTab = computed(() =>
+  menu.value ? (store.tabs.find((t) => t.id === menu.value?.tabId) ?? null) : null
+)
+const rename = ref<{ tabId: string; value: string; error: string } | null>(null)
+const renameInput = ref<HTMLInputElement>()
+
+function openTabMenu(e: MouseEvent, tabId: string): void {
+  e.preventDefault()
+  // 右键即激活（VS Code 同款）：菜单动作与当前标签保持一致
+  activateTab(tabId)
+  menu.value = {
+    x: Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_WIDTH - 4)),
+    y: Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_HEIGHT - 4)),
+    tabId
+  }
+}
+
+function dismissMenu(): void {
+  menu.value = null
+}
+
+function menuSave(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) void saveTab(id).catch((e) => console.error('[tab] 保存失败:', e))
+}
+
+function menuClose(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) void closeTab(id)
+}
+
+function menuCloseOthers(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) void closeOtherTabs(id)
+}
+
+function menuCloseAll(): void {
+  dismissMenu()
+  void closeAllTabs()
+}
+
+function menuRename(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) beginRename(id)
+}
+
+function menuDelete(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) void deleteTabFile(id).catch((e) => console.error('[tab] 删除失败:', e))
+}
+
+function menuReveal(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (id) revealTabFile(id)
+}
+
+function beginRename(id: string): void {
+  const tab = store.tabs.find((t) => t.id === id)
+  if (!tab?.path) return
+  const base = tab.path.split('/').pop() ?? ''
+  rename.value = { tabId: id, value: base.replace(/\.txt$/i, ''), error: '' }
+  void nextTick(() => {
+    renameInput.value?.focus()
+    renameInput.value?.select()
+  })
+}
+
+function cancelRename(): void {
+  if (!rename.value) return
+  rename.value = null
+  focusEditor()
+}
+
+async function submitRename(): Promise<void> {
+  const state = rename.value
+  if (!state) return
+  state.error = ''
+  const error = await renameTab(state.tabId, state.value)
+  if (error) {
+    state.error = error
+    return
+  }
+  rename.value = null
+  focusEditor()
+}
+
+function onGlobalPointerDown(e: PointerEvent): void {
+  if (!menu.value) return
+  if (e.target instanceof Element && e.target.closest('.tab-context-menu')) return
+  dismissMenu()
+}
+
+function onGlobalKeydown(e: KeyboardEvent): void {
+  if (e.key !== 'Escape') return
+  if (menu.value) {
+    dismissMenu()
+    return
+  }
+  if (rename.value) cancelRename()
+}
+
+function onGlobalBlur(): void {
+  dismissMenu()
+}
+
 watch([() => store.activeTabId, () => store.tabs.length], () => {
   void nextTick(() => {
     ensureActiveVisible()
@@ -291,6 +416,9 @@ watch([() => store.activeTabId, () => store.tabs.length], () => {
 onMounted(() => {
   ensureActiveVisible()
   void nextTick(syncScrollbar)
+  window.addEventListener('pointerdown', onGlobalPointerDown)
+  window.addEventListener('keydown', onGlobalKeydown)
+  window.addEventListener('blur', onGlobalBlur)
   if (scrollRef.value) {
     resizeObserver = new ResizeObserver(syncScrollbar)
     resizeObserver.observe(scrollRef.value)
@@ -299,6 +427,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
+  window.removeEventListener('pointerdown', onGlobalPointerDown)
+  window.removeEventListener('keydown', onGlobalKeydown)
+  window.removeEventListener('blur', onGlobalBlur)
   if (hideTimer) clearTimeout(hideTimer)
   clearAutoScroll()
   window.removeEventListener('pointermove', onScrollbarPointerMove)
@@ -336,6 +467,7 @@ onBeforeUnmount(() => {
         :data-tab-id="tab.id"
         @click="onTabClick(tab.id)"
         @pointerdown="onTabPointerDown($event, tab.id)"
+        @contextmenu="openTabMenu($event, tab.id)"
       >
         <!-- 左外展圆弧（8×8 月牙填充 + 1px 弧描边） -->
         <svg
@@ -386,6 +518,51 @@ onBeforeUnmount(() => {
       ></div>
     </div>
   </div>
+
+  <!-- 标签右键菜单（方案 §3.5）：保存/关闭类与顶部「文件」菜单共用同一套动作 -->
+  <Teleport to="body">
+    <div
+      v-if="menu"
+      class="tab-context-menu"
+      :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
+      @contextmenu.prevent
+    >
+      <button class="tab-menu-item" @click="menuSave">保存</button>
+      <button class="tab-menu-item" @click="menuClose">关闭</button>
+      <button class="tab-menu-item" :disabled="store.tabs.length <= 1" @click="menuCloseOthers">
+        关闭其他
+      </button>
+      <button class="tab-menu-item" @click="menuCloseAll">关闭全部</button>
+      <div class="tab-menu-sep"></div>
+      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuRename">重命名…</button>
+      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuDelete">删除…</button>
+      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuReveal">
+        在 Finder 中显示
+      </button>
+    </div>
+  </Teleport>
+
+  <!-- 重命名浮层：Electron 无原生文本输入框，自绘轻量对话框 -->
+  <Teleport to="body">
+    <div v-if="rename" class="rename-overlay" @mousedown.self="cancelRename">
+      <div class="rename-panel" role="dialog" aria-label="重命名">
+        <div class="rename-title">重命名</div>
+        <input
+          ref="renameInput"
+          v-model="rename.value"
+          class="rename-input"
+          spellcheck="false"
+          @keydown.enter.prevent="submitRename"
+          @keydown.esc.prevent="cancelRename"
+        />
+        <div v-if="rename.error" class="rename-error">{{ rename.error }}</div>
+        <div class="rename-actions">
+          <button class="rename-button" @click="cancelRename">取消</button>
+          <button class="rename-button primary" @click="submitRename">确定</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -546,5 +723,112 @@ onBeforeUnmount(() => {
 .tab-close:hover {
   background: var(--yd-active-1);
   color: var(--yd-text-1);
+}
+
+/* 标签右键菜单（方案 §3.5） */
+.tab-context-menu {
+  position: fixed;
+  z-index: 30;
+  min-width: var(--yd-tab-menu-min-width);
+  padding: var(--yd-tab-menu-padding-y) 0;
+  background: var(--yd-bg-1);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-tab-menu-radius);
+  box-shadow: 0 6px 20px var(--yd-shadow);
+  font-size: var(--yd-tab-menu-font-size);
+}
+.tab-menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--yd-tab-menu-item-padding-y) var(--yd-tab-menu-item-padding-x);
+  color: var(--yd-text-2);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: default;
+}
+.tab-menu-item:hover:not(:disabled) {
+  background: var(--yd-hover-1);
+}
+.tab-menu-item:disabled {
+  color: var(--yd-text-3);
+  opacity: 0.6;
+}
+.tab-menu-sep {
+  height: 1px;
+  margin: var(--yd-tab-menu-padding-y) 0;
+  background: var(--yd-border-1);
+}
+
+/* 重命名浮层（QInputDialog 平替） */
+.rename-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--yd-palette-top-offset);
+  background: var(--yd-overlay);
+}
+.rename-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--yd-rename-gap);
+  box-sizing: border-box;
+  width: min(var(--yd-rename-width), calc(100vw - 40px));
+  padding: var(--yd-rename-padding);
+  background: var(--yd-bg-1);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-palette-radius);
+  box-shadow: 0 12px 32px var(--yd-shadow);
+}
+.rename-title {
+  color: var(--yd-text-1);
+  font-size: var(--yd-palette-font-size);
+}
+.rename-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--yd-find-input-height);
+  padding: 0 var(--yd-find-input-padding-x);
+  color: var(--yd-text-1);
+  font-family: inherit;
+  font-size: var(--yd-palette-font-size);
+  background: var(--yd-bg-3);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-find-input-radius);
+  outline: none;
+}
+.rename-input:focus {
+  border-color: var(--yd-accent);
+}
+.rename-error {
+  color: var(--yd-danger);
+  font-size: var(--yd-palette-meta-font-size);
+}
+.rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--yd-rename-gap);
+}
+.rename-button {
+  padding: var(--yd-rename-button-padding-y) var(--yd-rename-button-padding-x);
+  color: var(--yd-text-2);
+  font-family: inherit;
+  font-size: var(--yd-tab-menu-font-size);
+  background: transparent;
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-palette-key-radius);
+  cursor: pointer;
+}
+.rename-button:hover {
+  background: var(--yd-hover-1);
+}
+.rename-button.primary {
+  color: var(--yd-bg-1);
+  background: var(--yd-accent);
+  border-color: var(--yd-accent);
 }
 </style>

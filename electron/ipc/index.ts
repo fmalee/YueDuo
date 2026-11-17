@@ -6,9 +6,12 @@ import {
   fileWriteText,
   fileWriteDraft,
   fileReadDraft,
-  fileClearDraft
+  fileClearDraft,
+  fileRename,
+  fileTrash,
+  fileReveal
 } from './file'
-import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
+import { confirmClose, chooseLibrary, chooseSaveFile, confirmTrash, showError } from './dialog'
 import {
   addBookBookmark,
   bookBookmarks,
@@ -58,8 +61,18 @@ export function registerIpcHandlers(): void {
   )
   handle('file:readDraft', (tabId: unknown) => fileReadDraft(String(tabId)))
   handle('file:clearDraft', (tabId: unknown) => fileClearDraft(String(tabId)))
+  // 标签右键菜单（方案 §3.5）：改名为磁盘 + books 身份同步；删除走系统废纸篓
+  handle('file:rename', (path: unknown, newName: unknown) => fileRename(String(path), newName))
+  handle('file:trash', (path: unknown) => fileTrash(String(path)))
+  handle('file:reveal', (path: unknown) => fileReveal(String(path)))
   handle('dialog:confirmClose', (title: unknown) => confirmClose(String(title)))
   handle('dialog:saveFile', (name: unknown) => chooseSaveFile(String(name)))
+  handle('dialog:confirmTrash', (title: unknown, dirty: unknown) =>
+    confirmTrash(String(title), dirty === true)
+  )
+  handle('dialog:showError', (title: unknown, message: unknown) =>
+    showError(String(title), String(message))
+  )
   handle('dialog:chooseLibrary', () => chooseLibrary())
   // 书库（方案 §2.5 / §2.13）：启动状态、换库三步（open 准备 / activate 提交 / abort 回滚）
   handle('library:current', () => libraryCurrent())

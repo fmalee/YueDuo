@@ -1,4 +1,14 @@
-import { fileClearDraft, fileReadText, fileStat, ipcInvoke } from '@/ipc/bridge'
+import {
+  fileClearDraft,
+  fileReadText,
+  fileRename,
+  fileReveal,
+  fileStat,
+  fileTrash,
+  confirmTrash,
+  ipcInvoke,
+  showError
+} from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
 import {
@@ -12,18 +22,31 @@ import {
   waitUnloadSettled
 } from './useTabLifecycle'
 import { useEditorCommands } from './useEditorCommands'
-import { focusEditor, schedulePersist } from './useSession'
+import { focusEditor, persistSessionNow, schedulePersist } from './useSession'
+import { flushBookmarkDrift } from './useBookmarkDrift'
 import type { ConfirmChoice, FileStat } from '../../shared/types'
 
 let seq = 0
 const newTabId = (): string => `tab-${Date.now().toString(36)}-${seq++}`
+
+/** IPC 错误带 `[file:rename] ` 前缀：UI 只展示给用户看的部分 */
+function cleanError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.replace(/^\[[^\]]+\]\s*/, '')
+}
 
 /** 标签打开/切换/关闭/新建业务（渲染层编排，全文经 IPC 后直接进 model） */
 export function useTabs(): {
   openFile: (path: string) => Promise<string>
   newBlankTab: () => string
   closeTab: (id: string) => Promise<void>
+  closeOtherTabs: (id: string) => Promise<void>
+  closeAllTabs: () => Promise<void>
   activateTab: (id: string) => void
+  saveTab: (id: string) => Promise<boolean>
+  renameTab: (id: string, newName: string) => Promise<string | null>
+  deleteTabFile: (id: string) => Promise<boolean>
+  revealTabFile: (id: string) => void
 } {
   const store = useTabsStore()
   const library = useLibraryStore()
@@ -101,6 +124,37 @@ export function useTabs(): {
     return id
   }
 
+  /**
+   * 保存指定标签（方案 §3.5：文件菜单与标签右键菜单共用）。
+   * 空白标签先走「保存为」；取消返回 false，调用方（关闭流程）据此中止。
+   */
+  async function saveTab(id: string): Promise<boolean> {
+    const tab = store.tabs.find((t) => t.id === id)
+    if (!tab) return false
+    // 模型未驻留（LRU 已卸载）时不能保存，避免写出空内容
+    if (!getTabModel(id)) return false
+    store.setActive(id)
+    if (!tab.path) {
+      const chosen = await ipcInvoke<string | null>('dialog:saveFile', tab.title)
+      if (!chosen) return false
+      store.patchTab(id, { path: chosen, title: chosen.split('/').pop() ?? '未命名' })
+    }
+    return saveActive()
+  }
+
+  /** 释放标签的模型/身份缓存/草稿并移除元信息（关闭与删除文件共用） */
+  async function destroyTab(id: string): Promise<void> {
+    await waitUnloadSettled(id)
+    disposeTabModel(id)
+    removeStatCache(id)
+    // 关闭即清理草稿（save 路径 saveActive 内已清，幂等）
+    void fileClearDraft(id)
+    store.removeTab(id)
+    schedulePersist()
+    // 点击条目已经把焦点留在 body（div 不可聚焦）；关闭后不还焦点就要再点一次正文
+    focusEditor()
+  }
+
   /** 关闭：dirty 才弹确认（保存/放弃/取消，原生对话框） */
   async function closeTab(id: string): Promise<void> {
     const tab = store.tabs.find((t) => t.id === id)
@@ -111,27 +165,71 @@ export function useTabs(): {
       store.setActive(id)
       const choice: ConfirmChoice = await ipcInvoke<ConfirmChoice>('dialog:confirmClose', tab.title)
       if (choice === 'cancel') return
-      if (choice === 'save') {
-        let path = tab.path
-        // 空白标签没有落盘路径：走「保存为」，取消则中止关闭
-        if (!path) {
-          const chosen = await ipcInvoke<string | null>('dialog:saveFile', tab.title)
-          if (!chosen) return
-          path = chosen
-          store.patchTab(id, { path, title: chosen.split('/').pop() ?? '未命名' })
-        }
-        store.setActive(id)
-        await saveActive()
-      }
+      if (choice === 'save' && !(await saveTab(id))) return
     }
-    disposeTabModel(id)
-    removeStatCache(id)
-    // 关闭即清理草稿（save 路径 saveActive 内已清，幂等）
-    void fileClearDraft(id)
-    store.removeTab(id)
-    schedulePersist()
-    // 点击条目已经把焦点留在 body（div 不可聚焦）；关闭后不还焦点就要再点一次正文
-    focusEditor()
+    await destroyTab(id)
+  }
+
+  /** 关闭其他标签；脏标签仍逐个询问，取消则保留该标签 */
+  async function closeOtherTabs(id: string): Promise<void> {
+    const others = store.tabs.filter((t) => t.id !== id).map((t) => t.id)
+    for (const other of others) await closeTab(other)
+  }
+
+  async function closeAllTabs(): Promise<void> {
+    const ids = store.tabs.map((t) => t.id)
+    for (const id of ids) await closeTab(id)
+  }
+
+  /**
+   * 重命名（方案 §3.5）：磁盘改名由主进程做并同步 books 身份；
+   * 成功后就地更新标签 path/title 与 stat 缓存，立即落盘会话。
+   * 返回 null = 成功或未改名，返回字符串 = 给浮层展示的错误。
+   */
+  async function renameTab(id: string, newName: string): Promise<string | null> {
+    const tab = store.tabs.find((t) => t.id === id)
+    if (!tab) return '标签已关闭'
+    if (!tab.path) return '空白标签不能重命名'
+    // 先把待落库的书签漂移写回旧路径（books id 不变，改名后书签继续跟随）
+    await flushBookmarkDrift()
+    try {
+      const result = await fileRename(tab.path, newName)
+      if (result.path === tab.path) return null
+      store.patchTab(id, { path: result.path, title: result.title })
+      setStatCache(id, result.stat)
+      await persistSessionNow()
+      void library.refreshLists()
+      return null
+    } catch (e) {
+      return cleanError(e)
+    }
+  }
+
+  /** 移到废纸篓（方案 §3.5）：确认后删文件 + 库记录，静默关闭标签（不再走保存确认） */
+  async function deleteTabFile(id: string): Promise<boolean> {
+    const tab = store.tabs.find((t) => t.id === id)
+    if (!tab?.path) return false
+    const dirty = isDirty(id) || tab.dirty
+    const confirmed = await confirmTrash(tab.title, dirty)
+    if (!confirmed) return false
+    await flushBookmarkDrift()
+    try {
+      await fileTrash(tab.path)
+    } catch (e) {
+      void showError('移到废纸篓失败', cleanError(e)).catch(() => {})
+      return false
+    }
+    await destroyTab(id)
+    await persistSessionNow()
+    void library.refreshLists()
+    return true
+  }
+
+  /** 在 Finder 中显示文件 */
+  function revealTabFile(id: string): void {
+    const tab = store.tabs.find((t) => t.id === id)
+    if (!tab?.path) return
+    void fileReveal(tab.path).catch((e) => console.error('[file] Finder 显示失败:', e))
   }
 
   function activateTab(id: string): void {
@@ -145,7 +243,18 @@ export function useTabs(): {
     void library.flushReadStamps()
   }
 
-  return { openFile, newBlankTab, closeTab, activateTab }
+  return {
+    openFile,
+    newBlankTab,
+    closeTab,
+    closeOtherTabs,
+    closeAllTabs,
+    activateTab,
+    saveTab,
+    renameTab,
+    deleteTabFile,
+    revealTabFile
+  }
 }
 
 export { getTabModel, isDirty }

@@ -39,6 +39,16 @@ export interface FileReadResult {
   stat: FileStat
 }
 
+/** file:rename 返回：新路径、标签标题（文件名）与改名后的文件身份 */
+export interface FileRenameResult {
+  path: string
+  title: string
+  stat: FileStat
+}
+
+/** 顶部「文件」菜单下发给渲染层的命令（保存/关闭类复用同一套标签动作） */
+export type AppMenuCommand = 'save' | 'closeTab' | 'closeOthers' | 'closeAll'
+
 /** dialog:confirmClose 返回 */
 export type ConfirmChoice = 'save' | 'discard' | 'cancel'
 

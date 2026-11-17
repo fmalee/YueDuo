@@ -11,7 +11,13 @@ import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import { switchLibrary } from '@/composables/useLibrarySwitch'
-import { fileReadDraft, fileReadText, nativeSanity, chooseLibrary } from '@/ipc/bridge'
+import {
+  fileReadDraft,
+  fileReadText,
+  nativeSanity,
+  chooseLibrary,
+  onAppMenuCommand
+} from '@/ipc/bridge'
 import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
@@ -28,10 +34,21 @@ import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
-import type { ThemeMode } from '../shared/types'
+import type { AppMenuCommand, ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
-const { openFile, newBlankTab, activateTab } = useTabs()
+const {
+  openFile,
+  newBlankTab,
+  activateTab,
+  closeTab,
+  closeOtherTabs,
+  closeAllTabs,
+  saveTab,
+  renameTab,
+  deleteTabFile,
+  revealTabFile
+} = useTabs()
 const { saveActive } = useEditorCommands()
 const palette = useCommandPalette()
 const store = useTabsStore()
@@ -60,6 +77,34 @@ function onWindowKeydown(e: KeyboardEvent): void {
     newBlankTab()
   }
 }
+
+/**
+ * 顶部「文件」菜单命令（方案 §3.5）：保存/关闭类动作与标签右键菜单共用 useTabs 实现，
+ * 这里只按当前 active 标签分发。
+ */
+function runMenuCommand(command: AppMenuCommand): void {
+  const id = store.activeTabId
+  switch (command) {
+    case 'save':
+      if (id) {
+        void saveTab(id).catch((e) => {
+          status.value = `保存失败：${String(e)}`
+        })
+      }
+      break
+    case 'closeTab':
+      if (id) void closeTab(id)
+      break
+    case 'closeOthers':
+      if (id) void closeOtherTabs(id)
+      break
+    case 'closeAll':
+      void closeAllTabs()
+      break
+  }
+}
+
+let unsubscribeMenu: (() => void) | null = null
 
 /** 外观切换入口（方案 §1.10；正式设置界面后续阶段接管） */
 function onAppearanceChange(e: Event): void {
@@ -146,6 +191,7 @@ async function testIpc(): Promise<void> {
 onMounted(async () => {
   // 捕获阶段接管 Cmd+P：Monaco 的 textarea 会先收到按键，冒泡阶段拦截不稳
   window.addEventListener('keydown', onWindowKeydown, true)
+  unsubscribeMenu = onAppMenuCommand(runMenuCommand)
   // 会话恢复先于任何打开动作：先挂退出握手，再按库还原标签顺序/active/进度
   initSession()
   try {
@@ -195,6 +241,12 @@ onMounted(async () => {
           })),
           active: store.activeTab?.title ?? null
         }),
+        // 标签右键菜单验收通道（方案 §3.5）：与顶部文件菜单共用同一套动作
+        menuCommand: (command: AppMenuCommand) => runMenuCommand(command),
+        saveTab,
+        renameTab,
+        deleteTabFile,
+        revealTabFile,
         // 主题验收通道（方案 §1.10）
         themeState: () => ({
           appearance: settings.appearance,
@@ -262,6 +314,7 @@ onMounted(async () => {
 // HMR 会重挂载根组件：不清理会让 window 上的 Cmd+N 监听器逐次叠加（一次按键新建多个标签）
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown, true)
+  unsubscribeMenu?.()
 })
 </script>
 

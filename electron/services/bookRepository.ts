@@ -225,6 +225,41 @@ export function updateBookMetadata(
   return result.changes > 0
 }
 
+/**
+ * 文件改名后同步库身份（方案 §3.5）：只改 relative_path/filename，id 不变，
+ * 书签、评分、最近阅读都随行保留；目标路径已有残留记录时删旧行（新文件刚改名而来）。
+ */
+export function renameBookRecord(
+  oldRelativePath: string,
+  newRelativePath: string,
+  filename: string,
+  db: Database.Database = getDatabase()
+): boolean {
+  return db.transaction(() => {
+    const target = db.prepare('SELECT id FROM books WHERE relative_path = ?').get(newRelativePath)
+    if (target) {
+      return (
+        db.prepare('DELETE FROM books WHERE relative_path = ?').run(oldRelativePath).changes > 0
+      )
+    }
+    return (
+      db
+        .prepare(
+          'UPDATE books SET relative_path = ?, filename = ?, updated_at = ? WHERE relative_path = ?'
+        )
+        .run(newRelativePath, filename, Date.now(), oldRelativePath).changes > 0
+    )
+  })()
+}
+
+/** 文件移入废纸篓后删除库记录（书签随 FK CASCADE） */
+export function deleteBookRecord(
+  relativePath: string,
+  db: Database.Database = getDatabase()
+): boolean {
+  return db.prepare('DELETE FROM books WHERE relative_path = ?').run(relativePath).changes > 0
+}
+
 /** 标签评分只进数据库、不写正文；0 分也保留一行，避免反复插入 */
 export function setTagRating(
   tag: string,

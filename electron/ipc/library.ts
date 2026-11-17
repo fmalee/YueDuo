@@ -53,6 +53,11 @@ let activeRoot = ''
 let startupError = ''
 let libraryManager: LibraryDatabaseManager | null = null
 
+/** 当前活动书库根（文件改名/删除时同步库身份用，方案 §3.5） */
+export function activeLibraryRoot(): string {
+  return activeRoot
+}
+
 /** 另有 enrich 在跑时用于取消（换库必须先停扫描，不能让旧库扫描继续写） */
 let enrichToken = 0
 let enriching: { token: number; promise: Promise<LibraryEnrichResult> } | null = null
@@ -248,7 +253,7 @@ export async function librarySetBookRating(id: unknown, rating: unknown): Promis
 }
 
 /** 绝对路径 → 库内相对路径（POSIX 分隔）；不在书库内返回 null */
-async function relativeInLibrary(root: string, path: string): Promise<string | null> {
+export async function relativeInLibrary(root: string, path: string): Promise<string | null> {
   let resolved: string
   try {
     resolved = await realpath(path)
