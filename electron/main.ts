@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import icon from '../resources/icon.png?asset'
 import { registerIpcHandlers } from './ipc'
+import { installApplicationMenu } from './menu'
 import { initTheme } from './ipc/theme'
 import { requestRendererFlush } from './ipc/session'
 import { initActiveLibrary, shutdownLibrary } from './ipc/library'
@@ -95,6 +96,7 @@ if (!app.requestSingleInstanceLock()) {
     })
 
     registerIpcHandlers()
+    installApplicationMenu()
     // 每书库一份数据库（方案 §2.13）：建窗前按设置打开活动书库，渲染层启动即恢复它的会话
     initActiveLibrary()
     initTheme()
