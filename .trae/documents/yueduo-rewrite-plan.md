@@ -147,7 +147,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 ### 阶段 2：书库与元数据
 
 - [x] **2.1** `database` 服务：全新 schema 建表 + 增量迁移 + WAL。**已完成**：v3 迁移建 `books`/`bookmarks`/`tag_ratings`（`miss_count` 预留给 2.3 对账，`relative_path` 唯一、评分 0–5 CHECK、书签 `(book_id, line)` 唯一且随书 CASCADE），连接开启 `foreign_keys`、保持 WAL；纯 Node 脚本验过全新库建表、v2 旧库（真实 15 标签）增量迁移、约束/CASCADE 与重复启动幂等。
-- [ ] **2.2** `libraryScanner`：递归扫 `.txt`；两阶段（fastScan 先建目录树秒开，后台 enrich 补元数据）——此设计源自用户本人、Python 旧项目已有实现，以 Python 实现为准翻译
+- [x] **2.2** `libraryScanner`：递归扫 `.txt`；两阶段（fastScan 先建目录树秒开，后台 enrich 补元数据）——此设计源自用户本人、Python 旧项目已有实现，以 Python 实现为准翻译。**已完成**：fastScan 即 `listDirectory` 一层一读（目录在前、TXT 在后、名称排序、断链跳过，不碰数据库与正文）；enrich 深度优先遍历、`realpath` 定身份（链接与真实文件只入一次）、解码 → 解析元数据 → 按 `relative_path` 直命中写库，每 10 个成功文件回调进度、支持取消，不可读文件跳过，重扫只更新扫描可得字段（评分/进度/最近阅读与 `miss_count` 不动，移动/删除留给 2.3）。元数据解析基线按依赖放在 `metadataParser.ts`，2.4 再做专项边界验收。真实书库验收：根层 34 项展开 1ms、85 本 enrich 约 2.9s 全部入库；合成库验过目录顺序、符号链接去重、UTF-16 探测、书名/作者/标签兜底、重扫保留评分与进度、取消提前停止。
 - [ ] **2.3** `reconcile` 服务：§四对账三步，含 `miss_count` 跟踪与对账日志
 - [ ] **2.4** `metadataParser`：书名（前两行书名号，否则文件名）、作者（前十行 `作者：`，否则佚名）、标签（前十行 `主题：`，否则目录名）
 - [ ] **2.5** 左栏五页共用打开流程：**书架**（资源管理器式惰性树：目录在上书在下、默认折叠）、**历史**（last_read_at 倒序）、**追更**（标签精确匹配「追更」）、**标签**（名称/数量/标签评分三列，点星改分、点标签列书）、**评分**（五星筛选、慢速再点同分取消、未筛选列前 100 本）

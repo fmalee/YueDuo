@@ -107,6 +107,29 @@ export interface TabMeta {
   lastFocusedAt: number
 }
 
+/** 书架目录树的一层条目（library:fastScan，方案 §2.2：只读文件名，目录在前、TXT 在后） */
+export interface LibraryEntry {
+  name: string
+  /** 相对书库根、POSIX 分隔、不含根目录名（方案 §四 约定） */
+  relativePath: string
+  isDir: boolean
+}
+
+/** library:enrich 进度（每 10 个文件一次，对齐 Python _ScanThread） */
+export interface LibraryScanProgress {
+  /** 已检查的第几个文件（含不可读/重复跳过项） */
+  scanned: number
+  path: string
+}
+
+/** library:enrich 结果 */
+export interface LibraryScanResult {
+  /** 本次成功解析入库的书数 */
+  total: number
+  /** 不可读或重复而跳过的文件数 */
+  skipped: number
+}
+
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
