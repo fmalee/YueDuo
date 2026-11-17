@@ -567,7 +567,7 @@ onBeforeUnmount(() => {
 <style scoped>
 .tab-bar {
   position: relative;
-  min-height: 34px;
+  min-height: var(--yd-tab-bar-height);
   border-bottom: 1px solid var(--yd-border-1);
   background: var(--yd-bg-2);
   /* 拖动排序时不要选中标签文字 */

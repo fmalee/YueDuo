@@ -156,8 +156,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex: none;
   flex-wrap: wrap;
+  align-items: center;
   gap: 2px;
-  padding: 4px var(--yd-panel-padding);
+  /* 与编辑器标签栏同高（--yd-tab-bar-height），列表首行和正文首行齐平 */
+  min-height: var(--yd-tab-bar-height);
+  padding: 0 var(--yd-panel-padding);
   border-bottom: 1px solid var(--yd-border-1);
 }
 .sidebar-tab {
