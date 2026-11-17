@@ -16,6 +16,16 @@ export function confirmClose(title: string): ConfirmChoice {
   return (['save', 'discard', 'cancel'] as const)[result] ?? 'cancel'
 }
 
+/** dialog:openFile —— 「文件 → 打开…」选择要打开的文本文件（返回 null = 取消） */
+export function chooseOpenFile(): string | null {
+  const rs = dialog.showOpenDialogSync({
+    title: '打开',
+    properties: ['openFile'],
+    filters: [{ name: '文本文件', extensions: ['txt'] }]
+  })
+  return rs?.[0] ?? null
+}
+
 /** dialog:saveFile —— 空白标签首次保存时选择落盘路径 */
 export function chooseSaveFile(defaultName: string): string | null {
   const rs = dialog.showSaveDialogSync({

@@ -1,5 +1,5 @@
 import type {
-  AppMenuCommand,
+  AppMenuPayload,
   AppSettings,
   BookmarkInfo,
   ChapterInfo,
@@ -37,7 +37,7 @@ declare global {
       onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
       onSessionFlush(callback: () => void): () => void
       onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void
-      onAppMenuCommand(callback: (command: AppMenuCommand) => void): () => void
+      onAppMenuCommand(callback: (payload: AppMenuPayload) => void): () => void
     }
   }
 }
@@ -126,6 +126,11 @@ export function settingsSet(settings: AppSettings): Promise<AppSettings> {
   return ipcInvoke<AppSettings>('settings:set', settings)
 }
 
+/** dialog:openFile —— 「文件 → 打开…」选择文件（返回 null = 取消） */
+export function chooseOpenFile(): Promise<string | null> {
+  return ipcInvoke<string | null>('dialog:openFile')
+}
+
 /** dialog:chooseLibrary —— 选择书库根目录（方案 §1.9；阶段 2 起作为书库根，返回 null = 取消） */
 export function chooseLibrary(): Promise<string | null> {
   return ipcInvoke<string | null>('dialog:chooseLibrary')
@@ -156,8 +161,8 @@ export function onSessionFlush(callback: () => void): () => void {
   return window.yue.onSessionFlush(callback)
 }
 
-/** 订阅顶部「文件」菜单命令（保存/关闭类与标签右键菜单共用动作） */
-export function onAppMenuCommand(callback: (command: AppMenuCommand) => void): () => void {
+/** 订阅顶部应用菜单命令（保存/关闭类与标签右键菜单共用动作） */
+export function onAppMenuCommand(callback: (payload: AppMenuPayload) => void): () => void {
   return window.yue.onAppMenuCommand(callback)
 }
 

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AppMenuCommand, IpcResult, LibraryScanProgress, ThemeChanged } from '../shared/types'
+import type { AppMenuPayload, IpcResult, LibraryScanProgress, ThemeChanged } from '../shared/types'
 
 /** preload 与主进程保持一致的域前缀白名单 */
 const DOMAINS = [
@@ -50,10 +50,10 @@ function onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void)
   }
 }
 
-/** 顶部「文件」菜单命令：保存/关闭类与标签右键菜单复用同一套渲染层动作 */
-function onAppMenuCommand(callback: (command: AppMenuCommand) => void): () => void {
-  const listener = (_event: Electron.IpcRendererEvent, command: AppMenuCommand): void =>
-    callback(command)
+/** 顶部应用菜单命令：保存/关闭类与标签右键菜单复用同一套渲染层动作 */
+function onAppMenuCommand(callback: (payload: AppMenuPayload) => void): () => void {
+  const listener = (_event: Electron.IpcRendererEvent, payload: AppMenuPayload): void =>
+    callback(payload)
   ipcRenderer.on('app:menuCommand', listener)
   return (): void => {
     ipcRenderer.removeListener('app:menuCommand', listener)

@@ -11,7 +11,14 @@ import {
   fileTrash,
   fileReveal
 } from './file'
-import { confirmClose, chooseLibrary, chooseSaveFile, confirmTrash, showError } from './dialog'
+import {
+  confirmClose,
+  chooseLibrary,
+  chooseOpenFile,
+  chooseSaveFile,
+  confirmTrash,
+  showError
+} from './dialog'
 import {
   addBookBookmark,
   bookBookmarks,
@@ -66,6 +73,7 @@ export function registerIpcHandlers(): void {
   handle('file:trash', (path: unknown) => fileTrash(String(path)))
   handle('file:reveal', (path: unknown) => fileReveal(String(path)))
   handle('dialog:confirmClose', (title: unknown) => confirmClose(String(title)))
+  handle('dialog:openFile', () => chooseOpenFile())
   handle('dialog:saveFile', (name: unknown) => chooseSaveFile(String(name)))
   handle('dialog:confirmTrash', (title: unknown, dirty: unknown) =>
     confirmTrash(String(title), dirty === true)

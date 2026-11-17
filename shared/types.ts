@@ -51,8 +51,23 @@ export interface FileTrashResult {
   removedBook: boolean
 }
 
-/** 顶部「文件」菜单下发给渲染层的命令（保存/关闭类复用同一套标签动作） */
-export type AppMenuCommand = 'save' | 'closeTab' | 'closeOthers' | 'closeAll'
+/** 顶部应用菜单下发给渲染层的命令（保存/关闭类复用同一套标签动作） */
+export type AppMenuCommand =
+  | 'open'
+  | 'chooseLibrary'
+  | 'save'
+  | 'closeTab'
+  | 'closeOthers'
+  | 'closeAll'
+  | 'appearance'
+  | 'toggleCloseButton'
+  | 'preloadCount'
+
+/** 菜单命令附带值：appearance=外观模式，preloadCount=预载数量，toggleCloseButton=新勾选状态 */
+export interface AppMenuPayload {
+  command: AppMenuCommand
+  value?: ThemeMode | number | boolean
+}
 
 /** dialog:confirmClose 返回 */
 export type ConfirmChoice = 'save' | 'discard' | 'cancel'

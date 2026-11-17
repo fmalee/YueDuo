@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
@@ -14,7 +14,7 @@ import { switchLibrary } from '@/composables/useLibrarySwitch'
 import {
   fileReadDraft,
   fileReadText,
-  nativeSanity,
+  chooseOpenFile,
   chooseLibrary,
   onAppMenuCommand
 } from '@/ipc/bridge'
@@ -34,7 +34,8 @@ import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
-import type { AppMenuCommand, ThemeMode } from '../shared/types'
+import { showStatusMessage } from '@/composables/useStatusMessage'
+import type { AppMenuPayload, ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
 const {
@@ -55,8 +56,6 @@ const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
 const reader = useReaderStore()
-const status = ref('未打开')
-const pathInput = ref('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
 
 // Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）；
 // Cmd+L 锁定阅读（方案 §3.3，同 Python 视图菜单的 Ctrl+L）
@@ -79,17 +78,30 @@ function onWindowKeydown(e: KeyboardEvent): void {
 }
 
 /**
- * 顶部「文件」菜单命令（方案 §3.5）：保存/关闭类动作与标签右键菜单共用 useTabs 实现，
- * 这里只按当前 active 标签分发。
+ * 顶部应用菜单命令（方案 §3.5）：保存/关闭类动作与标签右键菜单共用 useTabs 实现，
+ * 这里只按当前 active 标签分发；打开/书库/外观/预载/关闭按钮走各自既有链路。
  */
-function runMenuCommand(command: AppMenuCommand): void {
+function runMenuCommand(payload: AppMenuPayload): void {
   const id = store.activeTabId
-  switch (command) {
+  switch (payload.command) {
+    case 'open':
+      void openFromDialog()
+      break
+    case 'chooseLibrary':
+      void pickLibrary()
+      break
+    case 'appearance':
+      void settings.setAppearance(payload.value as ThemeMode)
+      break
+    case 'toggleCloseButton':
+      void settings.setCloseButtonAlwaysVisible(payload.value === true)
+      break
+    case 'preloadCount':
+      void settings.setPreloadCount(Number(payload.value))
+      break
     case 'save':
       if (id) {
-        void saveTab(id).catch((e) => {
-          status.value = `保存失败：${String(e)}`
-        })
+        void saveTab(id).catch((e) => showStatusMessage(`保存失败：${String(e)}`, 5000))
       }
       break
     case 'closeTab':
@@ -106,9 +118,14 @@ function runMenuCommand(command: AppMenuCommand): void {
 
 let unsubscribeMenu: (() => void) | null = null
 
-/** 外观切换入口（方案 §1.10；正式设置界面后续阶段接管） */
-function onAppearanceChange(e: Event): void {
-  void settings.setAppearance((e.target as HTMLSelectElement).value as ThemeMode)
+/** 「文件 → 打开…」：选文件后走既有 openFile（去重/会话/最近阅读一并生效） */
+async function openFromDialog(): Promise<void> {
+  try {
+    const path = await chooseOpenFile()
+    if (path) await openFile(path)
+  } catch (e) {
+    showStatusMessage(`打开失败：${String(e)}`, 5000)
+  }
 }
 
 /** 书库根目录（方案 §1.9 / §2.13）：选择后走换库事务，成功才持久化新根 */
@@ -117,36 +134,9 @@ async function pickLibrary(): Promise<void> {
     const root = await chooseLibrary()
     if (!root) return
     const ok = await switchLibrary(root)
-    status.value = ok ? `书库根目录：${root}` : `换库失败：${library.error}`
+    showStatusMessage(ok ? `书库根目录：${root}` : `换库失败：${library.error}`, 5000)
   } catch (e) {
-    status.value = `选择书库失败：${String(e)}`
-  }
-}
-
-function onPreloadChange(e: Event): void {
-  const count = Number((e.target as HTMLInputElement).value)
-  void settings.setPreloadCount(Number.isFinite(count) ? count : 10)
-}
-
-function onCloseButtonChange(e: Event): void {
-  void settings.setCloseButtonAlwaysVisible((e.target as HTMLInputElement).checked)
-}
-
-async function open(): Promise<void> {
-  try {
-    await openFile(pathInput.value)
-    status.value = `已打开 ${store.tabs.length} 个标签`
-  } catch (e) {
-    status.value = `打开失败：${String(e)}`
-  }
-}
-
-async function save(): Promise<void> {
-  try {
-    await saveActive()
-    status.value = '已保存'
-  } catch (e) {
-    status.value = `保存失败：${String(e)}`
+    showStatusMessage(`选择书库失败：${String(e)}`, 5000)
   }
 }
 
@@ -178,15 +168,6 @@ async function editAndSave(): Promise<Record<string, unknown>> {
 
 // 自动化验收通道（CDP 调用）
 Object.assign(globalThis, { __yueEditAndSave: editAndSave })
-
-async function testIpc(): Promise<void> {
-  try {
-    const r = await nativeSanity()
-    status.value = `IPC OK —— better-sqlite3: ${r.betterSqlite3}，Electron ${r.electron}`
-  } catch (e) {
-    status.value = `IPC FAIL —— ${String(e)}`
-  }
-}
 
 onMounted(async () => {
   // 捕获阶段接管 Cmd+P：Monaco 的 textarea 会先收到按键，冒泡阶段拦截不稳
@@ -241,8 +222,9 @@ onMounted(async () => {
           })),
           active: store.activeTab?.title ?? null
         }),
-        // 标签右键菜单验收通道（方案 §3.5）：与顶部文件菜单共用同一套动作
-        menuCommand: (command: AppMenuCommand) => runMenuCommand(command),
+        // 菜单命令验收通道（方案 §3.5）：与顶部菜单共用同一套动作
+        menuCommand: (command: AppMenuPayload['command'], value?: AppMenuPayload['value']) =>
+          runMenuCommand(value === undefined ? { command } : { command, value }),
         saveTab,
         renameTab,
         deleteTabFile,
@@ -307,7 +289,6 @@ onMounted(async () => {
       .catch((e) => {
         document.title = `YUE_TABS_FAIL:${String(e).slice(0, 80)}`
       })
-      .finally(testIpc)
   }
 })
 
@@ -320,47 +301,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app">
-    <header class="bar">
-      <input v-model="pathInput" class="path-input" />
-      <button @click="open">打开</button>
-      <button @click="save">保存 (Cmd+S)</button>
-      <button @click="testIpc">IPC</button>
-      <select :value="settings.appearance" @change="onAppearanceChange">
-        <option value="system">跟随系统</option>
-        <option value="light">浅色</option>
-        <option value="dark">深色</option>
-      </select>
-      <button
-        class="lib-btn"
-        :title="settings.libraryRoot || '尚未设置书库根目录'"
-        @click="pickLibrary"
-      >
-        书库
-      </button>
-      <span class="library-path" :title="settings.libraryRoot">
-        {{ settings.libraryRoot || '未设置书库' }}
-      </span>
-      <label class="opt">
-        预载
-        <input
-          class="preload-input"
-          type="number"
-          min="0"
-          max="20"
-          :value="settings.preloadCount"
-          @change="onPreloadChange"
-        />
-      </label>
-      <label class="opt">
-        <input
-          type="checkbox"
-          :checked="settings.closeButtonAlwaysVisible"
-          @change="onCloseButtonChange"
-        />
-        × 常驻
-      </label>
-      <span class="hint">{{ status }}</span>
-    </header>
     <div class="workspace">
       <Sidebar />
       <div class="editor-column">
@@ -386,23 +326,6 @@ onBeforeUnmount(() => {
   width: 100vw;
   height: 100vh;
 }
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--yd-border-1);
-  background: var(--yd-bg-2);
-}
-.path-input {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  padding: 3px 6px;
-  border: 1px solid var(--yd-border-1);
-  background: var(--yd-bg-1);
-  color: var(--yd-text-1);
-}
 .workspace {
   display: flex;
   flex: 1;
@@ -417,34 +340,5 @@ onBeforeUnmount(() => {
 .main {
   flex: 1;
   min-height: 0;
-}
-.hint {
-  font-size: 12px;
-  color: var(--yd-text-3);
-  white-space: nowrap;
-}
-.library-path {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--yd-text-3);
-}
-.opt {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 12px;
-  color: var(--yd-text-2);
-  white-space: nowrap;
-}
-.preload-input {
-  width: 48px;
-  padding: 2px 4px;
-  border: 1px solid var(--yd-border-1);
-  background: var(--yd-bg-1);
-  color: var(--yd-text-1);
-  font-size: 12px;
 }
 </style>

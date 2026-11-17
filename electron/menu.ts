@@ -1,10 +1,32 @@
-import { BrowserWindow, Menu, type BaseWindow, type MenuItemConstructorOptions } from 'electron'
-import type { AppMenuCommand } from '../shared/types'
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  type BaseWindow,
+  type MenuItemConstructorOptions
+} from 'electron'
+import { readSettings } from './services/settingsStore'
+import type { AppMenuCommand, AppMenuPayload, ThemeMode } from '../shared/types'
 
-/** 保存/关闭类命令下发给渲染层：与标签右键菜单复用同一套动作（方案 §3.5） */
-function sendMenuCommand(command: AppMenuCommand, win?: BaseWindow): void {
+/** 外观三态（方案 §1.10）：菜单里以单选组呈现，勾选项跟设置落盘值一致 */
+const APPEARANCES: { mode: ThemeMode; label: string }[] = [
+  { mode: 'system', label: '跟随系统' },
+  { mode: 'light', label: '浅色' },
+  { mode: 'dark', label: '深色' }
+]
+
+/** 「显示 → 预载数量」可选值 */
+const PRELOAD_CHOICES = [2, 4, 6, 8, 10]
+
+/** 菜单命令下发给渲染层：与标签右键菜单复用同一套动作（方案 §3.5） */
+function sendMenuCommand(
+  command: AppMenuCommand,
+  win?: BaseWindow,
+  value?: AppMenuPayload['value']
+): void {
   const target = win instanceof BrowserWindow ? win : BrowserWindow.getFocusedWindow()
-  target?.webContents.send('app:menuCommand', command)
+  const payload: AppMenuPayload = value === undefined ? { command } : { command, value }
+  target?.webContents.send('app:menuCommand', payload)
 }
 
 /**
@@ -12,10 +34,12 @@ function sendMenuCommand(command: AppMenuCommand, win?: BaseWindow): void {
  * 系统行为走 role（加速键由 role 自带），label 给中文；未显式给 label 的 role
  * 项由 Electron 回落到英文默认文字，英文即兜底。
  * 「文件」里的保存/关闭类为自定义项：点击后把命令发给渲染层，与标签右键菜单共用实现。
+ * 外观 / 预载数量 / 关闭按钮常驻菜单项的勾选状态取启动时的落盘设置。
  */
 export function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin'
   const name = '悦读'
+  const saved = readSettings(app.getPath('userData'))
 
   const template: MenuItemConstructorOptions[] = []
 
@@ -40,6 +64,16 @@ export function installApplicationMenu(): void {
     {
       label: '文件',
       submenu: [
+        {
+          label: '打开…',
+          accelerator: 'CmdOrCtrl+O',
+          click: (_item, win) => sendMenuCommand('open', win)
+        },
+        {
+          label: '书库…',
+          click: (_item, win) => sendMenuCommand('chooseLibrary', win)
+        },
+        { type: 'separator' },
         {
           label: '保存',
           accelerator: 'CmdOrCtrl+S',
@@ -95,6 +129,22 @@ export function installApplicationMenu(): void {
     {
       label: '显示',
       submenu: [
+        {
+          label: '预载数量',
+          submenu: PRELOAD_CHOICES.map((count) => ({
+            label: String(count),
+            type: 'radio' as const,
+            checked: saved.preloadCount === count,
+            click: (_item, win) => sendMenuCommand('preloadCount', win, count)
+          }))
+        },
+        {
+          label: '显示关闭按钮',
+          type: 'checkbox',
+          checked: saved.closeButtonAlwaysVisible,
+          click: (item, win) => sendMenuCommand('toggleCloseButton', win, item.checked)
+        },
+        { type: 'separator' },
         { role: 'reload', label: '重新加载' },
         { role: 'forceReload', label: '强制重新加载' },
         { role: 'toggleDevTools', label: '切换开发者工具' },
@@ -108,17 +158,29 @@ export function installApplicationMenu(): void {
     },
     {
       label: '窗口',
-      submenu: isMac
-        ? [
-            { role: 'minimize', label: '最小化' },
-            { role: 'zoom', label: '缩放' },
-            { type: 'separator' },
-            { role: 'front', label: '前置全部窗口' }
-          ]
-        : [
-            { role: 'minimize', label: '最小化' },
-            { role: 'close', label: '关闭' }
-          ]
+      submenu: [
+        {
+          label: '外观',
+          submenu: APPEARANCES.map(({ mode, label }) => ({
+            label,
+            type: 'radio' as const,
+            checked: saved.appearance === mode,
+            click: (_item, win) => sendMenuCommand('appearance', win, mode)
+          }))
+        },
+        { type: 'separator' },
+        ...(isMac
+          ? ([
+              { role: 'minimize', label: '最小化' },
+              { role: 'zoom', label: '缩放' },
+              { type: 'separator' },
+              { role: 'front', label: '前置全部窗口' }
+            ] as MenuItemConstructorOptions[])
+          : ([
+              { role: 'minimize', label: '最小化' },
+              { role: 'close', label: '关闭' }
+            ] as MenuItemConstructorOptions[]))
+      ]
     },
     {
       label: '帮助',
