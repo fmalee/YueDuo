@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { useSettingsStore } from '@/stores/settings'
+import { METRICS } from '@/styles/theme'
 
 const store = useTabsStore()
 const settings = useSettingsStore()
@@ -10,6 +11,16 @@ const { activateTab, closeTab } = useTabs()
 const scrollRef = ref<HTMLDivElement>()
 /** 当前标签外展圆弧 8px：滚动时留同宽余量，避免弧脚被滚动容器裁掉 */
 const SCROLL_PADDING = 8
+
+// 原生横向滚动条在底部且过粗，会压住标签标题；改为置顶 3px 自绘条
+const overflowing = ref(false)
+const thumbWidth = ref(0)
+const thumbLeft = ref(0)
+const draggingScrollbar = ref(false)
+let scrollbarTrackWidth = 0
+let scrollbarStartX = 0
+let scrollbarStartLeft = 0
+let resizeObserver: ResizeObserver | undefined
 
 /**
  * 标签栏自动横向滚动到当前标签（方案 §1.5：溢出横向滚动）。
@@ -36,17 +47,107 @@ function ensureActiveVisible(): void {
   }
 }
 
+/** 同步置顶滚动条：宽度按可视比例，位置按 scrollLeft 比例 */
+function syncScrollbar(): void {
+  const el = scrollRef.value
+  if (!el) return
+  const max = el.scrollWidth - el.clientWidth
+  overflowing.value = max > 1
+  if (max <= 1) {
+    thumbWidth.value = 0
+    thumbLeft.value = 0
+    return
+  }
+  const width = Math.min(
+    el.clientWidth,
+    Math.max(
+      METRICS.tabScrollbarMinThumbWidth,
+      Math.round((el.clientWidth / el.scrollWidth) * el.clientWidth)
+    )
+  )
+  thumbWidth.value = width
+  thumbLeft.value = Math.round((el.scrollLeft / max) * (el.clientWidth - width))
+}
+
+function onScrollbarPointerDown(e: PointerEvent): void {
+  const el = scrollRef.value
+  if (!el || e.button !== 0 || el.scrollWidth <= el.clientWidth) return
+  const track = e.currentTarget as HTMLElement
+  scrollbarTrackWidth = track.clientWidth
+  const maxThumbLeft = scrollbarTrackWidth - thumbWidth.value
+  if (maxThumbLeft <= 0) return
+  e.preventDefault()
+  const onThumb =
+    e.target instanceof HTMLElement && e.target.classList.contains('tab-scrollbar-thumb')
+  if (!onThumb) {
+    // 点轨道：先把滑块中心对齐指针，再进入拖动
+    const left = Math.min(
+      maxThumbLeft,
+      Math.max(0, e.clientX - track.getBoundingClientRect().left - thumbWidth.value / 2)
+    )
+    el.scrollLeft = (left / maxThumbLeft) * (el.scrollWidth - el.clientWidth)
+    thumbLeft.value = left
+  }
+  draggingScrollbar.value = true
+  scrollbarStartX = e.clientX
+  scrollbarStartLeft = el.scrollLeft
+  window.addEventListener('pointermove', onScrollbarPointerMove)
+  window.addEventListener('pointerup', onScrollbarPointerEnd)
+  window.addEventListener('pointercancel', onScrollbarPointerEnd)
+}
+
+function onScrollbarPointerMove(e: PointerEvent): void {
+  const el = scrollRef.value
+  if (!el || !draggingScrollbar.value) return
+  const maxThumbLeft = scrollbarTrackWidth - thumbWidth.value
+  if (maxThumbLeft <= 0) return
+  const maxScroll = el.scrollWidth - el.clientWidth
+  const next = scrollbarStartLeft + ((e.clientX - scrollbarStartX) / maxThumbLeft) * maxScroll
+  el.scrollLeft = Math.max(0, Math.min(maxScroll, next))
+}
+
+function onScrollbarPointerEnd(): void {
+  draggingScrollbar.value = false
+  window.removeEventListener('pointermove', onScrollbarPointerMove)
+  window.removeEventListener('pointerup', onScrollbarPointerEnd)
+  window.removeEventListener('pointercancel', onScrollbarPointerEnd)
+  syncScrollbar()
+}
+
 watch([() => store.activeTabId, () => store.tabs.length], () => {
-  void nextTick(ensureActiveVisible)
+  void nextTick(() => {
+    ensureActiveVisible()
+    syncScrollbar()
+  })
 })
 
-onMounted(ensureActiveVisible)
+onMounted(() => {
+  ensureActiveVisible()
+  void nextTick(syncScrollbar)
+  if (scrollRef.value) {
+    resizeObserver = new ResizeObserver(syncScrollbar)
+    resizeObserver.observe(scrollRef.value)
+  }
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('pointermove', onScrollbarPointerMove)
+  window.removeEventListener('pointerup', onScrollbarPointerEnd)
+  window.removeEventListener('pointercancel', onScrollbarPointerEnd)
+})
 </script>
 
 <template>
   <!-- Chrome 风圆弧标签栏：当前标签底边外展圆弧（Python FlaredTabBar 同款，flare=8px 贝塞尔） -->
-  <div class="tab-bar" :class="{ 'close-always': settings.closeButtonAlwaysVisible }">
-    <div ref="scrollRef" class="tabs-scroll">
+  <div
+    class="tab-bar"
+    :class="{
+      'close-always': settings.closeButtonAlwaysVisible,
+      'scrollbar-dragging': draggingScrollbar
+    }"
+  >
+    <div ref="scrollRef" class="tabs-scroll" @scroll="syncScrollbar">
       <div
         v-for="(tab, i) in store.tabs"
         :key="tab.id"
@@ -85,11 +186,24 @@ onMounted(ensureActiveVisible)
         </svg>
       </div>
     </div>
+    <!-- 置顶细滚动条：占标签上方 3px 留白，不遮标题 -->
+    <div
+      v-if="overflowing"
+      class="tab-scrollbar"
+      :class="{ dragging: draggingScrollbar }"
+      @pointerdown="onScrollbarPointerDown"
+    >
+      <div
+        class="tab-scrollbar-thumb"
+        :style="{ width: `${thumbWidth}px`, left: `${thumbLeft}px` }"
+      ></div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .tab-bar {
+  position: relative;
   min-height: 34px;
   border-bottom: 1px solid var(--yd-border-1);
   background: var(--yd-bg-2);
@@ -99,7 +213,35 @@ onMounted(ensureActiveVisible)
   align-items: flex-end;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+.tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+.tab-scrollbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--yd-tab-scrollbar-height);
+  z-index: 3;
+  cursor: pointer;
+}
+.tab-scrollbar-thumb {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: var(--yd-tab-scrollbar-min-thumb-width);
+  border-radius: calc(var(--yd-tab-scrollbar-height) / 2);
+  background: var(--yd-text-3);
+}
+.tab-scrollbar-thumb:hover,
+.tab-scrollbar.dragging .tab-scrollbar-thumb {
+  background: var(--yd-text-2);
+}
+.tab-bar.scrollbar-dragging,
+.tab-bar.scrollbar-dragging .tab-scrollbar-thumb {
+  cursor: grabbing;
 }
 .tab {
   position: relative;

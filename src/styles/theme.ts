@@ -48,7 +48,7 @@ export const METRICS = {
   sidebarItemHeight: 26,
   sidebarPaddingX: 10,
   sidebarGap: 8,
-  // 左栏六页与书库列表（方案 §2.5）
+  // 左栏页签与书库列表（方案 §2.5）
   sidebarTabFontSize: 12,
   sidebarTabPaddingY: 3,
   sidebarTabPaddingX: 5,
@@ -60,7 +60,10 @@ export const METRICS = {
   libraryCountWidth: 48,
   starSize: 13,
   // 右栏书签条目：两行（行号 + 摘要），与 Python METRICS.bookmark_row_height 同口径
-  bookmarkRowHeight: 40
+  bookmarkRowHeight: 40,
+  // 标签栏自绘横向滚动条：置顶细条，避开标签标题（原生滚动条在底部且过粗）
+  tabScrollbarHeight: 3,
+  tabScrollbarMinThumbWidth: 24
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -96,5 +99,10 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-library-count-width', `${METRICS.libraryCountWidth}px`)
   root.style.setProperty('--yd-star-size', `${METRICS.starSize}px`)
   root.style.setProperty('--yd-bookmark-row-height', `${METRICS.bookmarkRowHeight}px`)
+  root.style.setProperty('--yd-tab-scrollbar-height', `${METRICS.tabScrollbarHeight}px`)
+  root.style.setProperty(
+    '--yd-tab-scrollbar-min-thumb-width',
+    `${METRICS.tabScrollbarMinThumbWidth}px`
+  )
   root.style.colorScheme = dark ? 'dark' : 'light'
 }
