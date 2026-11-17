@@ -2,6 +2,7 @@ import { fileClearDraft, fileWriteText } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
 import { getTabModel, isDirty, resetBaseline, setStatCache } from './useTabLifecycle'
+import { refreshChaptersForPath } from './useChapters'
 
 /** 保存当前标签：全文只在保存瞬间取自 model（方案：全文不进 reactive store） */
 export function useEditorCommands(): {
@@ -29,6 +30,8 @@ export function useEditorCommands(): {
     await fileClearDraft(tab.id)
     // 保存即按新正文重解析书名/作者/标签并刷新左栏；不做全库重扫
     void library.syncMetadata(tab.path)
+    // 右栏章节同样以落盘后的正文为准（方案 §2.6：保存后重提）
+    refreshChaptersForPath(tab.path)
     return true
   }
 

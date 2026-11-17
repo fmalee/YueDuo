@@ -10,6 +10,9 @@ import {
 } from './file'
 import { confirmClose, chooseLibrary, chooseSaveFile } from './dialog'
 import {
+  addBookBookmark,
+  bookBookmarks,
+  bookChapters,
   enrichLibrary,
   fastScanLibrary,
   libraryBooksByTag,
@@ -21,6 +24,7 @@ import {
   libraryTags,
   markBookRead,
   openLibrary,
+  removeBookBookmark,
   syncBookMetadata
 } from './library'
 import { settingsGet, settingsSet } from './settings'
@@ -66,6 +70,13 @@ export function registerIpcHandlers(): void {
     librarySetBookRating(id, rating)
   )
   handle('library:syncMetadata', (path: unknown) => syncBookMetadata(path))
+  // 右栏（方案 §2.6）：当前书章节 + 当前书书签
+  handle('library:chapters', (path: unknown) => bookChapters(path))
+  handle('library:bookmarks', (path: unknown) => bookBookmarks(path))
+  handle('library:addBookmark', (path: unknown, line: unknown, note: unknown) =>
+    addBookBookmark(path, line, note)
+  )
+  handle('library:removeBookmark', (path: unknown, line: unknown) => removeBookBookmark(path, line))
   handle('settings:get', () => settingsGet())
   handle('settings:set', (settings: unknown) => settingsSet(settings as AppSettings))
   // 会话持久化（方案 §1.8）：persist/restore 读写 session_tabs/session_state；

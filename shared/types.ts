@@ -166,6 +166,21 @@ export interface LibraryBook {
   lastReadAt: number
 }
 
+/** 章节条目（方案 §2.6：标题行与行号，点击按行号跳转） */
+export interface ChapterInfo {
+  /** 标题原文（已去行首缩进与行尾空白） */
+  title: string
+  /** 1-based 行号 */
+  line: number
+}
+
+/** 书签条目（方案 §2.6：按行号排序，note 为添加时截取的正文摘要） */
+export interface BookmarkInfo {
+  /** 1-based 行号 */
+  line: number
+  note: string
+}
+
 /** 标签页一行的三列：名称 / 书目数量 / 标签评分（方案 §2.5） */
 export interface LibraryTagSummary {
   name: string

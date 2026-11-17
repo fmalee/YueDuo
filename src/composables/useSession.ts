@@ -112,6 +112,18 @@ export function scrollToTopLine(line: number): void {
   editor.setScrollTop(editor.getTopForLineNumber(line), monaco.editor.ScrollType.Immediate)
 }
 
+/** 右栏章节/书签跳转（方案 §2.6）：光标落到目标行首、居中显示并交还焦点 */
+export function jumpToLine(line: number): boolean {
+  if (!editor) return false
+  const model = editor.getModel()
+  if (!model) return false
+  const target = Math.max(1, Math.min(Math.round(line), model.getLineCount()))
+  editor.setPosition({ lineNumber: target, column: 1 })
+  editor.revealLineInCenter(target, monaco.editor.ScrollType.Immediate)
+  editor.focus()
+  return true
+}
+
 /** 标签增删/切换/滚动后 2 秒防抖落盘（方案 §1.8） */
 export function schedulePersist(): void {
   if (timer) clearTimeout(timer)

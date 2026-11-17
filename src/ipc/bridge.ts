@@ -1,5 +1,7 @@
 import type {
   AppSettings,
+  BookmarkInfo,
+  ChapterInfo,
   DraftEntry,
   DraftTabMeta,
   FileReadResult,
@@ -176,6 +178,30 @@ export function librarySetBookRating(id: number, rating: number): Promise<number
 /** library:syncMetadata —— 保存后按当前正文重解析书名/作者/标签，只更新这一本 */
 export function librarySyncMetadata(path: string): Promise<LibrarySyncResult> {
   return ipcInvoke<LibrarySyncResult>('library:syncMetadata', path)
+}
+
+/** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */
+export function libraryChapters(path: string): Promise<ChapterInfo[]> {
+  return ipcInvoke<ChapterInfo[]>('library:chapters', path)
+}
+
+/** library:bookmarks —— 当前书书签（按行号升序） */
+export function libraryBookmarks(path: string): Promise<BookmarkInfo[]> {
+  return ipcInvoke<BookmarkInfo[]>('library:bookmarks', path)
+}
+
+/** library:addBookmark —— 添加书签；同行重复时更新摘要 */
+export function libraryAddBookmark(
+  path: string,
+  line: number,
+  note: string
+): Promise<BookmarkInfo[]> {
+  return ipcInvoke<BookmarkInfo[]>('library:addBookmark', path, line, note)
+}
+
+/** library:removeBookmark —— 删除书签 */
+export function libraryRemoveBookmark(path: string, line: number): Promise<BookmarkInfo[]> {
+  return ipcInvoke<BookmarkInfo[]>('library:removeBookmark', path, line)
 }
 
 /** 订阅书库扫描进度 */

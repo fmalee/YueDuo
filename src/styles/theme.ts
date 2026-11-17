@@ -58,7 +58,9 @@ export const METRICS = {
   librarySmallFontSize: 11,
   libraryIndent: 12,
   libraryCountWidth: 48,
-  starSize: 13
+  starSize: 13,
+  // 右栏书签条目：两行（行号 + 摘要），与 Python METRICS.bookmark_row_height 同口径
+  bookmarkRowHeight: 40
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -93,5 +95,6 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-library-indent', `${METRICS.libraryIndent}px`)
   root.style.setProperty('--yd-library-count-width', `${METRICS.libraryCountWidth}px`)
   root.style.setProperty('--yd-star-size', `${METRICS.starSize}px`)
+  root.style.setProperty('--yd-bookmark-row-height', `${METRICS.bookmarkRowHeight}px`)
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

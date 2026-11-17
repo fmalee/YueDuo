@@ -3,6 +3,7 @@ import { onBeforeUnmount, onMounted, ref } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
+import RightPanel from '@/components/RightPanel.vue'
 import StatusBar from '@/components/StatusBar.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
@@ -283,6 +284,7 @@ onBeforeUnmount(() => {
           <EditorHost />
         </main>
       </div>
+      <RightPanel />
     </div>
     <StatusBar />
   </div>

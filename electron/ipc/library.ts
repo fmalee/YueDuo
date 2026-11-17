@@ -17,7 +17,11 @@ import {
 import { decodeBytes } from '../services/textCodec'
 import { parseMetadata } from '../services/metadataParser'
 import { writeFinderRating } from '../services/finderMetadata'
+import { parseChapters } from '../services/chapterParser'
+import { addBookmark, listBookmarks, removeBookmark } from '../services/bookmarkRepository'
 import type {
+  BookmarkInfo,
+  ChapterInfo,
   LibraryBook,
   LibraryEnrichResult,
   LibraryEntry,
@@ -169,4 +173,44 @@ export async function syncBookMetadata(path: unknown): Promise<LibrarySyncResult
   const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
   const updated = updateBookMetadata(relativePath, meta.title, meta.author, meta.tags.join(' '))
   return { updated }
+}
+
+/**
+ * 章节提取（方案 §2.6）：读文件 → 解码 → 按 Python 同口径正则提取标题行。
+ * 章节属于当前打开的书，不要求文件在书库内；读取失败由 registry 收敛为错误。
+ */
+export async function bookChapters(path: unknown): Promise<ChapterInfo[]> {
+  if (typeof path !== 'string' || !path) return []
+  const data = await readFile(path)
+  return parseChapters(decodeBytes(data).text)
+}
+
+/** 当前书的书签；文件不在活动书库内时返回空列表（打开任意 txt 不报错） */
+export async function bookBookmarks(path: unknown): Promise<BookmarkInfo[]> {
+  if (!activeRoot || typeof path !== 'string' || !path) return []
+  const relativePath = await relativeInLibrary(activeRoot, path)
+  return relativePath ? listBookmarks(relativePath) : []
+}
+
+/** 添加书签：仅对活动书库内的书开放，行号 1-based，摘要按 Python 截 40 字 */
+export async function addBookBookmark(
+  path: unknown,
+  line: unknown,
+  note: unknown
+): Promise<BookmarkInfo[]> {
+  const root = requireRoot()
+  const absolute = String(path)
+  const relativePath = await relativeInLibrary(root, absolute)
+  if (!relativePath) throw new Error('这本书不在当前书库中，无法添加书签')
+  const lineNumber = Math.round(Number(line))
+  if (!Number.isFinite(lineNumber) || lineNumber < 1) throw new Error('书签行号不合法')
+  return addBookmark(relativePath, basename(absolute), lineNumber, String(note ?? '').slice(0, 40))
+}
+
+/** 删除书签（同行唯一） */
+export async function removeBookBookmark(path: unknown, line: unknown): Promise<BookmarkInfo[]> {
+  const root = requireRoot()
+  const relativePath = await relativeInLibrary(root, String(path))
+  if (!relativePath) return []
+  return removeBookmark(relativePath, Math.round(Number(line)))
 }
