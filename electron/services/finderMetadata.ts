@@ -1,12 +1,25 @@
 import { execFile } from 'child_process'
 
 /**
- * Finder／Path Finder 星级读写（对齐 Python finder_metadata）：
- * 星级存在扩展属性 com.apple.metadata:kMDItemStarRating，值是 bplist00 实数（float marker 0x23）。
- * 用 `xattr -px` / `xattr -w -x` 传十六进制，避免非 UTF-8 字节在命令行里被破坏；
- * 不引入 plist 依赖，bplist00 的实数对象与 trailer 手写构造（AGENTS.md 数据约定）。
+ * Finder／Path Finder 扩展属性读写（对齐 Python finder_metadata / plistlib）：
+ * - 星级 com.apple.metadata:kMDItemStarRating：bplist00 实数（float marker 0x23）
+ * - 注释 com.apple.metadata:kMDItemFinderComment：bplist00 字符串
+ * 用 `xattr -px` / `xattr -w -x` 传十六进制，避免非 UTF-8 字节在命令行里被破坏。
+ * 不引入 plist 依赖，bplist00 手写构造必须与 python3 plistlib.dumps(FMT_BINARY) 逐字节一致：
+ * - 字符串：全 ASCII 走 UTF-8 marker 0x5X/0x5F，否则 UTF-16BE marker 0x6X/0x6F
+ * - 扩展长度：token|0xF 后跟内联整数对象（0x10/0x11/0x12/0x13 + 大端长度）
+ * - 偏移表宽度按「头 + 对象」总长度取 1/2/4/8 字节
+ * - trailer 32 字节（Python pack('>5xBBBQQQ', sortVersion, offsetSize, refSize, ...)）
  */
 const RATING_ATTR = 'com.apple.metadata:kMDItemStarRating'
+const COMMENT_ATTR = 'com.apple.metadata:kMDItemFinderComment'
+const HEADER = Buffer.from('bplist00', 'ascii')
+
+/** 对齐 Python `value.encode('ascii')`：全部码元 < 128 才走 UTF-8 marker */
+function isAsciiOnly(value: string): boolean {
+  for (let i = 0; i < value.length; i++) if (value.charCodeAt(i) > 0x7f) return false
+  return true
+}
 
 function runXattr(args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
@@ -22,8 +35,8 @@ function readUIntBE(buf: Buffer, offset: number, size: number): number {
   return value
 }
 
-/** 只解析顶层 real/int（Finder 星级为 real）；结构不合法返回 null */
-export function parseBplistNumber(buf: Buffer): number | null {
+/** 读顶层对象位置（32 字节 trailer，Python plistlib 口径）；结构不合法返回 null */
+function readTopObject(buf: Buffer): { offset: number; marker: number } | null {
   if (buf.length < 40 || buf.toString('ascii', 0, 8) !== 'bplist00') return null
   const trailer = buf.length - 32
   const offsetSize = buf[trailer + 6]
@@ -32,39 +45,153 @@ export function parseBplistNumber(buf: Buffer): number | null {
   const topObject = readUIntBE(buf, trailer + 16, 8)
   const offsetTableOffset = readUIntBE(buf, trailer + 24, 8)
   if (numObjects < 1 || topObject >= numObjects || offsetTableOffset >= buf.length) return null
+  const entry = offsetTableOffset + topObject * offsetSize
+  if (entry + offsetSize > buf.length) return null
 
-  const objectOffset = readUIntBE(buf, offsetTableOffset + topObject * offsetSize, offsetSize)
-  if (objectOffset >= buf.length) return null
-  const marker = buf[objectOffset]
+  const offset = readUIntBE(buf, entry, offsetSize)
+  if (offset >= buf.length) return null
+  return { offset, marker: buf[offset] }
+}
+
+/** 只解析顶层 real/int（Finder 星级为 real）；结构不合法返回 null */
+export function parseBplistNumber(buf: Buffer): number | null {
+  const top = readTopObject(buf)
+  if (!top) return null
+  const { offset, marker } = top
   const type = marker >> 4
   const info = marker & 0x0f
 
   if (type === 0x2) {
-    if (info === 0x2 && objectOffset + 5 <= buf.length) return buf.readFloatBE(objectOffset + 1)
-    if (info === 0x3 && objectOffset + 9 <= buf.length) return buf.readDoubleBE(objectOffset + 1)
+    if (info === 0x2 && offset + 5 <= buf.length) return buf.readFloatBE(offset + 1)
+    if (info === 0x3 && offset + 9 <= buf.length) return buf.readDoubleBE(offset + 1)
     return null
   }
   if (type === 0x1) {
     const size = [1, 2, 4, 8][info]
-    if (!size || objectOffset + 1 + size > buf.length) return null
-    return readUIntBE(buf, objectOffset + 1, size)
+    if (!size || offset + 1 + size > buf.length) return null
+    return readUIntBE(buf, offset + 1, size)
   }
   return null
 }
 
+/** Python _count_to_size：宽度按最小可容纳字节取 1/2/4/8（注意 JS 位移在 2^32 处会回绕，用乘方） */
+function countToSize(count: number): number {
+  if (count < 0x100) return 1
+  if (count < 0x10000) return 2
+  if (count < 2 ** 31) return 4
+  return 8
+}
+
+/** Python _write_size：<15 单字节；否则 token|0xF + 内联整数对象 + 大端长度 */
+function encodeSize(token: number, size: number): Buffer {
+  if (size < 0x0f) return Buffer.from([token | size])
+  const head = Buffer.alloc(2)
+  head[0] = token | 0x0f
+  if (size < 0x100) {
+    head[1] = 0x10
+    const out = Buffer.alloc(3)
+    head.copy(out)
+    out[2] = size
+    return out
+  }
+  if (size < 0x10000) {
+    head[1] = 0x11
+    const out = Buffer.alloc(4)
+    head.copy(out)
+    out.writeUInt16BE(size, 2)
+    return out
+  }
+  if (size < 2 ** 32) {
+    head[1] = 0x12
+    const out = Buffer.alloc(6)
+    head.copy(out)
+    out.writeUInt32BE(size, 2)
+    return out
+  }
+  head[1] = 0x13
+  const out = Buffer.alloc(10)
+  head.copy(out)
+  out.writeBigUInt64BE(BigInt(size), 2)
+  return out
+}
+
+/** 单个顶层对象的完整 bplist00：头 + 对象 + 偏移表 + 32 字节 trailer */
+function buildSingleObject(object: Buffer): Buffer {
+  const offsetTableOffset = HEADER.length + object.length
+  const offsetSize = countToSize(offsetTableOffset)
+  const offsetTable = Buffer.alloc(offsetSize)
+  if (offsetSize === 8) offsetTable.writeBigUInt64BE(BigInt(HEADER.length), 0)
+  else offsetTable.writeUIntBE(HEADER.length, 0, offsetSize)
+
+  const trailer = Buffer.alloc(32)
+  trailer[5] = 0 // sortVersion
+  trailer[6] = offsetSize
+  trailer[7] = 1 // refSize（单对象）
+  trailer.writeBigUInt64BE(1n, 8) // 对象数
+  trailer.writeBigUInt64BE(0n, 16) // 顶层对象索引
+  trailer.writeBigUInt64BE(BigInt(offsetTableOffset), 24)
+  return Buffer.concat([HEADER, object, offsetTable, trailer])
+}
+
 /** 构造只含一个 8 字节实数的 bplist00（与 Python plistlib.dumps(float) 同构） */
 export function buildBplistNumber(value: number): Buffer {
-  // 头 8 字节 + 对象（0x23 + 8 字节 BE double）+ 偏移表 1 字节 + trailer 32 字节
   const payload = Buffer.alloc(9)
   payload[0] = 0x23
   payload.writeDoubleBE(value, 1)
-  const trailer = Buffer.alloc(32)
-  trailer[6] = 1 // offset 整数宽度
-  trailer[7] = 1 // object ref 宽度
-  trailer.writeBigUInt64BE(1n, 8) // 对象数
-  trailer.writeBigUInt64BE(0n, 16) // 顶层对象索引
-  trailer.writeBigUInt64BE(17n, 24) // 偏移表起点（头 8 + 对象 9）
-  return Buffer.concat([Buffer.from('bplist00', 'ascii'), payload, Buffer.from([8]), trailer])
+  return buildSingleObject(payload)
+}
+
+/** 字符串对象：Python 全 ASCII 走 0x5X，含非 ASCII 走 UTF-16BE 0x6X（低 4 位是字符数） */
+function encodeBplistString(value: string): Buffer {
+  if (isAsciiOnly(value)) {
+    return Buffer.concat([encodeSize(0x50, value.length), Buffer.from(value, 'ascii')])
+  }
+  const utf16 = Buffer.from(value, 'utf-16le').swap16()
+  return Buffer.concat([encodeSize(0x60, utf16.length / 2), utf16])
+}
+
+/** 构造只含一个字符串的 bplist00（与 Python plistlib.dumps(str) 逐字节一致） */
+export function buildBplistString(value: string): Buffer {
+  return buildSingleObject(encodeBplistString(value))
+}
+
+/** 扩展长度内联整数对象：0x10/0x11/0x12/0x13 + 1/2/4/8 字节大端 */
+function readExtendedLength(buf: Buffer, offset: number): { length: number; start: number } | null {
+  if (offset >= buf.length || buf[offset] >> 4 !== 0x1) return null
+  const info = buf[offset] & 0x0f
+  const size = [1, 2, 4, 8][info]
+  if (!size || offset + 1 + size > buf.length) return null
+  return { length: readUIntBE(buf, offset + 1, size), start: offset + 1 + size }
+}
+
+/**
+ * 只解析顶层字符串：兼容 Python 的 UTF-16BE marker 与 Finder/其它工具写出的 UTF-8 marker。
+ * 结构不合法返回 null。
+ */
+export function parseBplistString(buf: Buffer): string | null {
+  const top = readTopObject(buf)
+  if (!top) return null
+  const { offset, marker } = top
+  const type = marker >> 4
+  const info = marker & 0x0f
+  if (type !== 0x5 && type !== 0x6) return null
+
+  let length = info
+  let start = offset + 1
+  if (info === 0x0f) {
+    const ext = readExtendedLength(buf, offset + 1)
+    if (!ext) return null
+    length = ext.length
+    start = ext.start
+  }
+
+  if (type === 0x5) {
+    if (start + length > buf.length) return null
+    return buf.toString('utf8', start, start + length)
+  }
+  const end = start + length * 2
+  if (end > buf.length) return null
+  return Buffer.from(buf.subarray(start, end)).swap16().toString('utf-16le')
 }
 
 /**
@@ -92,5 +219,27 @@ export async function writeFinderRating(path: string, rating: number): Promise<b
   if (current === value) return false
   const hex = buildBplistNumber(value).toString('hex')
   const stdout = await runXattr(['-w', '-x', RATING_ATTR, hex, path])
+  return stdout !== null
+}
+
+/** 读 Finder 注释；非 macOS、无属性或无法解析返回 null */
+export async function readFinderComment(path: string): Promise<string | null> {
+  if (process.platform !== 'darwin') return null
+  const hex = await runXattr(['-px', COMMENT_ATTR, path])
+  if (!hex) return null
+  return parseBplistString(Buffer.from(hex.replace(/\s+/g, ''), 'hex'))
+}
+
+/**
+ * 写 Finder 注释（方案 §2.10）：无主题跳过；写前读旧注释，内容相同也跳过，
+ * 减少写操作、避免反复改动文件。失败静默返回 false，不影响保存与库内元数据。
+ */
+export async function writeFinderComment(path: string, text: string | null): Promise<boolean> {
+  if (process.platform !== 'darwin') return false
+  if (!text) return false
+  const current = await readFinderComment(path)
+  if (current === text) return false
+  const hex = buildBplistString(text).toString('hex')
+  const stdout = await runXattr(['-w', '-x', COMMENT_ATTR, hex, path])
   return stdout !== null
 }

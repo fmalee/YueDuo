@@ -3,6 +3,8 @@ import { dirname, join } from 'path'
 import { tmpdir } from 'os'
 import { randomUUID } from 'crypto'
 import { decodeBytes, encodeForWrite } from '../services/textCodec'
+import { findTopic } from '../services/metadataParser'
+import { writeFinderComment } from '../services/finderMetadata'
 import { writeDraft, readDraft, clearDraft } from '../services/draftStore'
 import { getDatabase } from '../services/database'
 import type { DraftEntry, DraftTabMeta, FileReadResult, FileStat } from '../../shared/types'
@@ -31,9 +33,13 @@ export function fileStat(path: string): FileStat {
 
 /**
  * file:writeText —— 保存（UTF-16LE + 临时文件写 + rename 原子替换）
- * 临时文件与目标同盘（先试同目录，失败退系统 tmp），中断不破坏原文件（Python 同款语义）
+ * 临时文件与目标同盘（先试同目录，失败退系统 tmp），中断不破坏原文件（Python 同款语义）；
+ * 落盘后按正文前十行的「主题」同步 Finder 注释（方案 §2.10，无主题/相同由 service 跳过）。
  */
-export function fileWriteText(path: string, text: string): { encoding: string; stat: FileStat } {
+export async function fileWriteText(
+  path: string,
+  text: string
+): Promise<{ encoding: string; stat: FileStat }> {
   const data = encodeForWrite(text)
   let tmpPath = join(dirname(path), `.${randomUUID()}.yueduo-tmp`)
   try {
@@ -44,9 +50,11 @@ export function fileWriteText(path: string, text: string): { encoding: string; s
     writeFileSync(tmpPath, data)
     copySync(tmpPath, path)
     unlinkSync(tmpPath)
+    await writeFinderComment(path, findTopic(text))
     return { encoding: 'utf-16-le', stat: statOf(path) }
   }
   renameSync(tmpPath, path)
+  await writeFinderComment(path, findTopic(text))
   return { encoding: 'utf-16-le', stat: statOf(path) }
 }
 

@@ -1,8 +1,9 @@
 import { readFile } from 'fs/promises'
 import { basename, dirname } from 'path'
-import { parseMetadata, splitTags } from '../services/metadataParser'
+import { findTopic, parseMetadata, splitTags } from '../services/metadataParser'
 import { decodeBytes } from '../services/textCodec'
 import { applyTextEdit, rewriteHeader } from '../services/metadataWriter'
+import { writeFinderComment } from '../services/finderMetadata'
 import { syncBookMetadataFromText } from './library'
 import type {
   MetadataEditResult,
@@ -50,5 +51,7 @@ export async function applyMetadataEdit(
   const nextText = edit ? applyTextEdit(text, edit) : text
   const metadata = parseMetadata(nextText, basename(path), basename(dirname(path)))
   const updated = await syncBookMetadataFromText(path, nextText)
+  // 主题写回后同步 Finder 注释（方案 §2.10）：无主题与「旧注释相同」都由 service 跳过
+  if (key === 'tags') await writeFinderComment(path, findTopic(nextText))
   return { edit, updated, metadata }
 }
