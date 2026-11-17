@@ -34,6 +34,7 @@ import {
   trackBookmarkTab
 } from '@/composables/useBookmarkDrift'
 import { showStatusMessage } from '@/composables/useStatusMessage'
+import FindReplaceBar from './FindReplaceBar.vue'
 import {
   convertTidy,
   convertToHalfwidth,
@@ -480,6 +481,7 @@ onBeforeUnmount(() => {
   <div class="editor-wrap">
     <div ref="container" class="monaco-container"></div>
     <div v-if="loading" class="loading-overlay">正在加载…</div>
+    <FindReplaceBar :editor="editor" :loading="loading" />
   </div>
 </template>
 

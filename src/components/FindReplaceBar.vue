@@ -1,0 +1,1085 @@
+<script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { monaco } from '@/monaco'
+import { useSettingsStore } from '@/stores/settings'
+import { useReaderStore } from '@/stores/reader'
+import { showStatusMessage } from '@/composables/useStatusMessage'
+import { METRICS } from '@/styles/theme'
+import type { FindRule } from '../../shared/findRules'
+
+/**
+ * 自绘查找替换栏（方案 §3.1）：
+ * 搜索语义全部交给 Monaco 的 model API —— findMatches 计数/命中、findNextMatch/findPreviousMatch
+ * 跳转、executeEdits 替换、装饰集合高亮；这里只做输入、状态与布局。
+ */
+const props = defineProps<{
+  editor?: monaco.editor.IStandaloneCodeEditor
+  loading?: boolean
+}>()
+
+/** 与 Monaco 默认单词分隔符一致（全词匹配时传给 findMatches） */
+const WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?'
+const SEARCH_DEBOUNCE_MS = 100
+/** 命中过多时只装饰可视区附近，计数仍用全量结果（方案 §3.1） */
+const MAX_DECORATIONS = 5000
+const DECORATION_MARGIN_LINES = 200
+/**
+ * findMatches 的 limitResultCount：Monaco 内部按 `resultLen >= limit` 截断，
+ * 传 -1 只会返回 1 条；这里取 Monaco 批量替换同款上限，视为不限。
+ */
+const MATCH_LIMIT = 1_073_741_824
+
+const settings = useSettingsStore()
+const reader = useReaderStore()
+
+const open = ref(false)
+const replaceOpen = ref(false)
+const findText = ref('')
+const replaceText = ref('')
+const matchCase = ref(false)
+const wholeWord = ref(false)
+const regex = ref(false)
+const preserveCase = ref(false)
+const matches = shallowRef<monaco.editor.FindMatch[]>([])
+const currentIndex = ref(0)
+const regexError = ref(false)
+const rulesOpen = ref(false)
+
+const width = ref<number>(METRICS.findBarWidth)
+const right = ref<number>(METRICS.findBarMargin)
+
+const barEl = ref<HTMLElement | null>(null)
+const findInput = ref<HTMLInputElement | null>(null)
+const replaceInput = ref<HTMLInputElement | null>(null)
+const rulesButton = ref<HTMLElement | null>(null)
+const rulesPanel = ref<HTMLElement | null>(null)
+
+/** 上次的查找文本：无选区、光标所在行没有内容时用它兜底（方案 §3.1） */
+let lastFindText = ''
+/** 与 matches 一一对应的起始偏移，供二分定位当前项 */
+let matchStarts: number[] = []
+let decorations: monaco.editor.IEditorDecorationsCollection | null = null
+let searchTimer: ReturnType<typeof setTimeout> | null = null
+let decorationTimer: ReturnType<typeof setTimeout> | null = null
+let attached: monaco.editor.IStandaloneCodeEditor | null = null
+const disposables: monaco.IDisposable[] = []
+let resizeState: { startX: number; width: number; right: number } | null = null
+
+const enabledRules = computed<FindRule[]>(() => settings.rules.filter((rule) => rule.searchEnabled))
+const hasMatches = computed(() => matches.value.length > 0)
+const canReplace = computed(() => hasMatches.value && !reader.locked)
+const counterText = computed(() => {
+  if (!findText.value) return ''
+  if (regexError.value) return '正则无效'
+  if (!matches.value.length) return '第 0 项，共 0 项'
+  return `第 ${currentIndex.value + 1} 项，共 ${matches.value.length} 项`
+})
+
+watch(
+  () => props.editor,
+  (next) => {
+    disposeAttached()
+    decorations = null
+    if (next) attach(next)
+  },
+  { immediate: true }
+)
+
+watch([findText, matchCase, wholeWord, regex], () => {
+  if (findText.value) lastFindText = findText.value
+  if (open.value) scheduleRefresh()
+})
+
+onMounted(() => {
+  window.addEventListener('keydown', onWindowKeydown, true)
+  window.addEventListener('resize', clampToContainer)
+  window.addEventListener('pointerdown', onDocumentPointerDown, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onWindowKeydown, true)
+  window.removeEventListener('resize', clampToContainer)
+  window.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  window.removeEventListener('pointermove', onResizeMove)
+  window.removeEventListener('pointerup', stopResize)
+  clearTimers()
+  decorations?.clear()
+  decorations = null
+  disposeAttached()
+})
+
+function attach(instance: monaco.editor.IStandaloneCodeEditor): void {
+  attached = instance
+  disposables.push(
+    instance.onDidChangeModel(() => {
+      matches.value = []
+      matchStarts = []
+      currentIndex.value = 0
+      decorations?.clear()
+      if (open.value) refreshNow()
+    }),
+    instance.onDidChangeModelContent(() => {
+      if (open.value) scheduleRefresh()
+    }),
+    instance.onDidChangeCursorSelection(() => {
+      if (!open.value) return
+      updateCurrentIndex()
+      scheduleDecorationUpdate()
+    })
+  )
+}
+
+function disposeAttached(): void {
+  for (const disposable of disposables) disposable.dispose()
+  disposables.length = 0
+  attached = null
+}
+
+function clearTimers(): void {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  if (decorationTimer) {
+    clearTimeout(decorationTimer)
+    decorationTimer = null
+  }
+}
+
+/** 快捷键（捕获阶段）：先于 Monaco 的输入处理，内置查找 widget 永不触发 */
+function onWindowKeydown(e: KeyboardEvent): void {
+  if (e.isComposing) return
+  const key = e.key.toLowerCase()
+  const mod = e.metaKey || e.ctrlKey
+  if (mod && key === 'f') {
+    e.preventDefault()
+    e.stopPropagation()
+    // Ctrl+Cmd+F 直接展开替换行；Cmd+F 收起替换行（用户确认的新口径）
+    openBar(e.metaKey && e.ctrlKey)
+    return
+  }
+  if (!open.value) return
+  if (mod && !e.altKey && key === 'g') {
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.shiftKey) previous()
+    else next()
+    return
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    if (rulesOpen.value) rulesOpen.value = false
+    else close()
+  }
+}
+
+function openBar(expandReplace: boolean): void {
+  const instance = attached ?? props.editor
+  if (!instance) return
+  if (!instance.getModel()) {
+    showStatusMessage(props.loading ? '文档正在载入，载入完成后再查找' : '没有可查找的文档', 3000)
+    return
+  }
+  const initial = initialFindText(instance)
+  findText.value = initial || lastFindText
+  if (findText.value) lastFindText = findText.value
+  replaceOpen.value = expandReplace
+  rulesOpen.value = false
+  open.value = true
+  clampToContainer()
+  refreshNow()
+  void nextTick(() => {
+    findInput.value?.focus()
+    findInput.value?.select()
+  })
+}
+
+/**
+ * 打开时的查找文本（用户口径）：
+ * 有选区用选区；否则用光标所在单词；所在行没有内容时用上次的查找文本。
+ */
+function initialFindText(instance: monaco.editor.IStandaloneCodeEditor): string {
+  const model = instance.getModel()
+  if (!model) return ''
+  const selection = instance.getSelection()
+  if (selection && !selection.isEmpty()) {
+    const selected = model.getValueInRange(selection)
+    if (selected) return selected
+  }
+  const position = instance.getPosition()
+  if (position) {
+    const word = wordAtCursor(model, position)
+    if (word) return word
+    const line = model.getLineContent(position.lineNumber)
+    if (!line.trim()) return lastFindText
+  }
+  return lastFindText
+}
+
+/** 光标所在的连续文字段（中英文都以标点/空白为界）；光标在空白处时取它后面的那段 */
+function wordAtCursor(model: monaco.editor.ITextModel, position: monaco.Position): string {
+  const line = model.getLineContent(position.lineNumber)
+  const offset = Math.max(0, position.column - 1)
+  let next = ''
+  for (const match of line.matchAll(/[\p{L}\p{N}_]+/gu)) {
+    const start = match.index ?? 0
+    const end = start + match[0].length
+    if (start <= offset && offset < end) return match[0]
+    if (start >= offset && !next) next = match[0]
+  }
+  return next
+}
+
+function close(): void {
+  open.value = false
+  rulesOpen.value = false
+  clearTimers()
+  matches.value = []
+  matchStarts = []
+  currentIndex.value = 0
+  regexError.value = false
+  decorations?.clear()
+  props.editor?.focus()
+}
+
+function scheduleRefresh(): void {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    searchTimer = null
+    refreshNow()
+  }, SEARCH_DEBOUNCE_MS)
+}
+
+function scheduleDecorationUpdate(): void {
+  if (decorationTimer) return
+  decorationTimer = setTimeout(() => {
+    decorationTimer = null
+    applyDecorations()
+  }, 60)
+}
+
+function wordSeparators(): string | null {
+  return wholeWord.value ? WORD_SEPARATORS : null
+}
+
+/** 全量计数 + 命中（不截断，计数才准确）；过滤零长度命中，避免替换空串 */
+function refreshNow(): void {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!open.value || !instance || !model) {
+    matches.value = []
+    matchStarts = []
+    currentIndex.value = 0
+    regexError.value = false
+    decorations?.clear()
+    return
+  }
+  const pattern = findText.value
+  if (!pattern) {
+    matches.value = []
+    matchStarts = []
+    currentIndex.value = 0
+    regexError.value = false
+    decorations?.clear()
+    return
+  }
+  // Monaco 的 findMatches 对无效正则只返回空结果、不抛错，这里先用同款 u 标志做语法校验
+  if (regex.value) {
+    try {
+      new RegExp(pattern, 'gu')
+    } catch {
+      matches.value = []
+      matchStarts = []
+      currentIndex.value = 0
+      regexError.value = true
+      decorations?.clear()
+      return
+    }
+  }
+  try {
+    const found = model.findMatches(
+      pattern,
+      false,
+      regex.value,
+      matchCase.value,
+      wordSeparators(),
+      false,
+      MATCH_LIMIT
+    )
+    matches.value = found.filter((match) => !match.range.isEmpty())
+    matchStarts = matches.value.map((match) => model.getOffsetAt(match.range.getStartPosition()))
+    regexError.value = false
+  } catch {
+    matches.value = []
+    matchStarts = []
+    regexError.value = true
+  }
+  updateCurrentIndex()
+  applyDecorations()
+}
+
+/** 当前项 = 光标位置处或其后的首个命中（越界回到第一项），二分定位 */
+function updateCurrentIndex(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!instance || !model || !matches.value.length) {
+    currentIndex.value = 0
+    return
+  }
+  const position = instance.getSelection()?.getStartPosition() ?? instance.getPosition()
+  if (!position) {
+    currentIndex.value = 0
+    return
+  }
+  const offset = model.getOffsetAt(position)
+  let index = lowerBound(matchStarts, offset)
+  if (index > 0) {
+    const previousEnd = model.getOffsetAt(matches.value[index - 1].range.getEndPosition())
+    if (offset < previousEnd) index -= 1
+  }
+  currentIndex.value = index < matches.value.length ? index : 0
+}
+
+function lowerBound(values: number[], target: number): number {
+  let low = 0
+  let high = values.length
+  while (low < high) {
+    const mid = (low + high) >> 1
+    if (values[mid] < target) low = mid + 1
+    else high = mid
+  }
+  return low
+}
+
+/** 命中过多时只装饰可视区 ±200 行，当前项始终保留 */
+function applyDecorations(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!instance || !model) {
+    decorations?.clear()
+    return
+  }
+  if (!open.value || !matches.value.length) {
+    decorations?.clear()
+    return
+  }
+  if (!decorations) decorations = instance.createDecorationsCollection()
+  const ranges = instance.getVisibleRanges()
+  const top = Math.max(1, (ranges[0]?.startLineNumber ?? 1) - DECORATION_MARGIN_LINES)
+  const bottom =
+    ranges.length > 0
+      ? ranges[ranges.length - 1].endLineNumber + DECORATION_MARGIN_LINES
+      : model.getLineCount()
+  const indexSet = new Set<number>()
+  if (matches.value.length <= MAX_DECORATIONS) {
+    for (let i = 0; i < matches.value.length; i++) indexSet.add(i)
+  } else {
+    for (let i = 0; i < matches.value.length; i++) {
+      const range = matches.value[i].range
+      if (
+        i === currentIndex.value ||
+        (range.endLineNumber >= top && range.startLineNumber <= bottom)
+      ) {
+        indexSet.add(i)
+      }
+    }
+  }
+  const items: monaco.editor.IModelDeltaDecoration[] = []
+  for (const index of indexSet) {
+    items.push({
+      range: matches.value[index].range,
+      options: {
+        inlineClassName: index === currentIndex.value ? 'yd-find-match-current' : 'yd-find-match',
+        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+      }
+    })
+  }
+  decorations.set(items)
+}
+
+function selectMatch(index: number): void {
+  const instance = attached ?? props.editor
+  const match = matches.value[index]
+  if (!instance || !match) return
+  instance.setSelection(match.range)
+  instance.revealRangeInCenter(match.range, monaco.editor.ScrollType.Immediate)
+  currentIndex.value = index
+  applyDecorations()
+}
+
+/** 下一个/上一个：按用户口径走 model.findNextMatch / findPreviousMatch，越界由 Monaco 环绕 */
+function next(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!open.value || !instance || !model || !matches.value.length) return
+  const current = matches.value[currentIndex.value]
+  const start = current
+    ? current.range.getEndPosition()
+    : (instance.getPosition() ?? { lineNumber: 1, column: 1 })
+  const found = model.findNextMatch(
+    findText.value,
+    start,
+    regex.value,
+    matchCase.value,
+    wordSeparators(),
+    false
+  )
+  let index = found ? indexOfMatch(found) : -1
+  if (index < 0) index = (currentIndex.value + 1) % matches.value.length
+  else if (index === currentIndex.value && matches.value.length > 1) {
+    index = (index + 1) % matches.value.length
+  }
+  selectMatch(index)
+}
+
+function previous(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!open.value || !instance || !model || !matches.value.length) return
+  const current = matches.value[currentIndex.value]
+  const start = current
+    ? current.range.getStartPosition()
+    : (instance.getPosition() ?? { lineNumber: 1, column: 1 })
+  const found = model.findPreviousMatch(
+    findText.value,
+    start,
+    regex.value,
+    matchCase.value,
+    wordSeparators(),
+    false
+  )
+  let index = found ? indexOfMatch(found) : -1
+  if (index < 0) index = (currentIndex.value - 1 + matches.value.length) % matches.value.length
+  else if (index === currentIndex.value && matches.value.length > 1) {
+    index = (index - 1 + matches.value.length) % matches.value.length
+  }
+  selectMatch(index)
+}
+
+function indexOfMatch(match: monaco.editor.FindMatch): number {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!model) return -1
+  const offset = model.getOffsetAt(match.range.getStartPosition())
+  let index = lowerBound(matchStarts, offset)
+  while (index < matches.value.length && matchStarts[index] === offset) {
+    if (sameRange(matches.value[index].range, match.range)) return index
+    index++
+  }
+  return -1
+}
+
+function sameRange(a: monaco.Range, b: monaco.Range): boolean {
+  return (
+    a.startLineNumber === b.startLineNumber &&
+    a.startColumn === b.startColumn &&
+    a.endLineNumber === b.endLineNumber &&
+    a.endColumn === b.endColumn
+  )
+}
+
+/** 保留大小写：全大写/全小写/首字母大写三种形态，其余原样 */
+function applyPreservedCase(source: string, replacement: string): string {
+  if (!replacement) return replacement
+  const hasUpper = /[A-Z]/.test(source)
+  const hasLower = /[a-z]/.test(source)
+  if (hasUpper && !hasLower) return replacement.toUpperCase()
+  if (!hasUpper && hasLower) return replacement.toLowerCase()
+  if (/^[A-Z]/.test(source) && !/[A-Z]/.test(source.slice(1))) {
+    const index = replacement.search(/[A-Za-z]/)
+    if (index < 0) return replacement
+    return (
+      replacement.slice(0, index) +
+      replacement.charAt(index).toUpperCase() +
+      replacement.slice(index + 1).toLowerCase()
+    )
+  }
+  return replacement
+}
+
+/** 单个替换：替换当前项后跳到它后面的首个命中，焦点留在替换框（方案 §3.1） */
+function replaceCurrent(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!open.value || !instance || !model) return
+  if (reader.locked) {
+    showStatusMessage('已锁定，无法替换文本', 3000)
+    return
+  }
+  if (regexError.value) {
+    showStatusMessage('正则表达式无效，无法替换', 3000)
+    return
+  }
+  const match = matches.value[currentIndex.value]
+  if (!match) {
+    showStatusMessage('未找到匹配', 3000)
+    return
+  }
+  const original = model.getValueInRange(match.range)
+  const text = preserveCase.value
+    ? applyPreservedCase(original, replaceText.value)
+    : replaceText.value
+  const startOffset = model.getOffsetAt(match.range.getStartPosition())
+  instance.pushUndoStop()
+  instance.executeEdits('findReplace', [{ range: match.range, text, forceMoveMarkers: true }])
+  instance.pushUndoStop()
+  refreshNow()
+  if (!matches.value.length) return
+  let index = lowerBound(matchStarts, startOffset + text.length)
+  if (index >= matches.value.length) index = 0
+  selectMatch(index)
+}
+
+/** 全部替换：一次 executeEdits 应用所有命中，可用一次撤销整体恢复 */
+function replaceAllMatches(): void {
+  const instance = attached ?? props.editor
+  const model = instance?.getModel()
+  if (!open.value || !instance || !model) return
+  if (reader.locked) {
+    showStatusMessage('已锁定，无法替换文本', 3000)
+    return
+  }
+  if (regexError.value) {
+    showStatusMessage('正则表达式无效，无法替换', 3000)
+    return
+  }
+  if (!matches.value.length) {
+    showStatusMessage('未找到匹配', 3000)
+    return
+  }
+  const edits = matches.value.map((match) => {
+    const original = model.getValueInRange(match.range)
+    return {
+      range: match.range,
+      text: preserveCase.value ? applyPreservedCase(original, replaceText.value) : replaceText.value
+    }
+  })
+  const count = edits.length
+  instance.pushUndoStop()
+  instance.executeEdits('findReplaceAll', edits)
+  instance.pushUndoStop()
+  refreshNow()
+  showStatusMessage(`已替换 ${count} 处`, 5000)
+}
+
+function onFindEnter(e: KeyboardEvent): void {
+  if (e.isComposing) return
+  e.preventDefault()
+  if (e.shiftKey) previous()
+  else next()
+}
+
+function onReplaceEnter(e: KeyboardEvent): void {
+  if (e.isComposing) return
+  e.preventDefault()
+  if (e.metaKey || e.ctrlKey) replaceAllMatches()
+  else replaceCurrent()
+}
+
+function onInputEscape(e: KeyboardEvent): void {
+  if (e.isComposing) return
+  e.preventDefault()
+  close()
+}
+
+function toggleReplace(): void {
+  replaceOpen.value = !replaceOpen.value
+  if (replaceOpen.value) void nextTick(() => replaceInput.value?.focus())
+}
+
+function applyRule(rule: FindRule): void {
+  findText.value = rule.pattern
+  replaceText.value = rule.replacement ?? ''
+  regex.value = true
+  rulesOpen.value = false
+  refreshNow()
+  void nextTick(() => findInput.value?.focus())
+}
+
+/** 常用正则面板：点面板与按钮以外的地方收起 */
+function onDocumentPointerDown(e: PointerEvent): void {
+  if (!rulesOpen.value) return
+  const target = e.target as Node
+  if (rulesPanel.value?.contains(target) || rulesButton.value?.contains(target)) return
+  rulesOpen.value = false
+}
+
+function clampToContainer(): void {
+  const containerWidth = barEl.value?.parentElement?.clientWidth ?? 0
+  if (!containerWidth) return
+  const maxByContainer = Math.max(
+    METRICS.findBarMinWidth,
+    containerWidth - METRICS.findBarMargin * 2
+  )
+  width.value = Math.min(
+    Math.max(width.value, METRICS.findBarMinWidth),
+    Math.min(METRICS.findBarMaxWidth, maxByContainer)
+  )
+  const maxRight = Math.max(
+    METRICS.findBarMargin,
+    containerWidth - width.value - METRICS.findBarMargin
+  )
+  if (right.value > maxRight) right.value = maxRight
+}
+
+/** 右边缘拖拽：左边缘保持不动，右边缘跟手；到容器右缘后改为向左扩展 */
+function startResize(e: PointerEvent): void {
+  if (e.button !== 0) return
+  e.preventDefault()
+  resizeState = { startX: e.clientX, width: width.value, right: right.value }
+  document.body.style.cursor = 'ew-resize'
+  window.addEventListener('pointermove', onResizeMove)
+  window.addEventListener('pointerup', stopResize, { once: true })
+}
+
+function onResizeMove(e: PointerEvent): void {
+  if (!resizeState) return
+  const containerWidth = barEl.value?.parentElement?.clientWidth ?? 0
+  const maxByContainer = Math.max(
+    METRICS.findBarMinWidth,
+    containerWidth - METRICS.findBarMargin * 2
+  )
+  const maxWidth = Math.min(METRICS.findBarMaxWidth, maxByContainer)
+  const deltaX = e.clientX - resizeState.startX
+  const nextWidth = Math.min(
+    Math.max(resizeState.width + deltaX, METRICS.findBarMinWidth),
+    maxWidth
+  )
+  width.value = nextWidth
+  right.value = Math.max(METRICS.findBarMargin, resizeState.right - (nextWidth - resizeState.width))
+}
+
+function stopResize(): void {
+  resizeState = null
+  document.body.style.cursor = ''
+  window.removeEventListener('pointermove', onResizeMove)
+  window.removeEventListener('pointerup', stopResize)
+}
+</script>
+
+<template>
+  <div
+    v-show="open"
+    ref="barEl"
+    class="find-bar"
+    :style="{ width: `${width}px`, right: `${right}px` }"
+    role="search"
+  >
+    <button
+      class="collapse"
+      :class="{ expanded: replaceOpen }"
+      :title="replaceOpen ? '收起替换行' : '展开替换行'"
+      :aria-expanded="replaceOpen"
+      @click="toggleReplace"
+    >
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M6 3.5 10.5 8 6 12.5" />
+      </svg>
+    </button>
+
+    <div class="find-body">
+      <div class="find-row">
+        <div class="input-shell">
+          <input
+            ref="findInput"
+            v-model="findText"
+            class="find-input"
+            type="text"
+            placeholder="查找"
+            spellcheck="false"
+            autocomplete="off"
+            @keydown.enter="onFindEnter"
+            @keydown.esc="onInputEscape"
+          />
+          <div class="input-toggles">
+            <button
+              class="toggle"
+              :class="{ active: matchCase }"
+              title="区分大小写"
+              :aria-pressed="matchCase"
+              @click="matchCase = !matchCase"
+            >
+              Aa
+            </button>
+            <button
+              class="toggle word-toggle"
+              :class="{ active: wholeWord }"
+              title="全字匹配"
+              :aria-pressed="wholeWord"
+              @click="wholeWord = !wholeWord"
+            >
+              ab
+            </button>
+            <button
+              class="toggle regex-toggle"
+              :class="{ active: regex }"
+              title="使用正则表达式"
+              :aria-pressed="regex"
+              @click="regex = !regex"
+            >
+              .*
+            </button>
+          </div>
+        </div>
+
+        <span v-if="counterText" class="counter" :class="{ error: regexError }">
+          {{ counterText }}
+        </span>
+        <button
+          class="icon-button"
+          :disabled="!hasMatches"
+          title="上一个匹配（Shift+Enter / Shift+Cmd+G）"
+          @click="previous"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 12.5v-9M3.5 8 8 3.5 12.5 8" />
+          </svg>
+        </button>
+        <button
+          class="icon-button"
+          :disabled="!hasMatches"
+          title="下一个匹配（Enter / Cmd+G）"
+          @click="next"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 3.5v9M3.5 8 8 12.5 12.5 8" />
+          </svg>
+        </button>
+
+        <div class="rules-anchor">
+          <button
+            ref="rulesButton"
+            class="icon-button"
+            :class="{ active: rulesOpen }"
+            title="常用正则"
+            :aria-expanded="rulesOpen"
+            @click="rulesOpen = !rulesOpen"
+          >
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M5 4h8M5 8h8M5 12h8" />
+              <circle cx="2.4" cy="4" r="0.9" fill="currentColor" stroke="none" />
+              <circle cx="2.4" cy="8" r="0.9" fill="currentColor" stroke="none" />
+              <circle cx="2.4" cy="12" r="0.9" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          <div v-if="rulesOpen" ref="rulesPanel" class="rules-panel">
+            <button
+              v-for="rule in enabledRules"
+              :key="rule.key"
+              class="rule-row"
+              :title="rule.description"
+              @click="applyRule(rule)"
+            >
+              <span class="rule-label">{{ rule.label }}</span>
+              <span class="rule-desc">{{ rule.description }}</span>
+            </button>
+            <div v-if="!enabledRules.length" class="rules-empty">没有可用的常用正则</div>
+          </div>
+        </div>
+
+        <button class="icon-button" title="关闭（Esc）" @click="close">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M4 4l8 8M12 4l-8 8" />
+          </svg>
+        </button>
+      </div>
+
+      <div v-show="replaceOpen" class="find-row replace-row">
+        <div class="input-shell">
+          <input
+            ref="replaceInput"
+            v-model="replaceText"
+            class="find-input"
+            type="text"
+            placeholder="替换为"
+            spellcheck="false"
+            autocomplete="off"
+            @keydown.enter="onReplaceEnter"
+            @keydown.esc="onInputEscape"
+          />
+          <div class="input-toggles">
+            <button
+              class="toggle"
+              :class="{ active: preserveCase }"
+              title="保留大小写"
+              :aria-pressed="preserveCase"
+              @click="preserveCase = !preserveCase"
+            >
+              aA
+            </button>
+          </div>
+        </div>
+        <button
+          class="icon-button"
+          :disabled="!canReplace"
+          title="替换（Enter）"
+          @click="replaceCurrent"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2v6.5M5 5.5 8 8.5l3-3M3 13h10" />
+          </svg>
+        </button>
+        <button
+          class="icon-button"
+          :disabled="!canReplace"
+          title="全部替换（Cmd+Enter）"
+          @click="replaceAllMatches"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M5 2v5.5M2.5 5 5 7.5 7.5 5M11 2v5.5M8.5 5 11 7.5 13.5 5M3 13h10" />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="resize-handle" title="拖拽调整查找栏宽度" @pointerdown="startResize"></div>
+  </div>
+</template>
+
+<style scoped>
+.find-bar {
+  position: absolute;
+  top: var(--yd-find-top);
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  padding: var(--yd-find-padding-y) calc(var(--yd-find-padding-x) + 4px) var(--yd-find-padding-y)
+    var(--yd-find-padding-x);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-find-radius);
+  background: var(--yd-bg-2);
+  box-shadow: 0 2px 10px var(--yd-shadow);
+  color: var(--yd-text-1);
+  font-size: var(--yd-find-font-size);
+  user-select: none;
+}
+.collapse {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--yd-find-toggle-size);
+  height: var(--yd-find-toggle-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--yd-find-toggle-radius);
+  background: transparent;
+  color: var(--yd-text-3);
+}
+.collapse:hover {
+  background: var(--yd-hover-1);
+  color: var(--yd-text-1);
+}
+.collapse svg {
+  width: var(--yd-find-icon-size);
+  height: var(--yd-find-icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: transform 0.12s ease;
+}
+.collapse.expanded svg {
+  transform: rotate(90deg);
+}
+.find-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--yd-find-row-gap);
+  min-width: 0;
+}
+.find-row {
+  display: flex;
+  align-items: center;
+  gap: var(--yd-find-gap);
+  min-width: 0;
+}
+.input-shell {
+  position: relative;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  min-width: 0;
+}
+.find-input {
+  width: 100%;
+  height: var(--yd-find-input-height);
+  padding: 0
+    calc(var(--yd-find-toggle-size) * 3 + var(--yd-find-gap) * 2 + var(--yd-find-padding-x)) 0
+    var(--yd-find-input-padding-x);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-find-input-radius);
+  outline: none;
+  background: var(--yd-bg-3);
+  color: var(--yd-text-1);
+  font: inherit;
+  font-size: var(--yd-find-font-size);
+}
+.replace-row .find-input {
+  padding-right: calc(var(--yd-find-toggle-size) + var(--yd-find-gap) + var(--yd-find-padding-x));
+}
+.find-input::placeholder {
+  color: var(--yd-text-3);
+}
+.find-input:focus {
+  border-color: var(--yd-accent);
+}
+.input-toggles {
+  position: absolute;
+  right: var(--yd-find-padding-x);
+  display: flex;
+  gap: var(--yd-find-gap);
+}
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--yd-find-toggle-size);
+  height: var(--yd-find-toggle-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--yd-find-toggle-radius);
+  background: transparent;
+  color: var(--yd-text-3);
+  font-size: var(--yd-find-toggle-font-size);
+  line-height: 1;
+}
+.toggle:hover {
+  background: var(--yd-hover-1);
+  color: var(--yd-text-1);
+}
+.toggle.active,
+.toggle.active:hover {
+  background: var(--yd-active-1);
+  color: var(--yd-text-1);
+}
+.word-toggle {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.regex-toggle {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.counter {
+  flex: none;
+  color: var(--yd-text-3);
+  white-space: nowrap;
+}
+.counter.error {
+  color: var(--yd-accent);
+}
+.icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--yd-find-toggle-size);
+  height: var(--yd-find-toggle-size);
+  padding: 0;
+  border: none;
+  border-radius: var(--yd-find-toggle-radius);
+  background: transparent;
+  color: var(--yd-text-2);
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--yd-hover-1);
+  color: var(--yd-text-1);
+}
+.icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.icon-button.active,
+.icon-button.active:hover {
+  background: var(--yd-active-1);
+  color: var(--yd-text-1);
+}
+.icon-button svg {
+  width: var(--yd-find-icon-size);
+  height: var(--yd-find-icon-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.rules-anchor {
+  position: relative;
+  flex: none;
+}
+.rules-panel {
+  position: absolute;
+  top: calc(100% + var(--yd-find-gap));
+  right: 0;
+  z-index: 30;
+  width: var(--yd-find-rules-width);
+  max-height: var(--yd-find-rules-max-height);
+  padding: var(--yd-find-rules-padding);
+  border: 1px solid var(--yd-border-1);
+  border-radius: var(--yd-find-rules-radius);
+  overflow-y: auto;
+  background: var(--yd-bg-1);
+  box-shadow: 0 4px 14px var(--yd-shadow);
+}
+.rule-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--yd-find-rules-gap);
+  width: 100%;
+  padding: var(--yd-find-rules-row-padding-y) var(--yd-find-rules-row-padding-x);
+  border: none;
+  border-radius: var(--yd-find-rules-radius);
+  background: transparent;
+  color: var(--yd-text-1);
+  text-align: left;
+}
+.rule-row:hover {
+  background: var(--yd-hover-1);
+}
+.rule-label {
+  font-size: var(--yd-find-font-size);
+  line-height: 1.3;
+}
+.rule-desc {
+  color: var(--yd-text-3);
+  font-size: var(--yd-find-rules-description-font-size);
+  line-height: 1.4;
+}
+.rules-empty {
+  padding: var(--yd-find-rules-row-padding-y) var(--yd-find-rules-row-padding-x);
+  color: var(--yd-text-3);
+}
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: ew-resize;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 1px;
+  width: 2px;
+  height: 16px;
+  border-radius: 1px;
+  background: var(--yd-border-1);
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 0.12s ease;
+}
+.find-bar:hover .resize-handle::after {
+  opacity: 1;
+}
+</style>

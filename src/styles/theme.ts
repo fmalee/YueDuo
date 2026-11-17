@@ -96,7 +96,34 @@ export const METRICS = {
   paletteMetaFontSize: 11,
   paletteHintFontSize: 11,
   paletteKeyPaddingX: 4,
-  paletteKeyRadius: 3
+  paletteKeyRadius: 3,
+  // 自绘查找替换栏（方案 §3.1）：浮在编辑器右上角，宽度可拖右边缘调整
+  findBarWidth: 440,
+  findBarMinWidth: 280,
+  findBarMaxWidth: 760,
+  findBarMargin: 10,
+  findBarTop: 10,
+  findBarPaddingX: 6,
+  findBarPaddingY: 5,
+  findBarGap: 4,
+  findBarRowGap: 4,
+  findBarRadius: 4,
+  findBarInputHeight: 24,
+  findBarInputPaddingX: 6,
+  findBarInputRadius: 3,
+  findBarFontSize: 12,
+  findBarIconSize: 14,
+  findBarToggleSize: 20,
+  findBarToggleRadius: 3,
+  findBarToggleFontSize: 11,
+  findBarRulesWidth: 380,
+  findBarRulesMaxHeight: 320,
+  findBarRulesPadding: 4,
+  findBarRulesRowPaddingY: 5,
+  findBarRulesRowPaddingX: 8,
+  findBarRulesRadius: 3,
+  findBarRulesGap: 2,
+  findBarRulesDescriptionFontSize: 11
 } as const
 
 /** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
@@ -163,5 +190,30 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-palette-hint-font-size', `${METRICS.paletteHintFontSize}px`)
   root.style.setProperty('--yd-palette-key-padding-x', `${METRICS.paletteKeyPaddingX}px`)
   root.style.setProperty('--yd-palette-key-radius', `${METRICS.paletteKeyRadius}px`)
+  root.style.setProperty('--yd-find-top', `${METRICS.findBarTop}px`)
+  root.style.setProperty('--yd-find-padding-x', `${METRICS.findBarPaddingX}px`)
+  root.style.setProperty('--yd-find-padding-y', `${METRICS.findBarPaddingY}px`)
+  root.style.setProperty('--yd-find-gap', `${METRICS.findBarGap}px`)
+  root.style.setProperty('--yd-find-row-gap', `${METRICS.findBarRowGap}px`)
+  root.style.setProperty('--yd-find-radius', `${METRICS.findBarRadius}px`)
+  root.style.setProperty('--yd-find-input-height', `${METRICS.findBarInputHeight}px`)
+  root.style.setProperty('--yd-find-input-padding-x', `${METRICS.findBarInputPaddingX}px`)
+  root.style.setProperty('--yd-find-input-radius', `${METRICS.findBarInputRadius}px`)
+  root.style.setProperty('--yd-find-font-size', `${METRICS.findBarFontSize}px`)
+  root.style.setProperty('--yd-find-icon-size', `${METRICS.findBarIconSize}px`)
+  root.style.setProperty('--yd-find-toggle-size', `${METRICS.findBarToggleSize}px`)
+  root.style.setProperty('--yd-find-toggle-radius', `${METRICS.findBarToggleRadius}px`)
+  root.style.setProperty('--yd-find-toggle-font-size', `${METRICS.findBarToggleFontSize}px`)
+  root.style.setProperty('--yd-find-rules-width', `${METRICS.findBarRulesWidth}px`)
+  root.style.setProperty('--yd-find-rules-max-height', `${METRICS.findBarRulesMaxHeight}px`)
+  root.style.setProperty('--yd-find-rules-padding', `${METRICS.findBarRulesPadding}px`)
+  root.style.setProperty('--yd-find-rules-row-padding-y', `${METRICS.findBarRulesRowPaddingY}px`)
+  root.style.setProperty('--yd-find-rules-row-padding-x', `${METRICS.findBarRulesRowPaddingX}px`)
+  root.style.setProperty('--yd-find-rules-radius', `${METRICS.findBarRulesRadius}px`)
+  root.style.setProperty('--yd-find-rules-gap', `${METRICS.findBarRulesGap}px`)
+  root.style.setProperty(
+    '--yd-find-rules-description-font-size',
+    `${METRICS.findBarRulesDescriptionFontSize}px`
+  )
   root.style.colorScheme = dark ? 'dark' : 'light'
 }

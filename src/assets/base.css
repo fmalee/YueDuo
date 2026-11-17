@@ -67,3 +67,14 @@ button {
   font-size: var(--yd-sidebar-font-size);
   line-height: 1.5;
 }
+
+/* 查找命中高亮（方案 §3.1）：装饰落在 Monaco 的编辑器 DOM 里，组件 scoped 样式覆盖不到 */
+.yd-find-match {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--yd-accent) 20%, transparent);
+}
+.yd-find-match-current {
+  border-radius: 2px;
+  outline: 1px solid var(--yd-accent);
+  background: color-mix(in srgb, var(--yd-accent) 42%, transparent);
+}
