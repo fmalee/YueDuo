@@ -46,7 +46,6 @@ const regexError = ref(false)
 const rulesOpen = ref(false)
 
 const width = ref<number>(METRICS.findBarWidth)
-const right = ref<number>(METRICS.findBarMargin)
 
 const barEl = ref<HTMLElement | null>(null)
 const findInput = ref<HTMLInputElement | null>(null)
@@ -63,7 +62,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 let decorationTimer: ReturnType<typeof setTimeout> | null = null
 let attached: monaco.editor.IStandaloneCodeEditor | null = null
 const disposables: monaco.IDisposable[] = []
-let resizeState: { startX: number; width: number; right: number } | null = null
+let resizeState: { startX: number; width: number } | null = null
 
 const enabledRules = computed<FindRule[]>(() => settings.rules.filter((rule) => rule.searchEnabled))
 const hasMatches = computed(() => matches.value.length > 0)
@@ -620,18 +619,13 @@ function clampToContainer(): void {
     Math.max(width.value, METRICS.findBarMinWidth),
     Math.min(METRICS.findBarMaxWidth, maxByContainer)
   )
-  const maxRight = Math.max(
-    METRICS.findBarMargin,
-    containerWidth - width.value - METRICS.findBarMargin
-  )
-  if (right.value > maxRight) right.value = maxRight
 }
 
-/** 右边缘拖拽：左边缘保持不动，右边缘跟手；到容器右缘后改为向左扩展 */
+/** 左边缘拖拽：右边缘固定在容器右侧，宽度变化只移动左边缘 */
 function startResize(e: PointerEvent): void {
   if (e.button !== 0) return
   e.preventDefault()
-  resizeState = { startX: e.clientX, width: width.value, right: right.value }
+  resizeState = { startX: e.clientX, width: width.value }
   document.body.style.cursor = 'ew-resize'
   window.addEventListener('pointermove', onResizeMove)
   window.addEventListener('pointerup', stopResize, { once: true })
@@ -645,13 +639,9 @@ function onResizeMove(e: PointerEvent): void {
     containerWidth - METRICS.findBarMargin * 2
   )
   const maxWidth = Math.min(METRICS.findBarMaxWidth, maxByContainer)
-  const deltaX = e.clientX - resizeState.startX
-  const nextWidth = Math.min(
-    Math.max(resizeState.width + deltaX, METRICS.findBarMinWidth),
-    maxWidth
-  )
-  width.value = nextWidth
-  right.value = Math.max(METRICS.findBarMargin, resizeState.right - (nextWidth - resizeState.width))
+  // 右边缘固定，指针左移（clientX 变小）才变宽
+  const deltaX = resizeState.startX - e.clientX
+  width.value = Math.min(Math.max(resizeState.width + deltaX, METRICS.findBarMinWidth), maxWidth)
 }
 
 function stopResize(): void {
@@ -667,7 +657,7 @@ function stopResize(): void {
     v-show="open"
     ref="barEl"
     class="find-bar"
-    :style="{ width: `${width}px`, right: `${right}px` }"
+    :style="{ width: `${width}px`, right: `${METRICS.findBarMargin}px` }"
     role="search"
   >
     <button
@@ -1061,7 +1051,7 @@ function stopResize(): void {
 .resize-handle {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   width: 5px;
   height: 100%;
   cursor: ew-resize;
@@ -1070,7 +1060,7 @@ function stopResize(): void {
   content: '';
   position: absolute;
   top: 50%;
-  right: 1px;
+  left: 1px;
   width: 2px;
   height: 16px;
   border-radius: 1px;
