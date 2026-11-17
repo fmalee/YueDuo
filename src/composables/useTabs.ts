@@ -7,6 +7,7 @@ import {
   fileTrash,
   confirmTrash,
   ipcInvoke,
+  libraryBookByPath,
   showError
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
@@ -24,6 +25,7 @@ import {
 import { useEditorCommands } from './useEditorCommands'
 import { focusEditor, persistSessionNow, schedulePersist } from './useSession'
 import { flushBookmarkDrift } from './useBookmarkDrift'
+import { parseMetadata } from '../../shared/metadataParser'
 import type { ConfirmChoice, FileStat } from '../../shared/types'
 
 let seq = 0
@@ -33,6 +35,16 @@ const newTabId = (): string => `tab-${Date.now().toString(36)}-${seq++}`
 function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
   return message.replace(/^\[[^\]]+\]\s*/, '')
+}
+
+/**
+ * 标签书名（方案 §1.5）：与元数据栏同一口径 —— 正文前两行书名号优先，
+ * 否则文件名去后缀；标签标题不再显示 `.txt`。
+ */
+function bookTitle(text: string, path: string): string {
+  const fileName = path.slice(path.lastIndexOf('/') + 1)
+  const parent = path.slice(0, path.lastIndexOf('/'))
+  return parseMetadata(text, fileName, parent.slice(parent.lastIndexOf('/') + 1)).title
 }
 
 /** 标签打开/切换/关闭/新建业务（渲染层编排，全文经 IPC 后直接进 model） */
@@ -88,14 +100,16 @@ export function useTabs(): {
     const { text, encoding } = await fileReadText(normalized)
 
     const id = newTabId()
-    const title = decodeURIComponent(normalized.split('/').pop() ?? '未命名')
+    // 打开时书名优先取库内记录（扫描口径与正文解析一致），库外文件按正文/文件名兜底
+    const book = await libraryBookByPath(normalized).catch(() => null)
+    const title = book?.title || bookTitle(text, normalized)
 
     createTabModel(id, text, encoding)
     setStatCache(id, stat)
     store.upsertTab({
       id,
       path: normalized,
-      title, // 标签显示完整小说名称，不裁切（VS Code 逻辑）
+      title, // 书名作标签标题，完整显示不裁切（VS Code 逻辑）
       encoding,
       dirty: false,
       lastFocusedAt: Date.now()
@@ -137,7 +151,9 @@ export function useTabs(): {
     if (!tab.path) {
       const chosen = await ipcInvoke<string | null>('dialog:saveFile', tab.title)
       if (!chosen) return false
-      store.patchTab(id, { path: chosen, title: chosen.split('/').pop() ?? '未命名' })
+      // 落盘后按正文书名（含书名号）重算标题，没有就走新文件名去后缀
+      const text = getTabModel(id)?.model.getValue() ?? ''
+      store.patchTab(id, { path: chosen, title: bookTitle(text, chosen) })
     }
     return saveActive()
   }
@@ -195,7 +211,12 @@ export function useTabs(): {
     try {
       const result = await fileRename(tab.path, newName)
       if (result.path === tab.path) return null
-      store.patchTab(id, { path: result.path, title: result.title })
+      // 书名不随文件名变：正文有书名号仍用书名，否则按新文件名去后缀
+      const text = getTabModel(id)?.model.getValue()
+      store.patchTab(id, {
+        path: result.path,
+        title: text === undefined ? tab.title : bookTitle(text, result.path)
+      })
       setStatCache(id, result.stat)
       await persistSessionNow()
       // 改名同样改变书架显示的文件名：驱动目录树与库内列表一起重读

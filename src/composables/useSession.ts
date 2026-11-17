@@ -16,6 +16,7 @@ import {
 } from './useTabLifecycle'
 import { flushBookmarkDrift, resetBookmarkDrift } from './useBookmarkDrift'
 import { monaco } from '@/monaco'
+import { parseMetadata } from '../../shared/metadataParser'
 import type { SessionRestore, SessionSnapshot } from '../../shared/types'
 
 /**
@@ -221,6 +222,15 @@ function resetSessionForSwitch(): void {
 }
 
 /**
+ * 恢复的标签标题（方案 §1.5）：旧会话里存的是带 `.txt` 的文件名，
+ * 与当前文件名一致时按书名口径去后缀；正文书名标题原样保留。
+ */
+function restoredTitle(path: string, title: string): string {
+  const fileName = path.slice(path.lastIndexOf('/') + 1)
+  return title === fileName ? parseMetadata('', fileName, '').title : title
+}
+
+/**
  * 恢复一份会话（启动 / 换库共用）：
  * 先重置渲染层再灌入新库的标签行与阅读位置；草稿仍由 EditorHost 激活时按 tabId 懒读，
  * 因为此时活动库已经是新库，读到的只会是新库自己的草稿。
@@ -244,7 +254,7 @@ export function applyRestoredSession(restored: SessionRestore | null): void {
     restored.tabs.map((row) => ({
       id: row.id,
       path: row.path,
-      title: row.title,
+      title: restoredTitle(row.path, row.title),
       encoding: '',
       dirty: row.dirty,
       lastFocusedAt: row.lastFocusedAt

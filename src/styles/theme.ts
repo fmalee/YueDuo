@@ -74,6 +74,10 @@ export const METRICS = {
   // 标签栏自绘横向滚动条：置顶细条，避开标签标题（原生滚动条在底部且过粗）
   tabScrollbarHeight: 3,
   tabScrollbarMinThumbWidth: 24,
+  // 标签栏（方案 §1.5）：关闭按钮不占布局宽度，悬停浮出、允许遮挡标题
+  tabPaddingX: 10,
+  tabCloseSize: 18,
+  tabCloseInset: 4,
   // 元数据栏（方案 §2.9）：编辑器下方、状态栏上方的单行编辑条
   metadataBarHeight: 30,
   metadataPaddingX: 10,
@@ -181,6 +185,9 @@ export function applyTheme(dark: boolean): void {
     '--yd-tab-scrollbar-min-thumb-width',
     `${METRICS.tabScrollbarMinThumbWidth}px`
   )
+  root.style.setProperty('--yd-tab-padding-x', `${METRICS.tabPaddingX}px`)
+  root.style.setProperty('--yd-tab-close-size', `${METRICS.tabCloseSize}px`)
+  root.style.setProperty('--yd-tab-close-inset', `${METRICS.tabCloseInset}px`)
   root.style.setProperty('--yd-metadata-bar-height', `${METRICS.metadataBarHeight}px`)
   root.style.setProperty('--yd-metadata-padding-x', `${METRICS.metadataPaddingX}px`)
   root.style.setProperty('--yd-metadata-gap', `${METRICS.metadataGap}px`)

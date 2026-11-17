@@ -642,7 +642,7 @@ onBeforeUnmount(() => {
   gap: 6px;
   box-sizing: content-box;
   height: 28px;
-  padding: 0 10px;
+  padding: 0 var(--yd-tab-padding-x);
   margin-top: 3px;
   font-size: 13px;
   white-space: nowrap;
@@ -701,23 +701,28 @@ onBeforeUnmount(() => {
   overflow: visible;
 }
 .tab-close {
+  /* 不占标签布局宽度：悬停浮出在右缘，允许遮挡过长的标题 */
+  position: absolute;
+  top: 50%;
+  right: var(--yd-tab-close-inset);
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: none;
-  width: 18px;
-  height: 18px;
+  width: var(--yd-tab-close-size);
+  height: var(--yd-tab-close-size);
   font-size: 14px;
   line-height: 1;
   border-radius: 4px;
   color: var(--yd-text-3);
-  /* 关闭按钮常驻由设置决定（方案 §1.9）；非常驻时仅 hover / 当前标签显示 */
+  /* 关闭按钮常驻由设置决定（方案 §1.9）；非常驻时仅悬停标签显示 */
   opacity: 0;
+  pointer-events: none;
 }
 .tab:hover .tab-close,
-.tab.active .tab-close,
 .tab-bar.close-always .tab-close {
   opacity: 1;
+  pointer-events: auto;
 }
 .tab-close:hover {
   background: var(--yd-active-1);

@@ -35,6 +35,7 @@ import {
 } from '@/composables/useBookmarkDrift'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import FindReplaceBar from './FindReplaceBar.vue'
+import { parseMetadata } from '../../shared/metadataParser'
 import {
   convertTidy,
   convertToHalfwidth,
@@ -78,6 +79,19 @@ function activePath(): string {
   return store.tabs.find((t) => t.id === store.activeTabId)?.path ?? ''
 }
 
+/** 元数据只在前 10 行（与主进程扫描、元数据栏同口径） */
+const METADATA_HEAD_LINES = 10
+
+/** 正文前 10 行 → 书名：标签标题随正文变更跟随，不读全文 */
+function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): string {
+  const count = Math.min(METADATA_HEAD_LINES, model.getLineCount())
+  const lines: string[] = []
+  for (let i = 1; i <= count; i++) lines.push(model.getLineContent(i))
+  const fileName = path.slice(path.lastIndexOf('/') + 1)
+  const parent = path.slice(0, path.lastIndexOf('/'))
+  return parseMetadata(lines.join('\n'), fileName, parent.slice(parent.lastIndexOf('/') + 1)).title
+}
+
 onMounted(() => {
   if (!container.value) return
   editor.value = monaco.editor.create(container.value, {
@@ -96,6 +110,9 @@ onMounted(() => {
     const model = editor.value?.getModel()
     const tab = id ? store.tabs.find((t) => t.id === id) : undefined
     if (id && model && tab?.path) {
+      // 头部书名变了就同步标签标题（方案 §1.5：与元数据栏同一解析口径）
+      const title = bookTitleFromModel(model, tab.path)
+      if (title && title !== tab.title) store.patchTab(id, { title })
       handleBookmarkDrift(id, tab.path, e.changes, model.getLineCount())
     }
   })
