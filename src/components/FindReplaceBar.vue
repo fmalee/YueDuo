@@ -70,8 +70,8 @@ const canReplace = computed(() => hasMatches.value && !reader.locked)
 const counterText = computed(() => {
   if (!findText.value) return ''
   if (regexError.value) return '正则无效'
-  if (!matches.value.length) return '第 0 项，共 0 项'
-  return `第 ${currentIndex.value + 1} 项，共 ${matches.value.length} 项`
+  if (!matches.value.length) return '无匹配'
+  return `${currentIndex.value + 1} / ${matches.value.length}`
 })
 
 watch(

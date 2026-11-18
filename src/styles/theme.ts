@@ -128,7 +128,7 @@ export const METRICS = {
   findBarToggleRadius: 3,
   findBarToggleFontSize: 11,
   findBarRulesWidth: 380,
-  findBarRulesMaxHeight: 320,
+  findBarRulesMaxHeight: 420,
   findBarRulesPadding: 4,
   findBarRulesRowPaddingY: 5,
   findBarRulesRowPaddingX: 8,
