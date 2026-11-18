@@ -6,7 +6,7 @@ import { showStatusMessage } from '@/composables/useStatusMessage'
 import { METRICS } from '@/styles/theme'
 import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
-import { expandReplaceTemplate } from '../../shared/replaceTemplate'
+import { expandReplaceTemplate, unescapeReplaceTemplate } from '../../shared/replaceTemplate'
 
 /**
  * 自绘查找替换栏（方案 §3.1）：
@@ -510,12 +510,12 @@ function applyPreservedCase(source: string, replacement: string): string {
 }
 
 /**
- * 替换文本：正则模式下先展开 $1–$9 / $& / $$（用查找正则的捕获组），
- * 再按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
+ * 替换文本：正则模式下先把 `\n` / `\t` / `\\` 展开成实际字符，再展开 $1–$9 / $& / $$
+ * （用查找正则的捕获组），最后按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
  */
 function buildReplacement(match: monaco.editor.FindMatch, original: string): string {
   const text = regex.value
-    ? expandReplaceTemplate(replaceText.value, match.matches)
+    ? expandReplaceTemplate(unescapeReplaceTemplate(replaceText.value), match.matches)
     : replaceText.value
   return preserveCase.value ? applyPreservedCase(original, text) : text
 }
@@ -605,10 +605,18 @@ function toggleReplace(): void {
   if (replaceOpen.value) void nextTick(() => replaceInput.value?.focus())
 }
 
+/** 打开正则开关时自动展开替换行；关闭正则不动替换行，保持用户当前状态 */
+function toggleRegex(): void {
+  regex.value = !regex.value
+  if (regex.value) replaceOpen.value = true
+}
+
 function applyRule(rule: FindRule): void {
   findText.value = rule.pattern
   replaceText.value = rule.replacement ?? ''
   regex.value = true
+  // 选规则等于打开正则：同样自动展开替换行
+  replaceOpen.value = true
   rulesOpen.value = false
   refreshNow()
   void nextTick(() => findInput.value?.focus())
@@ -724,7 +732,7 @@ function stopResize(): void {
               :class="{ active: regex }"
               title="使用正则表达式"
               :aria-pressed="regex"
-              @click="regex = !regex"
+              @click="toggleRegex"
             >
               .*
             </button>
