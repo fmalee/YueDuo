@@ -29,7 +29,7 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     label: '整理章节',
     pattern: '\u3000+(第.+章) +',
     description: '规范章节格式（空行+顶格）',
-    replacement: '\n\n$1 ',
+    replacement: '\\n\\n$1 ',
     tidyEnabled: false
   },
   {
@@ -53,7 +53,7 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     label: '删除换行',
     pattern: '\\n(\\S)\\n*(?!\\u3000)',
     description: '将顶格段落拼接到上一个段落',
-    replacement: '\n',
+    replacement: '\\n',
     tidyEnabled: false
   },
   {
@@ -94,7 +94,7 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     label: '查找非法／乱码字符',
     pattern: '[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\u200b-\\u200f\\ufeff\\ufffd]',
     description: '匹配控制字符、零宽字符与替换符（乱码常见形态）。',
-    replacement: '',
+    replacement: null,
     tidyEnabled: false
   },
   {
@@ -119,7 +119,7 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     label: '转换换行符',
     pattern: '\\r\\n',
     description: '将Windows换行转换为Linux换行',
-    replacement: '\n',
+    replacement: '\\n',
     tidyEnabled: true
   },
   {
@@ -135,7 +135,7 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     label: '删除多余空行',
     pattern: '(?:[ \\t\\u3000]*\\n){2,}',
     description: '连续两个及以上换行视为多余空行，压缩为一个空行。',
-    replacement: '\n',
+    replacement: '\\n',
     tidyEnabled: true
   },
   {
