@@ -17,7 +17,7 @@ import SidebarBookList from './sidebar/SidebarBookList.vue'
  * 章节页含当前书书签；「书签」页是全库书签按书分组（Python LibraryBookmarkPanel 口径）。
  * 历史复用左栏书库列表的最近阅读倒序。宽度与左栏同宽，拖拽夹 160–640，松手落盘。
  */
-type PageId = 'chapters' | 'bookmarks' | 'history'
+type PageId = 'history' | 'bookmarks' | 'chapters'
 
 const store = useTabsStore()
 const library = useLibraryStore()
@@ -105,18 +105,14 @@ onBeforeUnmount(() => {
 <template>
   <aside class="right-panel" :class="{ resizing: dragging }" :style="{ width: `${width}px` }">
     <nav class="panel-tabs">
-      <button class="panel-tab" :class="{ active: page === 'chapters' }" @click="page = 'chapters'">
-        章节<span v-if="chapters.length" class="tab-count">{{ chapters.length }}</span>
-      </button>
-      <button
-        class="panel-tab"
-        :class="{ active: page === 'bookmarks' }"
-        @click="page = 'bookmarks'"
-      >
-        书签<span v-if="libraryBookmarkTotal" class="tab-count">{{ libraryBookmarkTotal }}</span>
-      </button>
       <button class="panel-tab" :class="{ active: page === 'history' }" @click="page = 'history'">
         历史
+      </button>
+      <button class="panel-tab" :class="{ active: page === 'bookmarks' }" @click="page = 'bookmarks'">
+        书签<span v-if="libraryBookmarkTotal" class="tab-count">{{ libraryBookmarkTotal }}</span>
+      </button>
+      <button class="panel-tab" :class="{ active: page === 'chapters' }" @click="page = 'chapters'">
+        章节<span v-if="chapters.length" class="tab-count">{{ chapters.length }}</span>
       </button>
     </nav>
 
