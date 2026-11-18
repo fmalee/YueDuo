@@ -7,11 +7,19 @@ import { METRICS } from '@/styles/theme'
 import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
 import { expandReplaceTemplate, unescapeReplaceTemplate } from '../../shared/replaceTemplate'
+import { searchMultilineRegex } from '../../shared/crossLineSearch'
+
+/** 统一的命中项：与 Monaco 的 FindMatch 同形，正则模式由全文扫描自建（可跨行） */
+interface FindResult {
+  range: monaco.Range
+  matches: string[] | null
+}
 
 /**
  * 自绘查找替换栏（方案 §3.1）：
- * 搜索语义全部交给 Monaco 的 model API —— findMatches 计数/命中、findNextMatch/findPreviousMatch
- * 跳转、executeEdits 替换、装饰集合高亮；这里只做输入、状态与布局。
+ * 非正则搜索交给 Monaco 的 model API（findMatches / findNextMatch / findPreviousMatch）；
+ * 正则模式按全文扫描（shared/crossLineSearch），以支持 `\n` 跨行命中；
+ * executeEdits 负责替换、装饰集合负责高亮；这里只做输入、状态与布局。
  */
 const props = defineProps<{
   editor?: monaco.editor.IStandaloneCodeEditor
@@ -40,7 +48,7 @@ const matchCase = ref(false)
 const wholeWord = ref(false)
 const regex = ref(false)
 const preserveCase = ref(false)
-const matches = shallowRef<monaco.editor.FindMatch[]>([])
+const matches = shallowRef<FindResult[]>([])
 const currentIndex = ref(0)
 const regexError = ref(false)
 const rulesOpen = ref(false)
@@ -294,10 +302,17 @@ function refreshNow(): void {
     decorations?.clear()
     return
   }
-  // Monaco 的 findMatches 对无效正则只返回空结果、不抛错，这里先用同款 u 标志做语法校验
   if (regex.value) {
+    // 正则模式按全文匹配：Monaco 的 findMatches 逐行扫描，`\n` 永远跨不过行
     try {
-      new RegExp(pattern, 'gu')
+      const text = model.getValue()
+      const found = searchMultilineRegex(text, pattern, matchCase.value, wordSeparators())
+      matches.value = found.map((hit) => ({
+        range: rangeFromOffsets(model, hit.index, hit.index + hit.length),
+        matches: hit.groups
+      }))
+      matchStarts = found.map((hit) => hit.index)
+      regexError.value = false
     } catch {
       matches.value = []
       matchStarts = []
@@ -306,28 +321,39 @@ function refreshNow(): void {
       decorations?.clear()
       return
     }
-  }
-  try {
-    const found = model.findMatches(
-      pattern,
-      false,
-      regex.value,
-      matchCase.value,
-      wordSeparators(),
-      // 正则模式顺带取回捕获组，供替换时展开 $1–$9 / $& / $$
-      regex.value,
-      MATCH_LIMIT
-    )
-    matches.value = found.filter((match) => !match.range.isEmpty())
-    matchStarts = matches.value.map((match) => model.getOffsetAt(match.range.getStartPosition()))
-    regexError.value = false
-  } catch {
-    matches.value = []
-    matchStarts = []
-    regexError.value = true
+  } else {
+    try {
+      const found = model.findMatches(
+        pattern,
+        false,
+        false,
+        matchCase.value,
+        wordSeparators(),
+        false,
+        MATCH_LIMIT
+      )
+      matches.value = found.filter((match) => !match.range.isEmpty())
+      matchStarts = matches.value.map((match) => model.getOffsetAt(match.range.getStartPosition()))
+      regexError.value = false
+    } catch {
+      matches.value = []
+      matchStarts = []
+      regexError.value = true
+    }
   }
   updateCurrentIndex()
   applyDecorations()
+}
+
+/** 全文偏移 → Monaco 区间（跨行时首尾行不同） */
+function rangeFromOffsets(
+  model: monaco.editor.ITextModel,
+  startOffset: number,
+  endOffset: number
+): monaco.Range {
+  const start = model.getPositionAt(startOffset)
+  const end = model.getPositionAt(endOffset)
+  return new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column)
 }
 
 /** 当前项 = 光标位置处或其后的首个命中（越界回到第一项），二分定位 */
@@ -419,11 +445,16 @@ function selectMatch(index: number): void {
   applyDecorations()
 }
 
-/** 下一个/上一个：按用户口径走 model.findNextMatch / findPreviousMatch，越界由 Monaco 环绕 */
+/** 下一个/上一个：非正则走 model.findNextMatch / findPreviousMatch，越界由 Monaco 环绕 */
 function next(): void {
   const instance = attached ?? props.editor
   const model = instance?.getModel()
   if (!open.value || !instance || !model || !matches.value.length) return
+  if (regex.value) {
+    // 跨行命中 findNextMatch 定位不到，直接在命中表里环绕
+    selectMatch((currentIndex.value + 1) % matches.value.length)
+    return
+  }
   const current = matches.value[currentIndex.value]
   const start = current
     ? current.range.getEndPosition()
@@ -448,6 +479,10 @@ function previous(): void {
   const instance = attached ?? props.editor
   const model = instance?.getModel()
   if (!open.value || !instance || !model || !matches.value.length) return
+  if (regex.value) {
+    selectMatch((currentIndex.value - 1 + matches.value.length) % matches.value.length)
+    return
+  }
   const current = matches.value[currentIndex.value]
   const start = current
     ? current.range.getStartPosition()
@@ -468,7 +503,7 @@ function previous(): void {
   selectMatch(index)
 }
 
-function indexOfMatch(match: monaco.editor.FindMatch): number {
+function indexOfMatch(match: FindResult): number {
   const instance = attached ?? props.editor
   const model = instance?.getModel()
   if (!model) return -1
@@ -513,7 +548,7 @@ function applyPreservedCase(source: string, replacement: string): string {
  * 替换文本：正则模式下先把 `\n` / `\t` / `\\` 展开成实际字符，再展开 $1–$9 / $& / $$
  * （用查找正则的捕获组），最后按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
  */
-function buildReplacement(match: monaco.editor.FindMatch, original: string): string {
+function buildReplacement(match: FindResult, original: string): string {
   const text = regex.value
     ? expandReplaceTemplate(unescapeReplaceTemplate(replaceText.value), match.matches)
     : replaceText.value
