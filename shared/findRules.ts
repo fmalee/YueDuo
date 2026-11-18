@@ -41,6 +41,22 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     tidyEnabled: false
   },
   {
+    key: 'spliced_dialogue',
+    label: '合并对话段落',
+    pattern: '：\n\u3000+',
+    description: '将冒号后面的段落合并上来',
+    replacement: '：',
+    tidyEnabled: false
+  },
+  {
+    key: 'cover_dialogue',
+    label: '转换逗号对话',
+    pattern: '([说道])，“',
+    description: '将对话前的逗号改为冒号',
+    replacement: '$1：“',
+    tidyEnabled: false
+  },
+  {
     key: 'spliced_paragraph',
     label: '拼接段落',
     pattern: '([^。！”……？])\\n\\u3000+([\u4e00-\u9fa5].*[^。！”……？])',
@@ -155,6 +171,22 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     tidyEnabled: true
   },
   {
+    key: 'convert_tilde', // 一键整理规则
+    label: '转换波浪号',
+    pattern: ' *~ *',
+    description: '将英文波浪号转换为中文波浪号',
+    replacement: '～',
+    tidyEnabled: true
+  },
+  {
+    key: 'convert_dash', // 一键整理规则
+    label: '转换破折号',
+    pattern: ' *[—-]{2,} *',
+    description: '将英文破折号转换为中文破折号，并补全',
+    replacement: '——',
+    tidyEnabled: true
+  },
+  {
     key: 'convert_ellipsis', // 一键整理规则
     label: '转换省略号',
     pattern: ' *[。\\.]{3,} *',
@@ -168,6 +200,14 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     pattern: ' *…+ *',
     description: '将半个省略号补全，并删除前后空格',
     replacement: '……',
+    tidyEnabled: true
+  },
+  {
+    key: 'convert_separator', // 一键整理规则
+    label: '转换分割符',
+    pattern: '\u3000+[＊*—]{2,}',
+    description: '将段落间的分割符统一为省略号',
+    replacement: '\u3000\u3000……',
     tidyEnabled: true
   }
 ]
