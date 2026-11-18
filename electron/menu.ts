@@ -16,7 +16,7 @@ const APPEARANCES: { mode: ThemeMode; label: string }[] = [
 ]
 
 /** 「显示 → 预载数量」可选值 */
-const PRELOAD_CHOICES = [2, 4, 6, 8, 10]
+const PRELOAD_CHOICES = [4, 8, 10, 15, 20]
 
 /** 菜单命令下发给渲染层：与标签右键菜单复用同一套动作（方案 §3.5） */
 function sendMenuCommand(
@@ -115,6 +115,13 @@ export function installApplicationMenu(): void {
         { role: 'redo', label: '恢复' },
         { type: 'separator' },
         { role: 'cut', label: '剪切' },
+        { role: 'copy', label: '复制' },
+        { role: 'paste', label: '粘贴' },
+        ...(isMac
+          ? [{ role: 'pasteAndMatchStyle', label: '粘贴并匹配样式' } as MenuItemConstructorOptions]
+          : []),
+        { role: 'delete', label: '删除' },
+        { role: 'selectAll', label: '全选' },
         { type: 'separator' },
         {
           label: '查找',
@@ -126,13 +133,6 @@ export function installApplicationMenu(): void {
           accelerator: 'Ctrl+Cmd+F',
           click: (_item, win) => sendMenuCommand('replace', win)
         },
-        { role: 'copy', label: '复制' },
-        { role: 'paste', label: '粘贴' },
-        ...(isMac
-          ? [{ role: 'pasteAndMatchStyle', label: '粘贴并匹配样式' } as MenuItemConstructorOptions]
-          : []),
-        { role: 'delete', label: '删除' },
-        { role: 'selectAll', label: '全选' },
         { type: 'separator' },
         {
           label: '一键整理',
@@ -173,22 +173,6 @@ export function installApplicationMenu(): void {
       label: '显示',
       submenu: [
         {
-          label: '预载数量',
-          submenu: PRELOAD_CHOICES.map((count) => ({
-            label: String(count),
-            type: 'radio' as const,
-            checked: saved.preloadCount === count,
-            click: (_item, win) => sendMenuCommand('preloadCount', win, count)
-          }))
-        },
-        {
-          label: '显示关闭按钮',
-          type: 'checkbox',
-          checked: saved.closeButtonAlwaysVisible,
-          click: (item, win) => sendMenuCommand('toggleCloseButton', win, item.checked)
-        },
-        { type: 'separator' },
-        {
           label: '锁定阅读',
           accelerator: 'CmdOrCtrl+L',
           click: (_item, win) => sendMenuCommand('toggleLock', win)
@@ -208,6 +192,16 @@ export function installApplicationMenu(): void {
     {
       label: '窗口',
       submenu: [
+        {
+          label: '预载数量',
+          submenu: PRELOAD_CHOICES.map((count) => ({
+            label: String(count),
+            type: 'radio' as const,
+            checked: saved.preloadCount === count,
+            click: (_item, win) => sendMenuCommand('preloadCount', win, count)
+          }))
+        },
+        { type: 'separator' },
         {
           label: '外观',
           submenu: APPEARANCES.map(({ mode, label }) => ({
@@ -231,6 +225,12 @@ export function installApplicationMenu(): void {
           checked: true,
           accelerator: 'Cmd+B',
           click: (item, win) => sendMenuCommand('toggleRightPanel', win, item.checked)
+        },
+        {
+          label: '显示标签关闭按钮',
+          type: 'checkbox',
+          checked: saved.closeButtonAlwaysVisible,
+          click: (item, win) => sendMenuCommand('toggleCloseButton', win, item.checked)
         },
         { type: 'separator' },
         {
