@@ -20,11 +20,12 @@ function isTxtFile(name: string): boolean {
   return name.toLowerCase().endsWith('.txt')
 }
 
-/** 对齐 Python 的 `sorted(..., key=name.lower())`：按小写名称排序，保证扫描顺序稳定 */
+/** 中文名称排序：拼音序 + 数字感知（第2章 < 第10章），模块级复用，避免每次比较新建 */
+const nameCollator = new Intl.Collator('zh-Hans', { numeric: true, sensitivity: 'base' })
+
+/** 对齐 Python 的 `sorted(..., key=name.lower())`：按拼音序排序，保证扫描顺序稳定 */
 function byName(a: Dirent, b: Dirent): number {
-  const left = a.name.toLowerCase()
-  const right = b.name.toLowerCase()
-  return left < right ? -1 : left > right ? 1 : 0
+  return nameCollator.compare(a.name, b.name)
 }
 
 /**
@@ -60,11 +61,8 @@ export async function listDirectory(root: string, relativeDir = ''): Promise<Lib
       files.push({ name: entry.name, relativePath, isDir: false })
     }
   }
-  const sortEntries = (a: LibraryEntry, b: LibraryEntry): number => {
-    const left = a.name.toLowerCase()
-    const right = b.name.toLowerCase()
-    return left < right ? -1 : left > right ? 1 : 0
-  }
+  const sortEntries = (a: LibraryEntry, b: LibraryEntry): number =>
+    nameCollator.compare(a.name, b.name)
   directories.sort(sortEntries)
   files.sort(sortEntries)
   return [...directories, ...files]
