@@ -6,7 +6,7 @@ import { showStatusMessage } from '@/composables/useStatusMessage'
 import { METRICS } from '@/styles/theme'
 import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
-import { expandReplaceTemplate, unescapeReplaceTemplate } from '../../shared/replaceTemplate'
+import { expandReplacement } from '../../shared/replaceTemplate'
 import { searchMultilineRegex } from '../../shared/crossLineSearch'
 
 /** 统一的命中项：与 Monaco 的 FindMatch 同形，正则模式由全文扫描自建（可跨行） */
@@ -549,9 +549,7 @@ function applyPreservedCase(source: string, replacement: string): string {
  * （用查找正则的捕获组），最后按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
  */
 function buildReplacement(match: FindResult, original: string): string {
-  const text = regex.value
-    ? expandReplaceTemplate(unescapeReplaceTemplate(replaceText.value), match.matches)
-    : replaceText.value
+  const text = regex.value ? expandReplacement(replaceText.value, match.matches) : replaceText.value
   return preserveCase.value ? applyPreservedCase(original, text) : text
 }
 

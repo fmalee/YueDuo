@@ -1,5 +1,6 @@
 import iconv from 'iconv-lite'
 import { DEFAULT_RULES } from '../../shared/findRules'
+import { expandReplacement } from '../../shared/replaceTemplate'
 import type { TidyResult } from '../../shared/types'
 import { toSimplified } from './chineseConvert'
 import { toHalfwidth } from './textConvert'
@@ -37,7 +38,14 @@ export function tidyText(text: string): TidyResult {
   let result = normalizeEncoding(text)
   const converted = toSimplified(result)
   result = toHalfwidth(converted.text).text
-  for (const step of TIDY_STEPS) result = result.replace(step.pattern, step.replacement)
+  // replacement 走与查找替换栏同一个展开入口：`$1` 分组与 `\n` / `\t` / `\\` 转义两处语义一致
+  for (const step of TIDY_STEPS) {
+    result = result.replace(step.pattern, (...args: unknown[]) => {
+      // String.replace 回调参数：整个匹配 + 各捕获组，末尾是 offset、原文（有具名组时再加 groups 对象）
+      const groups = args.slice(0, -2) as string[]
+      return expandReplacement(step.replacement, groups)
+    })
+  }
   return {
     text: result,
     convertKept: converted.kept,

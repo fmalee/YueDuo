@@ -99,3 +99,15 @@ export function expandReplaceTemplate(
   }
   return result
 }
+
+/**
+ * 替换串统一展开入口：先展开 `\n` / `\t` / `\\` 转义，再展开 `$1`–`$9` / `$&` / `$0` / `$$`。
+ * 查找替换栏（正则模式）与一键整理都走这里，保证同一条规则里的 replacement 两处语义一致。
+ * 两次展开都只扫描输入、不重扫结果，所以 `$1\n` 得到「捕获组 + 换行」而不会互相破坏。
+ */
+export function expandReplacement(
+  template: string,
+  groups: readonly (string | undefined)[] | null
+): string {
+  return expandReplaceTemplate(unescapeReplaceTemplate(template), groups)
+}
