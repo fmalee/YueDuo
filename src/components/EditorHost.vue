@@ -14,7 +14,7 @@ import {
   reloadModel,
   waitUnloadSettled
 } from '@/composables/useTabLifecycle'
-import { useEditorCommands } from '@/composables/useEditorCommands'
+import { useEditorCommands, deleteToLineStart } from '@/composables/useEditorCommands'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
@@ -216,6 +216,15 @@ onMounted(() => {
     monaco.KeyMod.Shift | monaco.KeyCode.Space,
     () => pageBy(-1),
     'editorTextFocus && editorReadonly'
+  )
+  // Shift + Delete 合并段落
+  editor.value.addCommand(
+    monaco.KeyMod.Shift | monaco.KeyCode.Backspace,
+    () => {
+      const instance = editor.value
+      if (instance) deleteToLineStart(instance)
+    },
+    'editorTextFocus && !editorReadonly && !isComposing'
   )
 
   // 窗口级兜底（焦点在编辑器外时）

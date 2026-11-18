@@ -39,3 +39,34 @@ export function useEditorCommands(): {
 }
 
 export { isDirty }
+
+/* 合并段落：删除光标前面的内容+换行 */
+export function deleteToLineStart(
+  editor: import('monaco-editor').editor.IStandaloneCodeEditor
+): void {
+  const model = editor.getModel()
+  const pos = editor.getPosition()
+  if (!model || !pos) return
+  if (pos.lineNumber === 1 && pos.column === 1) return
+
+  // 第一行只有「行首到光标」；其余行从上一行行尾起，顺带吃掉换行
+  const start =
+    pos.lineNumber === 1
+      ? { lineNumber: 1, column: 1 }
+      : { lineNumber: pos.lineNumber - 1, column: model.getLineMaxColumn(pos.lineNumber - 1) }
+
+  editor.pushUndoStop()
+  editor.executeEdits('deleteToLineStart', [
+    {
+      range: {
+        startLineNumber: start.lineNumber,
+        startColumn: start.column,
+        endLineNumber: pos.lineNumber,
+        endColumn: pos.column
+      },
+      text: ''
+    }
+  ])
+  editor.pushUndoStop()
+  editor.focus()
+}
