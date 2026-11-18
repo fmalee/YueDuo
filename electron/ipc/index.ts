@@ -45,7 +45,7 @@ import {
   syncBookMetadata
 } from './library'
 import { settingsGet, settingsSet } from './settings'
-import { sessionPersist, sessionRestore, sessionFlushDone } from './session'
+import { sessionPersist, sessionRestore, sessionRelocate, sessionFlushDone } from './session'
 import { applyMetadataEdit, readMetadata } from './meta'
 import { convertHalfwidth, convertSimplified, convertTraditional, tidyDocument } from './convert'
 import type { AppSettings, DraftTabMeta } from '../../shared/types'
@@ -136,5 +136,7 @@ export function registerIpcHandlers(): void {
   // flushDone 是退出握手回执，渲染层落盘后调用
   handle('session:persist', (snapshot: unknown) => sessionPersist(snapshot))
   handle('session:restore', () => sessionRestore())
+  // 对账扫完后按 book_id 重连缺失标签（渲染层只传标签 id，路径判定在主进程）
+  handle('session:relocate', (tabIds: unknown) => sessionRelocate(tabIds))
   handle('session:flushDone', () => sessionFlushDone())
 }

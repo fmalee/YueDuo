@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
@@ -27,6 +27,7 @@ import {
   persistSessionNow,
   progressSnapshot,
   restoreSession,
+  retryMissingTabs,
   scrollSessionTo,
   setCaretForTest
 } from '@/composables/useSession'
@@ -57,6 +58,19 @@ const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
 const reader = useReaderStore()
+
+/**
+ * 对账扫完（启动后台 enrich / 手动刷新）后，把恢复时缺失的标签按 book_id 重连一次：
+ * 书籍移动由 books.relative_path 保留 id 自动跟随，这里只更新标签的绝对路径并重新加载
+ */
+watch(
+  () => library.scanning,
+  (scanning) => {
+    if (!scanning) {
+      void retryMissingTabs().catch((e) => console.error('[session] 缺失标签重连失败:', e))
+    }
+  }
+)
 
 /** 左右侧栏显隐：窗口菜单勾选项驱动，会话内有效 */
 const leftVisible = ref(true)

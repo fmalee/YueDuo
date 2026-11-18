@@ -50,6 +50,8 @@ const container = ref<HTMLDivElement>()
 const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
 // 已卸载标签重载期间的加载态（方案 §1.7：无 model 时容器显示加载态）
 const loading = ref(false)
+// 恢复时文件缺失：保留标签不丢，等对账扫完按 book_id 重连（主进程 session:relocate）
+const missing = ref(false)
 
 const store = useTabsStore()
 const settings = useSettingsStore()
@@ -94,6 +96,7 @@ function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): stri
 
 onMounted(() => {
   window.addEventListener('yueduo:convert', onConvertCommand)
+  window.addEventListener('yueduo:tabRelocated', onTabRelocated)
   if (!container.value) return
   editor.value = monaco.editor.create(container.value, {
     ...READER_EDITOR_OPTIONS,
@@ -409,6 +412,7 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   if (!tabId) {
     editor.value.setModel(null)
     loading.value = false
+    missing.value = false
     syncStatus(null)
     return
   }
@@ -417,6 +421,7 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
   const entry = getTabModel(tabId)
   if (entry) {
     loading.value = false
+    missing.value = false
     editor.value.setModel(entry.model)
     trackBookmarkTab(tabId, entry.model.getLineCount())
     applyStoredView(tabId)
@@ -426,13 +431,15 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
     return
   }
   loading.value = true
+  missing.value = false
   editor.value.setModel(null)
   syncStatus(null)
+  const tab = store.tabs.find((t) => t.id === tabId)
   try {
-    const tab = store.tabs.find((t) => t.id === tabId)
     await reloadModel(tabId, tab?.path ?? '')
   } catch (e) {
-    console.error('[LRU] reload failed:', e)
+    // 恢复时文件缺失属于预期状态（等对账重连），不当作错误刷日志
+    if (!tab?.missing) console.error('[LRU] reload failed:', e)
   } finally {
     if (seq === activateSeq) loading.value = false
   }
@@ -447,7 +454,18 @@ async function activateEditorFor(tabId: string | null): Promise<void> {
     if (reloaded.encoding) store.patchTab(tabId, { encoding: reloaded.encoding })
     restoreEditorFocus()
     applyPendingLineJump(tabId)
+    return
   }
+  // 无草稿且文件不存在：保留空白编辑器并给出缺失提示，标签本身不从会话里删掉
+  missing.value = tab?.missing === true
+}
+
+/** 对账扫完重连成功：当前标签的文件路径已更新，清掉缺失态并重新加载正文 */
+function onTabRelocated(e: Event): void {
+  const tabId = (e as CustomEvent<string>).detail
+  if (!tabId || store.activeTabId !== tabId) return
+  missing.value = false
+  void activateEditorFor(tabId)
 }
 
 /**
@@ -496,6 +514,7 @@ function scheduleEviction(): void {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeydown)
   window.removeEventListener('yueduo:convert', onConvertCommand)
+  window.removeEventListener('yueduo:tabRelocated', onTabRelocated)
   if (evictTimer) clearInterval(evictTimer)
   // 卸载前把未落库的书签漂移写掉（HMR 重挂载也不丢）
   void flushBookmarkDrift()
@@ -509,6 +528,7 @@ onBeforeUnmount(() => {
   <div class="editor-wrap">
     <div ref="container" class="monaco-container"></div>
     <div v-if="loading" class="loading-overlay">正在加载…</div>
+    <div v-else-if="missing" class="loading-overlay">文件暂不可用，等待书库对账后自动重连</div>
     <FindReplaceBar :editor="editor" :loading="loading" />
   </div>
 </template>

@@ -461,8 +461,10 @@ onBeforeUnmount(() => {
           active: tab.id === store.activeTabId,
           first: i === 0,
           last: i === store.tabs.length - 1,
-          dragging: draggingTab && tab.id === dragId
+          dragging: draggingTab && tab.id === dragId,
+          missing: tab.missing === true
         }"
+        :title="tab.missing ? '文件缺失，等待书库对账后自动重连' : undefined"
         :data-tab-id="tab.id"
         @click="onTabClick(tab.id)"
         @pointerdown="onTabPointerDown($event, tab.id)"
@@ -621,6 +623,10 @@ onBeforeUnmount(() => {
   cursor: grabbing;
 }
 .tab.dragging {
+  opacity: 0.55;
+}
+/* 恢复时文件缺失：标签仍在会话里，等对账重连；置灰提示但不裁切书名 */
+.tab.missing .tab-title {
   opacity: 0.55;
 }
 /* 拖动插入落点：2px 竖线，与强调色一致，不参与布局 */
