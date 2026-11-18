@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { monaco } from '@/monaco'
-import { useSettingsStore } from '@/stores/settings'
 import { useReaderStore } from '@/stores/reader'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import { METRICS } from '@/styles/theme'
+import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
 
 /**
@@ -29,7 +29,6 @@ const DECORATION_MARGIN_LINES = 200
  */
 const MATCH_LIMIT = 1_073_741_824
 
-const settings = useSettingsStore()
 const reader = useReaderStore()
 
 const open = ref(false)
@@ -64,7 +63,7 @@ let attached: monaco.editor.IStandaloneCodeEditor | null = null
 const disposables: monaco.IDisposable[] = []
 let resizeState: { startX: number; width: number } | null = null
 
-const enabledRules = computed<FindRule[]>(() => settings.rules.filter((rule) => rule.searchEnabled))
+const rules = DEFAULT_RULES
 const hasMatches = computed(() => matches.value.length > 0)
 const canReplace = computed(() => hasMatches.value && !reader.locked)
 const counterText = computed(() => {
@@ -766,7 +765,7 @@ function stopResize(): void {
           </button>
           <div v-if="rulesOpen" ref="rulesPanel" class="rules-panel">
             <button
-              v-for="rule in enabledRules"
+              v-for="rule in rules"
               :key="rule.key"
               class="rule-row"
               :title="rule.description"
@@ -775,7 +774,6 @@ function stopResize(): void {
               <span class="rule-label">{{ rule.label }}</span>
               <span class="rule-desc">{{ rule.description }}</span>
             </button>
-            <div v-if="!enabledRules.length" class="rules-empty">没有可用的常用正则</div>
           </div>
         </div>
 
@@ -1050,10 +1048,6 @@ function stopResize(): void {
   color: var(--yd-text-3);
   font-size: var(--yd-find-rules-description-font-size);
   line-height: 1.4;
-}
-.rules-empty {
-  padding: var(--yd-find-rules-row-padding-y) var(--yd-find-rules-row-padding-x);
-  color: var(--yd-text-3);
 }
 .resize-handle {
   position: absolute;
