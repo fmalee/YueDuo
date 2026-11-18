@@ -8,21 +8,15 @@ import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH
 } from '../../shared/types'
-import { cloneRules, DEFAULT_RULES } from '../../shared/findRules'
-import type { FindRule } from '../../shared/findRules'
 import type { AppSettings, ThemeMode } from '../../shared/types'
 
 /**
  * 设置持久化 —— userData/settings.json（方案 §1.9）
  * 纯 Node 实现（AGENTS.md：services 不 import Electron），目录由调用方注入，便于单测隔离
+ * 规则表不进设置文件（方案 §3.2）：唯一规则源是 shared/findRules.ts，旧文件的 rules 字段读取时忽略
  */
 const FILE_NAME = 'settings.json'
 const THEME_MODES: readonly ThemeMode[] = ['light', 'dark', 'system']
-
-/** 默认设置的可变副本：数组字段不能把共享常量暴露给调用方 */
-function defaultSettings(): AppSettings {
-  return { ...DEFAULT_SETTINGS, rules: cloneRules(DEFAULT_RULES) }
-}
 
 function settingsPath(dir: string): string {
   return join(dir, FILE_NAME)
@@ -32,39 +26,6 @@ function settingsPath(dir: string): string {
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
   return Math.min(max, Math.max(min, Math.round(value)))
-}
-
-/**
- * 规则表整组校验：条目由产品定义，任一条残缺就整组回落默认值，
- * 不做逐条 salvage（半份列表会让下拉与转换菜单对不上，更难排查）。
- */
-function normalizeRules(raw: unknown): FindRule[] {
-  if (!Array.isArray(raw) || raw.length === 0) return cloneRules(DEFAULT_RULES)
-  const rules: FindRule[] = []
-  for (const item of raw) {
-    if (typeof item !== 'object' || item === null) return cloneRules(DEFAULT_RULES)
-    const value = item as Record<string, unknown>
-    const { key, label, pattern, description, replacement, searchEnabled } = value
-    if (
-      typeof key !== 'string' ||
-      typeof label !== 'string' ||
-      typeof pattern !== 'string' ||
-      typeof description !== 'string' ||
-      (replacement !== null && typeof replacement !== 'string') ||
-      typeof searchEnabled !== 'boolean'
-    ) {
-      return cloneRules(DEFAULT_RULES)
-    }
-    rules.push({
-      key,
-      label,
-      pattern,
-      description,
-      replacement: replacement ?? null,
-      searchEnabled
-    })
-  }
-  return rules
 }
 
 /**
@@ -95,8 +56,7 @@ function normalize(raw: unknown): AppSettings {
     closeButtonAlwaysVisible:
       typeof value.closeButtonAlwaysVisible === 'boolean'
         ? value.closeButtonAlwaysVisible
-        : DEFAULT_SETTINGS.closeButtonAlwaysVisible,
-    rules: normalizeRules(value.rules)
+        : DEFAULT_SETTINGS.closeButtonAlwaysVisible
   }
 }
 
@@ -105,7 +65,7 @@ export function readSettings(dir: string): AppSettings {
   try {
     return normalize(JSON.parse(readFileSync(settingsPath(dir), 'utf8')))
   } catch {
-    return defaultSettings()
+    return { ...DEFAULT_SETTINGS }
   }
 }
 
