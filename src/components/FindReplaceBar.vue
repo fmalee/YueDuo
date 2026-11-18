@@ -6,6 +6,7 @@ import { showStatusMessage } from '@/composables/useStatusMessage'
 import { METRICS } from '@/styles/theme'
 import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
+import { expandReplaceTemplate } from '../../shared/replaceTemplate'
 
 /**
  * 自绘查找替换栏（方案 §3.1）：
@@ -313,7 +314,8 @@ function refreshNow(): void {
       regex.value,
       matchCase.value,
       wordSeparators(),
-      false,
+      // 正则模式顺带取回捕获组，供替换时展开 $1–$9 / $& / $$
+      regex.value,
       MATCH_LIMIT
     )
     matches.value = found.filter((match) => !match.range.isEmpty())
@@ -507,6 +509,17 @@ function applyPreservedCase(source: string, replacement: string): string {
   return replacement
 }
 
+/**
+ * 替换文本：正则模式下先展开 $1–$9 / $& / $$（用查找正则的捕获组），
+ * 再按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
+ */
+function buildReplacement(match: monaco.editor.FindMatch, original: string): string {
+  const text = regex.value
+    ? expandReplaceTemplate(replaceText.value, match.matches)
+    : replaceText.value
+  return preserveCase.value ? applyPreservedCase(original, text) : text
+}
+
 /** 单个替换：替换当前项后跳到它后面的首个命中，焦点留在替换框（方案 §3.1） */
 function replaceCurrent(): void {
   const instance = attached ?? props.editor
@@ -526,9 +539,7 @@ function replaceCurrent(): void {
     return
   }
   const original = model.getValueInRange(match.range)
-  const text = preserveCase.value
-    ? applyPreservedCase(original, replaceText.value)
-    : replaceText.value
+  const text = buildReplacement(match, original)
   const startOffset = model.getOffsetAt(match.range.getStartPosition())
   instance.pushUndoStop()
   instance.executeEdits('findReplace', [{ range: match.range, text, forceMoveMarkers: true }])
@@ -559,10 +570,7 @@ function replaceAllMatches(): void {
   }
   const edits = matches.value.map((match) => {
     const original = model.getValueInRange(match.range)
-    return {
-      range: match.range,
-      text: preserveCase.value ? applyPreservedCase(original, replaceText.value) : replaceText.value
-    }
+    return { range: match.range, text: buildReplacement(match, original) }
   })
   const count = edits.length
   instance.pushUndoStop()
