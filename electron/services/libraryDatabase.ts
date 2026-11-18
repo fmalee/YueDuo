@@ -140,7 +140,7 @@ export class LibraryDatabaseManager {
     }
     const runtime = openAt(resolved, this.userData)
     try {
-      const session = loadSession(runtime.db)
+      const session = loadSession(runtime.db, runtime.root)
       this.pending = runtime
       return {
         result: { root: resolved, switched: true, session, fallback: runtime.fallback },

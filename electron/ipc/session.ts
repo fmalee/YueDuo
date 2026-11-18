@@ -1,7 +1,8 @@
 import { BrowserWindow } from 'electron'
 import { getDatabase } from '../services/database'
-import { loadSession, persistSession } from '../services/sessionStore'
-import type { SessionRestore, SessionSnapshot } from '../../shared/types'
+import { loadSession, persistSession, relocateSessionTabs } from '../services/sessionStore'
+import type { SessionRelocation, SessionRestore, SessionSnapshot } from '../../shared/types'
+import { activeLibraryRoot } from './library'
 
 /**
  * 退出握手兜底：渲染层异常/未加载时最多等这么久，不能卡住退出。
@@ -21,12 +22,24 @@ export function sessionPersist(snapshot: unknown): void {
   ) {
     throw new Error('会话快照格式无效')
   }
-  persistSession(getDatabase(), snapshot as SessionSnapshot)
+  persistSession(getDatabase(), snapshot as SessionSnapshot, activeLibraryRoot())
 }
 
-/** session:restore —— 启动时读会话（按 position 排序） */
+/** session:restore —— 启动时读会话（按 position 排序）；库内相对路径按当前书库根还原 */
 export function sessionRestore(): SessionRestore {
-  return loadSession(getDatabase())
+  return loadSession(getDatabase(), activeLibraryRoot())
+}
+
+/**
+ * session:relocate —— 对账扫完后渲染层带着缺失标签来重试：
+ * 主进程按 book_id → books.relative_path 拼当前书库根，行不存在再退回会话里的相对路径。
+ * 返回重新找到文件的标签，渲染层据此更新绝对路径并重新加载。
+ */
+export function sessionRelocate(tabIds: unknown): SessionRelocation[] {
+  const ids = Array.isArray(tabIds)
+    ? tabIds.filter((id): id is string => typeof id === 'string' && id !== '')
+    : []
+  return relocateSessionTabs(getDatabase(), activeLibraryRoot(), ids)
 }
 
 /** session:flushDone —— 渲染层已落盘，结束 before-quit 的等待 */

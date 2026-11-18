@@ -3,6 +3,7 @@ import {
   onSessionFlush,
   sessionFlushDone,
   sessionPersist,
+  sessionRelocate,
   sessionRestore
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
@@ -257,10 +258,34 @@ export function applyRestoredSession(restored: SessionRestore | null): void {
       title: restoredTitle(row.path, row.title),
       encoding: '',
       dirty: row.dirty,
-      lastFocusedAt: row.lastFocusedAt
+      lastFocusedAt: row.lastFocusedAt,
+      missing: row.missing
     })),
     restored.activeTabId
   )
+}
+
+/**
+ * 对账扫完后重连缺失标签（方案 §1.8）：
+ * 启动恢复时文件可能已被移走，对账会把 books.relative_path 改到新位置并沿用原 id；
+ * 这里把所有仍标记缺失的标签交给主进程按 book_id 重算绝对路径，命中后更新路径并重新加载。
+ * 只重试一次（每次对账完成调用一次），仍找不到的标签继续保持缺失状态。
+ */
+export async function retryMissingTabs(): Promise<void> {
+  const store = useTabsStore()
+  const ids = store.tabs.filter((t) => t.missing).map((t) => t.id)
+  if (ids.length === 0) return
+  const relocated = await sessionRelocate(ids)
+  if (relocated.length === 0) return
+  for (const item of relocated) {
+    store.patchTab(item.tabId, { path: item.path, missing: false })
+  }
+  schedulePersist()
+  // 当前标签若刚被接上，通知 EditorHost 重新加载正文（model 在 LRU 里可能从未建过）
+  const active = store.activeTabId
+  if (active && relocated.some((item) => item.tabId === active)) {
+    window.dispatchEvent(new CustomEvent('yueduo:tabRelocated', { detail: active }))
+  }
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { Database } from 'better-sqlite3'
 import type { DraftEntry, DraftTabMeta } from '../../shared/types'
-import { nextPosition } from './sessionStore'
+import { nextPosition, storedTabLocation } from './sessionStore'
 
 /**
  * 标签草稿存储 —— LRU 卸载的 dirty 全文与 viewState 落点（方案 §1.7 / §1.8）
@@ -20,22 +20,27 @@ export function writeDraft(
   tabId: string,
   text: string | null,
   viewState: unknown,
-  meta?: DraftTabMeta | null
+  meta?: DraftTabMeta | null,
+  root = ''
 ): void {
   const blob = text == null ? null : Buffer.from(text, 'utf8')
   const view = viewState == null ? null : JSON.stringify(viewState)
   const exists = db.prepare('SELECT 1 FROM session_tabs WHERE id = ?').get(tabId)
   if (!exists) {
     // persist 尚未来得及落盘就被卸载：用调用方给的元信息建行，
-    // 不再依赖恢复时按空 title 过滤（那样标签会整个消失）
+    // 不再依赖恢复时按空 title 过滤（那样标签会整个消失）；
+    // 路径口径与 session:persist 一致：库内相对路径 + book_id，库外绝对路径 + NULL
+    const stored = storedTabLocation(db, root, meta?.path ?? '')
     db.prepare(
       `INSERT INTO session_tabs
-         (id, position, path, title, progress_line, dirty, draft, view_state, last_focused_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, position, book_id, path, title, progress_line, dirty, draft, view_state,
+          last_focused_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       tabId,
       nextPosition(db),
-      meta?.path ?? '',
+      stored.bookId,
+      stored.path,
       meta?.title ?? '未命名',
       meta?.progressLine ?? 0,
       text == null ? 0 : 1,

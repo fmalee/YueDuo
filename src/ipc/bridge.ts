@@ -24,6 +24,7 @@ import type {
   MetadataField,
   NativeSanity,
   ParsedMetadata,
+  SessionRelocation,
   SessionRestore,
   SessionSnapshot,
   ThemeChanged,
@@ -149,6 +150,14 @@ export function sessionPersist(snapshot: SessionSnapshot): Promise<void> {
 /** session:restore —— 启动时读会话（标签顺序/active/进度） */
 export function sessionRestore(): Promise<SessionRestore> {
   return ipcInvoke<SessionRestore>('session:restore')
+}
+
+/**
+ * session:relocate —— 对账扫完后按 book_id 重连缺失标签（主进程换算路径）；
+ * 只返回重新找到文件的标签
+ */
+export function sessionRelocate(tabIds: string[]): Promise<SessionRelocation[]> {
+  return ipcInvoke<SessionRelocation[]>('session:relocate', tabIds)
 }
 
 /** session:flushDone —— 退出握手回执：落盘完成，主进程可继续退出 */

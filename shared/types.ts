@@ -131,6 +131,16 @@ export interface SessionTabRecord extends SessionTabInput {
   position: number
   /** 是否有 draft/view_state（脏标签恢复时据此读草稿） */
   hasDraft: boolean
+  /** 库内标签的书目 id（books.id）；库外/空白标签为 null */
+  bookId: number | null
+  /** 恢复时文件不存在：标签保留并标记缺失，对账扫完按 bookId 重试一次 */
+  missing: boolean
+}
+
+/** session:relocate 返回的一条重连结果：书库对账后按 bookId/相对路径重新接上文件 */
+export interface SessionRelocation {
+  tabId: string
+  path: string
 }
 
 /** session:restore 返回 */
@@ -148,6 +158,8 @@ export interface TabMeta {
   encoding: string
   dirty: boolean
   lastFocusedAt: number
+  /** 恢复时文件缺失，等待书库对账后按 book_id 重连 */
+  missing?: boolean
 }
 
 /** 书架目录树的一层条目（library:fastScan，方案 §2.2：只读文件名，目录在前、TXT 在后） */

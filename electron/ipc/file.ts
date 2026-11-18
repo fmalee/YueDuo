@@ -155,7 +155,7 @@ export function fileWriteDraft(
   viewState: unknown,
   meta?: DraftTabMeta | null
 ): void {
-  writeDraft(getDatabase(), tabId, text, viewState, meta)
+  writeDraft(getDatabase(), tabId, text, viewState, meta, activeLibraryRoot())
 }
 
 /** file:readDraft —— 重载已卸载标签时读草稿；null = 无草稿（走 file:readText） */
