@@ -1,7 +1,7 @@
 /**
  * 简繁转换与一键整理验收（方案 §3.2）
  * 1) 与 Python 旧项目逐样本比对（有 .venv 时直接跑旧实现，否则按已核对的字面量断言）
- * 2) 覆盖保护词/多义词策略、全角转半角边界、一键整理五步顺序
+ * 2) 覆盖保护词/多义词策略、全角转半角边界、一键整理固定三段 + 规则顺序
  * 运行：npx tsx scripts/test-convert.ts
  */
 import { spawnSync } from 'child_process'
@@ -28,7 +28,6 @@ interface PythonResult {
   s2t: string[]
   t2s: string[]
   half: string[]
-  tidy: string[]
 }
 
 /** 直接调用旧项目 Python 实现，作为迁移一致性的权威证据 */
@@ -39,14 +38,13 @@ function pythonExpected(): PythonResult | null {
   const code = [
     'import sys, json',
     `sys.path.insert(0, ${JSON.stringify(project)})`,
-    'from novelmanager.services import chinese_convert as cc, text_convert as tc, tidy',
+    'from novelmanager.services import chinese_convert as cc, text_convert as tc',
     'data = json.load(sys.stdin)',
     'samples = data["samples"]',
     'print(json.dumps({',
     '  "s2t": [cc.to_traditional(t).text for t in samples],',
     '  "t2s": [cc.to_simplified(t).text for t in samples],',
     '  "half": [tc.to_halfwidth(t).text for t in samples],',
-    '  "tidy": [tidy.tidy_text(t) for t in samples],',
     '}, ensure_ascii=False))'
   ].join('\n')
   const out = spawnSync(python, ['-c', code], {
@@ -63,7 +61,6 @@ if (expected) {
     assert(toTraditional(sample).text === expected.s2t[index], `简转繁与旧项目一致：${sample.slice(0, 8)}`)
     assert(toSimplified(sample).text === expected.t2s[index], `繁转简与旧项目一致：${sample.slice(0, 8)}`)
     assert(toHalfwidth(sample).text === expected.half[index], `全角转半角与旧项目一致：${sample.slice(0, 8)}`)
-    assert(tidyText(sample).text === expected.tidy[index], `一键整理与旧项目一致：${sample.slice(0, 8)}`)
   })
 } else {
   console.log('skip - 本机无 NovelManager 虚拟环境，跳过逐样本比对（下方字面量断言仍覆盖内容）')
@@ -95,13 +92,13 @@ assert(empty.text === '' && empty.kept === 0 && empty.keptWords === 0, '空串�
 const half = toHalfwidth('ＡＢＣ１２３＋－　，。中文')
 assert(half.text === 'ABC123+-\u3000，。中文', '全角字母数字加减号转半角，全角空格与中文标点不动')
 
-// 一键整理：换行归一 → 全角空格 → 删段末不可见 → 繁转简 → 规则替换
+// 一键整理：UTF-16LE 归一 → 繁转简 → 全角转半角 → 按规则表顺序跑 tidyEnabled（默认删段末不可见、删多余空行）
 const tidied = tidyText(
   '第一章 开始\r\n\r\n\r\n\r\n这是  正文\t末尾　　\u200b\n\n結尾\x07'
 )
 assert(
-  tidied.text === '第一章\u3000开始\n\n这是\u3000\u3000正文\u3000末尾\n\n结尾',
-  `五步顺序结果符合预期（实际 ${JSON.stringify(tidied.text)}）`
+  tidied.text === '第一章 开始\n\n这是  正文\t末尾\n\n结尾\x07',
+  `整理结果符合新口径（实际 ${JSON.stringify(tidied.text)}）`
 )
 const tidyCounts = tidyText('这是  第一行\n\n\n\n沈')
 assert(tidyCounts.convertKept === 1, '整理结果沿用繁转简的保留计数（沈 属多义字）')

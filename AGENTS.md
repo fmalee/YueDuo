@@ -43,7 +43,7 @@
 - 工作编码 UTF-16LE；探测链复刻 Python `text_codec.py`（BOM 表 UTF-32 先于 UTF-16、无 BOM UTF-16 推断、chardet + GB18030 复核、fallback utf-8→gb18030→big5），换行归一 `\r\n`/`\r` → `\n`。
 - 保存先写临时文件再 `rename` 原子替换；保存后 inode 已变，必须刷新 stat 缓存。
 - 回车补两个全角空格 `U+3000`，`Shift+回车` 只换行不缩进。
-- 一键整理顺序固定：统一 UTF-16LE → 半角空格/制表符转全角 → 删段末不可见字符 → 繁转简 → 规则正则；规则只在 `electron/services/tidy.ts`。
+- 一键整理顺序固定：统一 UTF-16LE → 繁转简 → 全角转半角（`to_halfwidth` 的 pattern）→ 按 `shared/findRules.ts` 数组顺序执行 `tidyEnabled` 的规则；规则只写在 `shared/findRules.ts`（顺序即整理顺序），不进 `settings.json`。
 
 ## 数据约定
 
