@@ -1,6 +1,41 @@
-import { resolve } from 'path'
+import { dirname, resolve } from 'path'
 import { defineConfig } from 'electron-vite'
 import vue from '@vitejs/plugin-vue'
+import type { Plugin } from 'vite'
+import { fileURLToPath } from 'url'
+
+const __electronViteConfigDir = dirname(fileURLToPath(import.meta.url))
+const monacoStringsJsPath = resolve(
+  __electronViteConfigDir,
+  'node_modules/monaco-editor/esm/vs/base/common/strings.js'
+)
+const cjkWrapStringsPath = resolve(__electronViteConfigDir, 'src/monaco/cjkWrapStrings.ts')
+
+/** 拦截 Monaco strings.js，注入中文全角标点判断（仅 renderer） */
+function monacoCjkWrapStringsPlugin(): Plugin {
+  const normalizedStringsPath = monacoStringsJsPath.replace(/\\/g, '/')
+  const normalizedWrapPath = cjkWrapStringsPath.replace(/\\/g, '/')
+  return {
+    name: 'monaco-cjk-wrap-strings',
+    enforce: 'pre' as const,
+    resolveId(id: string, importer: string | undefined) {
+      const bareId = id.split('?')[0] ?? ''
+      let candidate = bareId.replace(/\\/g, '/')
+      if ((bareId.startsWith('.') || bareId.startsWith('/')) && importer) {
+        candidate = resolve(dirname(importer), bareId).replace(/\\/g, '/')
+      }
+      const isMonacoStrings =
+        candidate === normalizedStringsPath ||
+        candidate.endsWith('/monaco-editor/esm/vs/base/common/strings.js')
+      if (!isMonacoStrings) return null
+      const importerNorm = (importer ?? '').replace(/\\/g, '/')
+      if (importerNorm.includes('/monaco/cjkWrapStrings') || importerNorm === normalizedWrapPath) {
+        return null
+      }
+      return cjkWrapStringsPath
+    }
+  }
+}
 
 export default defineConfig({
   main: {
@@ -47,6 +82,7 @@ export default defineConfig({
         'monaco-editor/platform/contextkey/common/contextkey'
       ]
     },
-    plugins: [vue()]
+    // 导入中文换行补丁
+    plugins: [vue(), monacoCjkWrapStringsPlugin()]
   }
 })
