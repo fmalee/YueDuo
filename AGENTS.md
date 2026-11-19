@@ -82,6 +82,7 @@
 - Electron 45 在 macOS 从 `node_modules` 启动时 `app.isPackaged` 为 true、`is.dev` 不可信；dev/生产以 `ELECTRON_RENDERER_URL` 是否存在判定。
 - native 模块只看 Electron 进程内真实 `require` 与建表插查（`npm run verify:native`），不看 rebuild 输出；better-sqlite3 13.2 自带 N-API prebuild，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`；升级 Electron 后先查 `process.versions.modules`。
 - services 单测用纯 Node（`tsx` 脚本 / `better-sqlite3(':memory:')`），测试数据脚本内构造。
+- 被输入法接管的按键不会进入应用：macOS 中文输入法提交候选后会把 `Shift+Backspace` 当输入法按键吞掉，渲染层收不到 keydown，主进程 `before-input-event` 也看不到（只剩 Shift 的 down/up）。合并段落用能穿透输入法的 `Shift+Option+Backspace`；遇到「按键失效但代码看不出问题」，先用主进程 `before-input-event` 钩子判断事件到底有没有到达应用。
 - 不提交 `out/`、`dist/`、`node_modules`、`public/test/`；`package-lock.json` 的 `-diff` 属性勿去掉。
 
 ## 协作与提交
