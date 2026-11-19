@@ -54,6 +54,15 @@ function isTextInput(target: EventTarget | null): boolean {
   return el.isContentEditable
 }
 
+/**
+ * 组字判定只看事件自身的 isComposing：macOS 中文输入法激活期间 keydown 普遍携带 keyCode 229，
+ * 拿 229 判断会把整段中文输入状态都当成组字、吞掉全部命令；isComposing 只在候选未上屏时为真。
+ * 也不额外维护组字标志——标志一旦卡住就会永久吞键，事件属性每次都是实时的。
+ */
+function isComposing(e: KeyboardEvent): boolean {
+  return e.isComposing
+}
+
 function matches(chord: KeyChord, e: KeyboardEvent): boolean {
   if (e.code !== chord.code) return false
   if (!!chord.mod !== (e.metaKey || e.ctrlKey)) return false
@@ -173,8 +182,9 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
   ]
 
   function onKeydown(e: KeyboardEvent): void {
-    // 输入法组字期间全部放行（回车/空格是选词键）
-    if (e.isComposing || e.keyCode === 229) return
+    // 统一组字守卫：候选未上屏（isComposing）时的输入类按键一律放行；
+    // 带 Cmd/Ctrl 的是命令而不是输入法按键，照常分发
+    if (isComposing(e) && !(e.metaKey || e.ctrlKey)) return
     const editorFocused = isEditorFocused()
     if (!editorFocused && isTextInput(e.target)) return
     const editor = getActiveEditor()
