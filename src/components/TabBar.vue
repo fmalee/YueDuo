@@ -405,12 +405,20 @@ function onGlobalBlur(): void {
   dismissMenu()
 }
 
-watch([() => store.activeTabId, () => store.tabs.length], () => {
-  void nextTick(() => {
-    ensureActiveVisible()
-    syncScrollbar()
-  })
-})
+// 活动标签下标也要监听：左栏拖动活动标签时 active 与数量都不变，但它在标签栏里的位置变了
+watch(
+  [
+    () => store.activeTabId,
+    () => store.tabs.length,
+    () => store.tabs.findIndex((t) => t.id === store.activeTabId)
+  ],
+  () => {
+    void nextTick(() => {
+      ensureActiveVisible()
+      syncScrollbar()
+    })
+  }
+)
 
 onMounted(() => {
   ensureActiveVisible()
