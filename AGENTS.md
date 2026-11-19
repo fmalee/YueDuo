@@ -36,6 +36,19 @@
 
 ## 架构与目录
 
+目录职责与关键数据流见 [.trae/documents/architecture.md](.trae/documents/architecture.md)，这里只留常驻约束。
+
+| 目录 | 职责 |
+| --- | --- |
+| `electron/ipc` | 按域收敛 IPC 参数，调用 services，不写业务 |
+| `electron/services` | 纯 Node 业务，可单测，不 import Electron |
+| `src/components` | 只做 UI 与事件，不碰 IPC 细节 |
+| `src/composables` | 渲染层编排：标签、会话、编辑动作、书库切换 |
+| `src/stores` | 只存元信息与 UI 状态（Pinia），不存全文 |
+| `src/ipc` | `bridge.ts` 是渲染层唯一 IPC 出口 |
+| `shared` | 两侧共用纯函数与跨进程类型 |
+| `scripts` | 纯 Node 验收脚本（`tsx` 运行）与 CDP 工具 |
+
 - `electron/` 主进程：`ipc/` 按域分 handler（file/library/session/meta/finder/convert/dialog/native），`services/` 纯 Node 可单测、不 import Electron。
 - `src/` 渲染层：`components/` + `composables/` + `stores/` + `ipc/bridge.ts`；渲染层零业务逻辑，只做 UI 与编排。
 - 跨进程唯一通道：preload 用 `contextBridge` 暴露 `window.yue.invoke`，渲染层只经 `src/ipc/bridge.ts`；禁止渲染层 import Node 模块或 better-sqlite3。
