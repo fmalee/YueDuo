@@ -24,7 +24,7 @@ files:
   - '!node_modules/monaco-editor/**'
   - '!node_modules/{dompurify,marked,pinia}/**'
   # 原生模块只带本平台预编译产物：sqlite3 源码（deps/src）与非 macOS 平台的 prebuild 不进包。
-  # macOS 的 darwin-x64 / darwin-arm64 两份都留在包里，由 build/afterPack.js 按目标架构裁掉另一份，
+  # macOS 的 darwin-x64 / darwin-arm64 两份都留在包里，由 build/afterPack.mjs 按目标架构裁掉另一份，
   # 这样构建配置不需要写死架构（x86 构建机出 x64，Apple Silicon 构建机出 arm64）。
   - '!node_modules/better-sqlite3/{deps,src}/**'
   - '!node_modules/better-sqlite3/prebuilds/{linux-arm64,linux-x64,linuxmusl-arm64,linuxmusl-x64,win32-arm64,win32-x64}.node'
