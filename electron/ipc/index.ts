@@ -47,7 +47,7 @@ import {
 } from './library'
 import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionRelocate, sessionFlushDone } from './session'
-import { applyMetadataEdit, readMetadata } from './meta'
+import { applyMetadataEdit, applyRating, readMetadata, readRating } from './meta'
 import { convertHalfwidth, convertSimplified, convertTraditional, tidyDocument } from './convert'
 import type { AppMenuState, AppSettings, DraftTabMeta } from '../../shared/types'
 
@@ -128,6 +128,9 @@ export function registerIpcHandlers(): void {
   )
   // 元数据栏首屏（方案 §2.9）：库外文件按磁盘正文解析
   handle('meta:read', (path: unknown) => readMetadata(path))
+  // 评分读写与文本四项同一判定：只要求有路径，库内库外由主进程分流（库外落文件 Finder 星级）
+  handle('meta:readRating', (path: unknown) => readRating(path))
+  handle('meta:applyRating', (path: unknown, rating: unknown) => applyRating(path, rating))
   // 文本转换（方案 §3.2）：右键「转换」组与一键整理，选区/整文范围由渲染层决定
   handle('convert:toHalfwidth', (text: unknown) => convertHalfwidth(String(text ?? '')))
   handle('convert:toTraditional', (text: unknown) => convertTraditional(String(text ?? '')))

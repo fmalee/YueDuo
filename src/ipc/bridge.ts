@@ -25,6 +25,8 @@ import type {
   MetadataField,
   NativeSanity,
   ParsedMetadata,
+  RatingReadResult,
+  RatingWriteResult,
   SessionRelocation,
   SessionRestore,
   SessionSnapshot,
@@ -285,6 +287,16 @@ export function metaApplyEdit(
 /** meta:read —— 元数据栏首屏：库外文件按磁盘正文解析书名/作者/标签 */
 export function metaReadMetadata(path: string): Promise<ParsedMetadata> {
   return ipcInvoke<ParsedMetadata>('meta:read', path)
+}
+
+/** meta:readRating —— 评分读回：库内取 books，库外取文件 Finder 星级（只要有路径就可用） */
+export function metaReadRating(path: string): Promise<RatingReadResult> {
+  return ipcInvoke<RatingReadResult>('meta:readRating', path)
+}
+
+/** meta:applyRating —— 评分写回：库内写库 + 文件星级，库外只写文件星级（persisted=false 需回退） */
+export function metaApplyRating(path: string, rating: number): Promise<RatingWriteResult> {
+  return ipcInvoke<RatingWriteResult>('meta:applyRating', path, rating)
 }
 
 /** library:chapters —— 当前书章节（主进程读文件并按 Python 同口径正则提取） */ export function libraryChapters(

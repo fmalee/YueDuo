@@ -322,6 +322,20 @@ export interface MetadataEditResult {
   metadata: ParsedMetadata
 }
 
+/** meta:readRating 返回：inLibrary 决定来源（库内 books.rating / 库外文件 Finder 星级） */
+export interface RatingReadResult {
+  rating: number
+  inLibrary: boolean
+}
+
+/**
+ * meta:applyRating 返回：库内写 books + 文件星级；库外只写文件 Finder 星级。
+ * persisted=false 表示星级没写进去（非 macOS / xattr 失败），渲染层需回退。
+ */
+export interface RatingWriteResult extends RatingReadResult {
+  persisted: boolean
+}
+
 /** 文本转换结果（方案 §3.2：全角转半角/简转繁/繁转简共用） */
 export interface ConvertResult {
   text: string

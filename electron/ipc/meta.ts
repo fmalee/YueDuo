@@ -3,13 +3,15 @@ import { basename, dirname } from 'path'
 import { findTopic, parseMetadata, splitTags } from '../services/metadataParser'
 import { decodeBytes } from '../services/textCodec'
 import { applyTextEdit, rewriteHeader } from '../services/metadataWriter'
-import { writeFinderComment } from '../services/finderMetadata'
-import { syncBookMetadataFromText } from './library'
+import { writeFinderComment, readFinderRating, writeFinderRating } from '../services/finderMetadata'
+import { libraryBookByPath, librarySetBookRating, syncBookMetadataFromText } from './library'
 import type {
   MetadataEditResult,
   MetadataField,
   MetadataTextEdit,
-  ParsedMetadata
+  ParsedMetadata,
+  RatingReadResult,
+  RatingWriteResult
 } from '../../shared/types'
 
 const FIELDS: MetadataField[] = ['title', 'author', 'tags']
@@ -54,4 +56,38 @@ export async function applyMetadataEdit(
   // 主题写回后同步 Finder 注释（方案 §2.10）：无主题与「旧注释相同」都由 service 跳过
   if (key === 'tags') await writeFinderComment(path, findTopic(nextText))
   return { edit, updated, metadata }
+}
+
+/**
+ * meta:readRating —— 元数据栏评分读回，判定与书名/作者/标签一致：只要有路径就读。
+ * 库内取 books.rating（与文件星级保持同步），库外没有 books 行则取文件 Finder 星级。
+ */
+export async function readRating(path: unknown): Promise<RatingReadResult> {
+  if (typeof path !== 'string' || !path) throw new Error('缺少文件路径')
+  const book = await libraryBookByPath(path)
+  if (book) return { rating: book.rating, inLibrary: true }
+  return { rating: (await readFinderRating(path)) ?? 0, inLibrary: false }
+}
+
+/** 库外文件评分只能写文件 Finder 星级；返回是否真的持久化（非 macOS / xattr 失败为 false） */
+async function writeFileRating(path: string, value: number): Promise<boolean> {
+  const current = await readFinderRating(path)
+  if (current === null) return false
+  if (current === value) return true
+  return writeFinderRating(path, value)
+}
+
+/**
+ * meta:applyRating —— 评分写回，与文本三项同一入口：渲染层只传路径，库内/库外由主进程判定。
+ * 库内走 librarySetBookRating（books + 文件星级）；库外没有 books 行，只写文件 Finder 星级，
+ * persisted=false 时渲染层必须回退，不能让点击看起来成功却在重开后消失。
+ */
+export async function applyRating(path: unknown, rating: unknown): Promise<RatingWriteResult> {
+  if (typeof path !== 'string' || !path) throw new Error('缺少文件路径')
+  const value = Math.min(5, Math.max(0, Math.round(Number(rating) || 0)))
+  const book = await libraryBookByPath(path)
+  if (book) {
+    return { rating: await librarySetBookRating(book.id, value), inLibrary: true, persisted: true }
+  }
+  return { rating: value, inLibrary: false, persisted: await writeFileRating(path, value) }
 }

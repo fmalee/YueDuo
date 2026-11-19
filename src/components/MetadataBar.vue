@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
-import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
 import { useMetadataEdit } from '@/composables/useMetadataEdit'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
 import { getTabModel } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
-import { libraryBookByPath, metaReadMetadata } from '@/ipc/bridge'
+import { metaReadMetadata, metaReadRating } from '@/ipc/bridge'
 import { monaco } from '@/monaco'
 import { parseMetadata } from '../../shared/metadataParser'
 import StarRating from './sidebar/StarRating.vue'
@@ -16,7 +15,8 @@ import type { MetadataField, ParsedMetadata } from '../../shared/types'
 /**
  * 元数据栏（方案 §2.9）：编辑器下方、状态栏上方，编辑名称/作者/标签/评分四项。
  * 文本三项只走 useMetadataEdit（§2.8 写回链路：最小可撤销编辑、保留光标与 dirty）；
- * 评分只走 2.5 的 library.setBookRating（库内评分 + Finder 星级），不另开写入路径。
+ * 评分与文本三项同一入口、同一判定：只要有路径就能编辑，库内写库 + Finder 星级，
+ * 库外只写文件 Finder 星级（评分不在正文里，读写都由 meta:readRating/applyRating 分流）。
  * 双向同步（§2.9/§2.10 补正）：正文前 10 行是基准，直接用 shared/metadataParser
  * 在渲染层本地解析（与主进程同一份正则），只在头部真的变化时刷新；正在栏内编辑的
  * 那一项以栏内草稿为准，刷新不触碰焦点。
@@ -35,16 +35,13 @@ const PLACEHOLDERS: Record<EditableField, string> = {
 const HEAD_LINES = 10
 
 const store = useTabsStore()
-const library = useLibraryStore()
 const reader = useReaderStore()
-const { applyMetadataField } = useMetadataEdit()
+const { applyMetadataField, applyRating } = useMetadataEdit()
 
 const title = ref('')
 const author = ref('')
 const tags = ref('')
 const rating = ref(0)
-/** 库内 book id；null = 文件不在活动书库，评分入口禁用 */
-const bookId = ref<number | null>(null)
 
 const editing = ref<EditableField | null>(null)
 const draft = ref('')
@@ -52,6 +49,8 @@ const barEl = ref<HTMLElement | null>(null)
 
 /** 标签页切换/连续提交时丢弃过期结果 */
 let loadGeneration = 0
+/** 评分写回代际：连续点击或切走标签时只认最新一次，避免旧结果回退新值 */
+let ratingWriteGeneration = 0
 
 /** 当前挂上监听的 model 与上次头部文本（相同则不刷新栏位） */
 let attachedModel: monaco.editor.ITextModel | null = null
@@ -69,7 +68,6 @@ function clear(): void {
   author.value = ''
   tags.value = ''
   rating.value = 0
-  bookId.value = null
 }
 
 function fileName(path: string): string {
@@ -132,8 +130,8 @@ function detachActiveModel(): void {
 }
 
 /**
- * 首屏：文本三项以编辑器正文为准（有 model 就在本地解析，不读盘也不走 IPC），
- * 评分不在正文里，仍从库记录取；库外/尚未入库回退磁盘正文并禁用评分。
+ * 首屏：文本三项以编辑器正文为准（有 model 就在本地解析，不读盘也不走 IPC）；
+ * 评分不在正文里，与书名/标签同一判定——有路径就能读（库内 books，库外文件星级）。
  */
 async function load(): Promise<void> {
   const gen = ++loadGeneration
@@ -154,12 +152,12 @@ async function load(): Promise<void> {
     }
   }
 
-  const book = await libraryBookByPath(path).catch(() => null)
-  if (gen !== loadGeneration) return
-  bookId.value = book?.id ?? null
-  rating.value = book?.rating ?? 0
+  const info = await metaReadRating(path).catch(() => null)
+  if (gen !== loadGeneration || !info) return
+  rating.value = info.rating
 }
 
+/** 标签切换 / 另存为改变路径时重读：评分入口只看路径，与文本三项同步就绪 */
 watch([() => store.activeTabId, () => store.activeTab?.path], () => void load(), {
   immediate: true
 })
@@ -216,13 +214,26 @@ async function commitEdit(field: EditableField): Promise<void> {
   }
 }
 
-/** 评分：同一链路写库 + Finder 星级；再点同分由 2.5 的手势判定清零 */
-function clickStar(star: number): void {
-  const id = bookId.value
-  if (id === null || reader.locked) return
-  const next = resolveRatingClick(`metadata-bar:${id}`, rating.value, star)
+/**
+ * 评分：与文本三项同一入口（useMetadataEdit.applyRating），只要求有路径；
+ * 库内写库 + 文件星级，库外只写文件 Finder 星级，写不进去就回退，不假装成功。
+ */
+async function clickStar(star: number): Promise<void> {
+  const path = store.activeTab?.path
+  if (!path || reader.locked) return
+  const previous = rating.value
+  const next = resolveRatingClick(`metadata-bar:${path}`, previous, star)
   rating.value = next
-  void library.setBookRating(id, next)
+  const gen = ++ratingWriteGeneration
+  const result = await applyRating(next).catch(() => null)
+  // 写回途中切走标签 / 又点了别的分数：以最新一次为准
+  if (gen !== ratingWriteGeneration || store.activeTab?.path !== path) return
+  if (!result || !result.persisted) {
+    rating.value = previous
+    if (result && !result.persisted) console.warn('[metadata] 文件星级写入失败：', path)
+    return
+  }
+  rating.value = result.rating
 }
 </script>
 
@@ -256,21 +267,15 @@ function clickStar(star: number): void {
     </div>
     <div
       class="meta-rating"
-      :class="{ disabled: bookId === null || reader.locked }"
+      :class="{ disabled: reader.locked }"
       :title="
         reader.locked
           ? '已锁定，解锁后可编辑'
-          : bookId === null
-            ? '这本书不在当前书库中，评分只对库内书籍开放'
-            : '点第几颗星就是几分；隔一会儿再点同一分数可取消'
+          : '点第几颗星就是几分；隔一会儿再点同一分数可取消。库外文件的评分保存在文件星级（Finder 评分）里'
       "
     >
       <span class="meta-label">评分</span>
-      <StarRating
-        :value="rating"
-        :readonly="bookId === null || reader.locked"
-        @select="clickStar"
-      />
+      <StarRating :value="rating" :readonly="reader.locked" @select="clickStar" />
     </div>
   </div>
 </template>
