@@ -68,6 +68,8 @@ let matchStarts: number[] = []
 let decorations: monaco.editor.IEditorDecorationsCollection | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let decorationTimer: ReturnType<typeof setTimeout> | null = null
+/** 下一次防抖刷新后是否自动跳到首个匹配（输入/开关变化时置位，由刷新消费） */
+let pendingAutoJump = false
 let attached: monaco.editor.IStandaloneCodeEditor | null = null
 const disposables: monaco.IDisposable[] = []
 let resizeState: { startX: number; width: number } | null = null
@@ -92,9 +94,14 @@ watch(
   { immediate: true }
 )
 
-watch([findText, matchCase, wholeWord, regex], () => {
+watch(findText, () => {
   if (findText.value) lastFindText = findText.value
   if (open.value) scheduleRefresh()
+})
+
+/** 开关变化视同新的查找：防抖后跳到首个匹配（从当前光标向后找，越界回绕） */
+watch([matchCase, wholeWord, regex], () => {
+  if (open.value) scheduleRefresh(true)
 })
 
 onMounted(() => {
@@ -153,6 +160,7 @@ function clearTimers(): void {
     clearTimeout(decorationTimer)
     decorationTimer = null
   }
+  pendingAutoJump = false
 }
 
 /** 快捷键（捕获阶段）：先于 Monaco 的输入处理，内置查找 widget 永不触发 */
@@ -257,11 +265,17 @@ function close(): void {
   props.editor?.focus()
 }
 
-function scheduleRefresh(): void {
+/**
+ * 防抖刷新。autoJump 置位叠加而非重置：同一轮里 watch 与 @input 都会调度，
+ * 只要有一次要求跳转，防抖结束后就跳到最终结果。
+ */
+function scheduleRefresh(autoJump = false): void {
+  if (autoJump) pendingAutoJump = true
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    const jump = pendingAutoJump
     searchTimer = null
-    refreshNow()
+    refreshNow(jump)
   }, SEARCH_DEBOUNCE_MS)
 }
 
@@ -278,11 +292,13 @@ function wordSeparators(): string | null {
 }
 
 /** 全量计数 + 命中（不截断，计数才准确）；过滤零长度命中，避免替换空串 */
-function refreshNow(): void {
+function refreshNow(autoJump = false): void {
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
   }
+  // 直接刷新视为消费掉待跳转标记，避免替换/打开等路径被残留标记带偏
+  pendingAutoJump = false
   const instance = attached ?? props.editor
   const model = instance?.getModel()
   if (!open.value || !instance || !model) {
@@ -343,6 +359,8 @@ function refreshNow(): void {
   }
   updateCurrentIndex()
   applyDecorations()
+  // 输入/开关变化后自动定位到首个匹配；无匹配或正则无效时不动光标
+  if (autoJump && !regexError.value && matches.value.length) selectMatch(currentIndex.value)
 }
 
 /** 全文偏移 → Monaco 区间（跨行时首尾行不同） */
@@ -613,6 +631,12 @@ function replaceAllMatches(): void {
   showStatusMessage(`已替换 ${count} 处`, 5000)
 }
 
+/** 查找框内容变化（输入/粘贴）：防抖后刷新并跳到首个匹配；IME 组字中不跳 */
+function onFindInput(e: Event): void {
+  if ((e as InputEvent).isComposing) return
+  if (open.value) scheduleRefresh(true)
+}
+
 function onFindEnter(e: KeyboardEvent): void {
   if (e.isComposing) return
   e.preventDefault()
@@ -738,6 +762,7 @@ function stopResize(): void {
             placeholder="查找"
             spellcheck="false"
             autocomplete="off"
+            @input="onFindInput"
             @keydown.enter="onFindEnter"
             @keydown.esc="onInputEscape"
           />
