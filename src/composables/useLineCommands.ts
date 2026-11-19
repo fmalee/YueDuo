@@ -7,9 +7,17 @@ import { showStatusMessage } from './useStatusMessage'
  * 保持模块级导出而不是组件内函数：空白标签与普通标签走同一条代码路径。
  */
 
+/** 缩进字符与 Python `_INDENT_CHARS` 一致：半角空格 / 制表符 / 全角空格；没有缩进时补两个全角空格 */
+const INDENT_CHARS = /^[ \t\u3000]*/
+const FALLBACK_INDENT = '\u3000\u3000'
+
+function lineIndent(line: string): string {
+  return INDENT_CHARS.exec(line)?.[0] || FALLBACK_INDENT
+}
+
 /**
  * 回车换行（方案 §3.3）：普通回车沿用当前行行首缩进，没有缩进时补两个全角空格；
- * Shift+回车只换行。缩进字符与 Python `_INDENT_CHARS` 一致：半角空格 / 制表符 / 全角空格。
+ * Shift+回车只换行。
  */
 export function insertNewline(
   editor: monaco.editor.IStandaloneCodeEditor,
@@ -22,13 +30,44 @@ export function insertNewline(
   let text = '\n'
   if (withIndent) {
     const lineNumber = editor.getPosition()?.lineNumber ?? selection.positionLineNumber
-    const line = model.getLineContent(lineNumber)
-    const indent = /^[ \t\u3000]*/.exec(line)?.[0] ?? ''
-    text += indent || '\u3000\u3000'
+    text += lineIndent(model.getLineContent(lineNumber))
   }
   editor.pushUndoStop()
   editor.executeEdits('yueduo.newline', [{ range: selection, text, forceMoveMarkers: true }])
   editor.pushUndoStop()
+}
+
+/**
+ * 在当前行下方插入新行（Cmd+Enter / Shift+Cmd+Enter）：不拆分当前行，
+ * 光标在行中间时后半段留在原行。缩进规则与回车一致，withIndent=false 时插入干净空行。
+ * 命令在窗口捕获阶段分发并拦下 Monaco 自带的 `editor.action.insertLineAfter`，只插一行。
+ */
+export function insertLineBelow(
+  editor: monaco.editor.IStandaloneCodeEditor,
+  withIndent: boolean
+): void {
+  const model = editor.getModel()
+  const pos = editor.getPosition()
+  if (!model || !pos) return
+  if (editor.getOption(monaco.editor.EditorOption.readOnly)) return
+  const { lineNumber } = pos
+  const indent = withIndent ? lineIndent(model.getLineContent(lineNumber)) : ''
+  const column = model.getLineMaxColumn(lineNumber)
+  editor.pushUndoStop()
+  editor.executeEdits('yueduo.insertLineBelow', [
+    {
+      range: {
+        startLineNumber: lineNumber,
+        startColumn: column,
+        endLineNumber: lineNumber,
+        endColumn: column
+      },
+      text: `\n${indent}`,
+      forceMoveMarkers: true
+    }
+  ])
+  editor.pushUndoStop()
+  editor.setPosition({ lineNumber: lineNumber + 1, column: indent.length + 1 })
 }
 
 /**

@@ -4,7 +4,7 @@ import { useTabsStore } from '@/stores/tabs'
 import { useCommandPalette } from './useCommandPalette'
 import { useTabs } from './useTabs'
 import { getActiveEditor } from './useSession'
-import { deleteToLineStart, insertNewline, pageBy } from './useLineCommands'
+import { deleteToLineStart, insertLineBelow, insertNewline, pageBy } from './useLineCommands'
 import { showStatusMessage } from './useStatusMessage'
 
 type Editor = Monaco.editor.IStandaloneCodeEditor
@@ -154,6 +154,23 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       scope: 'editor',
       availability: 'editable',
       run: (editor) => editor && insertNewline(editor, false)
+    },
+    {
+      // 捕获阶段拦下，避免 Monaco 自带的 insertLineAfter 再插一行
+      id: 'insertLineBelow',
+      label: '在下方插入行（带缩进）',
+      chord: { code: 'Enter', mod: true },
+      scope: 'editor',
+      availability: 'editable',
+      run: (editor) => editor && insertLineBelow(editor, true)
+    },
+    {
+      id: 'insertLineBelowPlain',
+      label: '在下方插入空行',
+      chord: { code: 'Enter', mod: true, shift: true },
+      scope: 'editor',
+      availability: 'editable',
+      run: (editor) => editor && insertLineBelow(editor, false)
     },
     {
       id: 'pageDown',
