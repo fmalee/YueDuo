@@ -178,6 +178,16 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       scope: 'editor',
       availability: 'editable',
       run: (editor) => editor && deleteToLineStart(editor)
+    },
+    {
+      // 中文输入法在候选上屏后会把 Shift+Backspace 当作输入法按键吞掉（到不了应用），
+      // Shift+Option+Backspace 是实测可穿透输入法的替代键位（VS Code 宏同款）
+      id: 'deleteToLineStartIme',
+      label: '合并段落（输入法兼容键位）',
+      chord: { code: 'Backspace', shift: true, alt: true },
+      scope: 'editor',
+      availability: 'editable',
+      run: (editor) => editor && deleteToLineStart(editor)
     }
   ]
 
