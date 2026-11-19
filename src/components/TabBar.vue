@@ -578,7 +578,6 @@ onBeforeUnmount(() => {
 .tab-bar {
   position: relative;
   min-height: var(--yd-tab-bar-height);
-  border-bottom: 1px solid var(--yd-border-1);
   background: var(--yd-bg-2);
   /* 拖动排序时不要选中标签文字 */
   user-select: none;
@@ -587,9 +586,13 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   align-items: flex-end;
+  height: var(--yd-tab-bar-height);
+  padding-bottom: var(--yd-tab-border-width);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* 底边画在滚动视口自身：不随内容横向滚动，且绘制在标签之下，活动标签才能盖出断口 */
+  box-shadow: inset 0 calc(-1 * var(--yd-tab-border-width)) 0 var(--yd-border-1);
 }
 .tabs-scroll::-webkit-scrollbar {
   display: none;
@@ -680,9 +683,9 @@ onBeforeUnmount(() => {
   background: var(--yd-bg-3);
   border-color: var(--yd-border-1);
   color: var(--yd-text-2);
-  /* 盖过标签栏底边 1px，弧脚与其连成一体 */
+  /* 伸进标签栏底边那一像素，盖住底线与正文连成一片 */
   height: 30px;
-  margin-bottom: -1px;
+  margin-bottom: calc(-1 * var(--yd-tab-border-width));
   z-index: 1;
 }
 .flare {
