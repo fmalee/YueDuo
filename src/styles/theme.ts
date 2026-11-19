@@ -78,6 +78,8 @@ export const METRICS = {
   tabPaddingX: 10,
   tabCloseSize: 18,
   tabCloseInset: 4,
+  // 空白标签标题取自正文首行，可能很长：按实际宽度省略（文件标签仍完整展示）
+  tabTitleMaxWidth: 260,
   // 编辑器标签栏高度：左右侧栏页签行不再强制同高，只按此高度对齐文字基线与列表起点
   tabBarHeight: 34,
   // 侧栏页签行：自身只包住文字（上下 2.5px 呼吸），整体下移 5.5px 使文字基线与标签栏一致，列表首行落在 34px
@@ -193,6 +195,7 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-tab-padding-x', `${METRICS.tabPaddingX}px`)
   root.style.setProperty('--yd-tab-close-size', `${METRICS.tabCloseSize}px`)
   root.style.setProperty('--yd-tab-close-inset', `${METRICS.tabCloseInset}px`)
+  root.style.setProperty('--yd-tab-title-max-width', `${METRICS.tabTitleMaxWidth}px`)
   root.style.setProperty('--yd-tab-bar-height', `${METRICS.tabBarHeight}px`)
   root.style.setProperty('--yd-tab-row-padding-y', `${METRICS.tabRowPaddingY}px`)
   root.style.setProperty('--yd-tab-row-offset-top', `${METRICS.tabRowOffsetTop}px`)

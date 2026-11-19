@@ -490,7 +490,7 @@ onBeforeUnmount(() => {
           <path class="flare-stroke" d="M8,0 C8,4.42 4.42,8 0,8" fill="none" />
         </svg>
         <span v-if="tab.dirty" class="tab-dirty" title="未保存"></span>
-        <span class="tab-title">{{ tab.title }}</span>
+        <span class="tab-title" :class="{ derived: !tab.path }">{{ tab.title }}</span>
         <span class="tab-close" @click.stop="closeTab(tab.id)">×</span>
         <!-- 右外展圆弧 -->
         <svg
@@ -713,6 +713,12 @@ onBeforeUnmount(() => {
 .tab-title {
   /* 完整小说名称不裁切：无 max-width/省略号，标签随内容自适应，溢出滚动 */
   overflow: visible;
+}
+/* 空白标签标题来自正文首行，可能很长：按实际显示宽度省略，不做字数硬切 */
+.tab-title.derived {
+  max-width: var(--yd-tab-title-max-width);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tab-close {
   /* 不占标签布局宽度：悬停浮出在右缘，允许遮挡过长的标题 */

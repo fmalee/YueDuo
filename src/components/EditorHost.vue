@@ -74,6 +74,32 @@ function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): stri
   return parseMetadata(lines.join('\n'), fileName, parent.slice(parent.lastIndexOf('/') + 1)).title
 }
 
+/** 空白标签标题跟随正文首行（方案 §1.5）：节流回写，避免每个按键都触发标签重排 */
+const BLANK_TITLE_THROTTLE_MS = 200
+let blankTitleTimer = 0
+let pendingBlankTitle: { tabId: string; model: monaco.editor.ITextModel } | null = null
+
+/** 首行去空白后作为标题；空白则回到「未命名」 */
+function blankTitleOf(model: monaco.editor.ITextModel): string {
+  return model.getLineContent(1).trim() || '未命名'
+}
+
+function scheduleBlankTitle(tabId: string, model: monaco.editor.ITextModel): void {
+  pendingBlankTitle = { tabId, model }
+  if (blankTitleTimer) return
+  blankTitleTimer = window.setTimeout(() => {
+    blankTitleTimer = 0
+    const pending = pendingBlankTitle
+    pendingBlankTitle = null
+    if (!pending || pending.model.isDisposed()) return
+    const tab = store.tabs.find((t) => t.id === pending.tabId)
+    // 已另存为/关闭的标签回到文件标签口径，不再覆盖
+    if (!tab || tab.path) return
+    const title = blankTitleOf(pending.model)
+    if (title !== tab.title) store.patchTab(pending.tabId, { title })
+  }, BLANK_TITLE_THROTTLE_MS)
+}
+
 onMounted(() => {
   window.addEventListener('yueduo:convert', onConvertCommand)
   window.addEventListener('yueduo:tabRelocated', onTabRelocated)
@@ -95,6 +121,9 @@ onMounted(() => {
       const title = bookTitleFromModel(model, tab.path)
       if (title && title !== tab.title) store.patchTab(id, { title })
       handleBookmarkDrift(id, tab.path, e.changes, model.getLineCount())
+    } else if (id && model && tab) {
+      // 空白标签：标题跟正文首行，节流回写
+      scheduleBlankTitle(id, model)
     }
   })
 
@@ -179,6 +208,8 @@ function onTabRelocated(e: Event): void {
 }
 
 onBeforeUnmount(() => {
+  if (blankTitleTimer) clearTimeout(blankTitleTimer)
+  blankTitleTimer = 0
   window.removeEventListener('yueduo:convert', onConvertCommand)
   window.removeEventListener('yueduo:tabRelocated', onTabRelocated)
   stopEvictionTimer()
