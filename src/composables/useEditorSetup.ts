@@ -1,18 +1,30 @@
-import { monaco, READER_EDITOR_OPTIONS } from '@/monaco'
+import { monaco, READER_EDITOR_OPTIONS, readerTypographyOptions } from '@/monaco'
+import type { ReaderFont } from '../../shared/types'
 import type { ConvertCommand } from './useEditorCommands'
 
 type Editor = monaco.editor.IStandaloneCodeEditor
 
 /**
  * 编辑器实例创建与 options（方案 §0.2）
- * 单实例 + 每标签 model，参数只在 create 时生效；改配置必须重建实例。
+ * 单实例 + 每标签 model，参数只在 create 时生效；字体/字号后续走 applyReaderTypography。
  */
-export function createReaderEditor(host: HTMLElement, locked: boolean): Editor {
+export function createReaderEditor(
+  host: HTMLElement,
+  locked: boolean,
+  font: ReaderFont,
+  fontSize: number
+): Editor {
   return monaco.editor.create(host, {
     ...READER_EDITOR_OPTIONS,
+    ...readerTypographyOptions(font, fontSize),
     value: '',
     readOnly: locked
   })
+}
+
+/** 正文字体/字号切换：updateOptions 立即生效，不动 model 与光标（不通过 CSS 覆盖） */
+export function applyReaderTypography(editor: Editor, font: ReaderFont, fontSize: number): void {
+  editor.updateOptions(readerTypographyOptions(font, fontSize))
 }
 
 /** 锁定阅读切换：只关输入，保留光标与滚动；锁定时焦点交还正文，空格才能翻页 */

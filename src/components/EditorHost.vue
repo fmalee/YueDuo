@@ -14,6 +14,7 @@ import {
 import { useEditorViewState } from '@/composables/useEditorViewState'
 import {
   applyReadOnly,
+  applyReaderTypography,
   createReaderEditor,
   registerEditorActions
 } from '@/composables/useEditorSetup'
@@ -104,7 +105,12 @@ onMounted(() => {
   window.addEventListener('yueduo:convert', onConvertCommand)
   window.addEventListener('yueduo:tabRelocated', onTabRelocated)
   if (!container.value) return
-  const instance = createReaderEditor(container.value, reader.locked)
+  const instance = createReaderEditor(
+    container.value,
+    reader.locked,
+    settings.readerFont,
+    settings.readerFontSize
+  )
   editor.value = instance
 
   // dirty 追踪：内容变化后以版本号对比（O(1)，方案 §1.3）
@@ -170,6 +176,11 @@ watch(
     if (editor.value) applyReadOnly(editor.value, locked)
   }
 )
+
+// 正文字体/字号（「显示」菜单）：updateOptions 即时生效，行高按字号比例重算
+watch([() => settings.readerFont, () => settings.readerFontSize], ([font, size]) => {
+  if (editor.value) applyReaderTypography(editor.value, font, size)
+})
 
 // activeTabId 变化 → setModel + restoreViewState（model 缺失时走 LRU 重载）
 watch(

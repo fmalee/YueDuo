@@ -38,7 +38,7 @@ import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
 import { showStatusMessage } from '@/composables/useStatusMessage'
-import type { AppMenuPayload, ThemeMode } from '../shared/types'
+import type { AppMenuPayload, ReaderFont, ThemeMode } from '../shared/types'
 
 // 阶段 1.2-1.7 验收页：readText → model → setModel 切换 → dirty → 保存 → 标签视觉 → LRU 驻留闭环
 const {
@@ -132,6 +132,12 @@ function runMenuCommand(payload: AppMenuPayload): void {
       break
     case 'preloadCount':
       void settings.setPreloadCount(Number(payload.value))
+      break
+    case 'readerFont':
+      void settings.setReaderFont(payload.value as ReaderFont)
+      break
+    case 'readerFontSize':
+      void settings.setReaderFontSize(Number(payload.value))
       break
     case 'save':
       if (id) {

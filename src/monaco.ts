@@ -15,7 +15,8 @@ import {
   type ContextKeyExpression
 } from 'monaco-editor/platform/contextkey/common/contextkey'
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker'
-import { DARK_COLORS, LIGHT_COLORS, READING } from './styles/theme'
+import { DARK_COLORS, LIGHT_COLORS, READING, readingLineHeight } from './styles/theme'
+import type { ReaderFont } from '../shared/types'
 
 // 剪贴板贡献只给剪切/粘贴设了 when（只读时隐藏），没有按选区置灰；
 // 菜单项对象由 MenuRegistry 持有，这里补 precondition，让菜单按当前选区/只读状态置灰。
@@ -97,10 +98,6 @@ export const READER_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionO
     nonBasicASCII: false // 中文文本全是 non-ASCII，必须关
   },
   stickyScroll: { enabled: false },
-  // 阅读体验（字号/行高 token 见 styles/theme.ts）
-  fontFamily: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
-  fontSize: READING.fontSize,
-  lineHeight: READING.lineHeight,
   wrappingStrategy: 'simple', // 大文件折行必须用 simple，viewport 性能关键
   wordWrap: 'on',
   scrollBeyondLastLine: true,
@@ -115,6 +112,21 @@ export const READER_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionO
   tabCompletion: 'off',
   parameterHints: { enabled: false },
   snippetSuggestions: 'none'
+}
+
+/**
+ * 正文排版 options（字体/字号/行高）：创建实例与设置切换共用同一份换算。
+ * 字体族只由 editor options 提供，不在 .monaco-editor 上另写 CSS。
+ */
+export function readerTypographyOptions(
+  font: ReaderFont,
+  fontSize: number
+): monaco.editor.IEditorOptions {
+  return {
+    fontFamily: READING.fontFamilies[font],
+    fontSize,
+    lineHeight: readingLineHeight(fontSize)
+  }
 }
 
 /** 编辑器主题：颜色取自同一套 token，保证深色下编辑器与窗框不脱节（方案 §1.10） */

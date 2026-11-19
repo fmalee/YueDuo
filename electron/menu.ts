@@ -6,6 +6,7 @@ import {
   type MenuItemConstructorOptions
 } from 'electron'
 import { readSettings } from './services/settingsStore'
+import { READER_FONTS, READER_FONT_SIZES } from '../shared/types'
 import type { AppMenuCommand, AppMenuPayload, AppMenuState, ThemeMode } from '../shared/types'
 
 /** 外观三态（方案 §1.10）：菜单里以单选组呈现，勾选项跟设置落盘值一致 */
@@ -176,6 +177,26 @@ export function installApplicationMenu(): void {
           label: '锁定阅读',
           accelerator: 'CmdOrCtrl+L',
           click: (_item, win) => sendMenuCommand('toggleLock', win)
+        },
+        { type: 'separator' },
+        {
+          // 正文字体/字号：单选组，勾选项取落盘设置；点击只下发命令，生效由渲染层 updateOptions 做
+          label: '字体',
+          submenu: READER_FONTS.map(({ key, label }) => ({
+            label,
+            type: 'radio' as const,
+            checked: saved.readerFont === key,
+            click: (_item, win) => sendMenuCommand('readerFont', win, key)
+          }))
+        },
+        {
+          label: '字号',
+          submenu: READER_FONT_SIZES.map((size) => ({
+            label: String(size),
+            type: 'radio' as const,
+            checked: saved.readerFontSize === size,
+            click: (_item, win) => sendMenuCommand('readerFontSize', win, size)
+          }))
         },
         { type: 'separator' },
         { role: 'reload', label: '重新加载' },

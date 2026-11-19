@@ -151,11 +151,27 @@ export const METRICS = {
   renameButtonPaddingX: 12
 } as const
 
-/** 阅读排版 token（monaco.ts 的 READER_EDITOR_OPTIONS 引用） */
+/**
+ * 阅读排版 token（monaco.ts 的正文 options 引用）
+ * fontFamilies 是字体栈唯一来源（shared/types.ts 的 READER_FONTS 只给菜单 key 与中文名）；
+ * 行高固定按 22/15 的比例随字号换算，保证中文行距不被挤
+ */
 export const READING = {
-  fontSize: 15,
-  lineHeight: 22
+  fontSize: DEFAULT_SETTINGS.readerFontSize,
+  lineHeightRatio: 22 / 15,
+  fontFamilies: {
+    pingfang: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif',
+    songti: '"Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", serif',
+    kaiti: '"Kaiti SC", "STKaiti", "KaiTi", serif',
+    yuanti: '"Yuanti SC", "YouYuan", "PingFang SC", sans-serif',
+    hiragino: '"Hiragino Sans GB", "PingFang SC", "Microsoft YaHei", sans-serif'
+  }
 } as const
+
+/** 行高换算：按字号等比缩放后取整（15 号 = 22px，与基线一致） */
+export function readingLineHeight(fontSize: number): number {
+  return Math.round(fontSize * READING.lineHeightRatio)
+}
 
 /** 注入当前主题：颜色 + 尺寸 + color-scheme（原生控件/滚动条跟随深浅） */
 export function applyTheme(dark: boolean): void {
