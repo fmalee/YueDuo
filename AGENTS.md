@@ -19,6 +19,21 @@
 - 主进程由 electron-vite 打包为 CJS（`package.json` 无 `type: module`），`__dirname` 可用；不要按 ESM 约定改造主进程。
 - 新增依赖需主流稳定、说明理由并锁版本；依赖/构建/目录等全局变更先确认。
 
+## 依赖与脚手架
+
+- 划分看「运行时是否被 require」，不看「源码里是否 import」：
+  - 主进程/preload 运行时包必须留在 `dependencies`。electron-vite 6 默认启用 `build.externalizeDeps`，把 `dependencies` 全量外置成 `require('包名')`，`devDependencies` 不参与外置。放错到 `devDependencies`，electron-builder 不会复制进 asar，打包版启动即 `MODULE_NOT_FOUND`；纯 JS 包可能被 Rollup 顺手打进 bundle 而侥幸能跑（掩盖问题），原生模块一定失败。
+  - 渲染层依赖（`vue`/`pinia`/`monaco-editor` 等）由 Vite 打进 `out/renderer`，运行时不读 `node_modules`，应放 `devDependencies`。放错到 `dependencies` 会连同传递依赖被 electron-builder 整棵复制进 asar。
+  - 构建与校验工具（`electron`、`electron-builder`、`electron-vite`、`vite`、`typescript`、`vue-tsc`、`eslint`、`prettier`、`tsx`）一律 `devDependencies`。
+- 最小运行时依赖集合（本项目实际）：`@electron-toolkit/utils`、`better-sqlite3`、`chardet`、`iconv-lite`，传递依赖 `node-addon-api`、`safer-buffer`。preload 只用 `electron`；渲染层为 0。`@electron-toolkit/preload` 没有使用，不要加回。核对方法：看 `out/main/main.js` 顶部的 `require(...)` 清单，不要凭 package.json 猜。
+- electron-builder 只按 `dependencies` 收集 `node_modules`；`files` 里的 `!node_modules/...` 只是补充裁剪，不能替代正确分区。排除一个包不会连带排除它的 peer 和传递依赖（把 `pinia` 放在 `dependencies` 时，只排除 `pinia` 自己，`vue`/`@vue/devtools-api`/`nostics` 仍会进包）。
+- `better-sqlite3`：13.x 自带 N-API 预编译，加载顺序 `build/Debug` → `build/Release` → `prebuilds/<platform>-<arch>.node`；N-API 与 Electron ABI 无关，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`。`electron-builder.yml` 只保留 `darwin-x64.node`，出 arm64 包必须补回 `darwin-arm64.node` 或按 arch 配置。升级 Electron/better-sqlite3 后先跑 `npm run verify:native`，在 Electron 进程内真 `require` 并建表插查。
+- `electron.vite.config.ts` 里 external 的 `bindings`/`file-uri-to-path` 是 better-sqlite3 12 及以前的传递依赖，13.2 已不依赖；保留无害，但不要据此认为需要安装它们。
+- `electron-vite` 与 `vite` 的版本约束：electron-vite 6 peer 为 vite `^6 || ^7 || ^8`（当前 8.3.x），@vitejs/plugin-vue 6 peer 为 `^5 || ^6 || ^7 || ^8`。vite 8 基于 rolldown（electron-vite 内部用 `build.rolldownOptions`，`rollupOptions` 是兼容别名），引擎要求 Node `^20.19 || >=22.12`。升级任一方主版本前先对齐 peer 范围，不要只升一边。
+- TypeScript 固定 `"typescript": "^5.9.3"`（5.x 末版），禁止写 `latest`/`*`/`>=5.9`：npm `latest` 现为 7.0.2；TS 7 是原生移植，包内只有 `lib/version.cjs` 与 `unstable/*`，不提供 `lib/typescript.js` 编译 API，vue-tsc/Volar 的 SFC 类型检查依赖该 API；TS 6.0.x 仍带 API 但属过渡桥；typescript-eslint 8.73 的 peer 是 `>=4.8.4 <6.1.0`，7 不在支持范围。`^5.9.3` 的大版本锁保证 `npm i` 不会被带到 7。
+- 依赖核查口径：`npm ls --all` 退出码必须为 0，UNMET 只允许 optional（`@swc/core`、`@stylistic/eslint-plugin`、`@typescript/native`、平台相关 rolldown/esbuild 二进制）；出现 invalid peer 或非 optional 缺失才算问题，不能用加包糊过去。
+- 2026-11-20 已完成的分区结论：`@electron-toolkit/preload` 已删除（全仓库无 import）；`pinia`、`monaco-editor` 已从 `dependencies` 挪到 `devDependencies`。打包实测 asar 的 `node_modules` 只剩 `@electron-toolkit/utils`、`better-sqlite3`、`chardet`、`iconv-lite` 及 `node-addon-api`、`safer-buffer`，`vue`/`@vue/devtools-api`/`nostics` 约 3MB 不再进包；`electron-builder.yml` 里针对 monaco/pinia/dompurify/marked 的 `files` 排除项已无实际对象，保留为兜底。
+
 ## 架构与目录
 
 - `electron/` 主进程：`ipc/` 按域分 handler（file/library/session/meta/finder/convert/dialog/native），`services/` 纯 Node 可单测、不 import Electron。
