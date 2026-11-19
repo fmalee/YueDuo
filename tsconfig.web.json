@@ -3,9 +3,8 @@
   "include": ["src/env.d.ts", "src/**/*", "src/**/*.vue", "electron/preload.d.ts", "shared/**/*.ts"],
   "compilerOptions": {
     "composite": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   }
 }
