@@ -59,12 +59,23 @@ async function loadDir(relativeDir: string): Promise<void> {
   }
 }
 
-/** 刷新只重读目录树（回根目录并折叠），不触发全库扫描（对齐 Python） */
+/** 换库/首次挂载：重建目录树（回根目录并折叠），不触发扫描 */
 async function reloadRoot(): Promise<void> {
   entries.clear()
   expanded.clear()
   openError.value = ''
   if (library.root) await loadDir('')
+}
+
+/**
+ * 刷新 = 对当前活动书库做一次完整重扫（新增入库、对账识别移动、删除出库），
+ * 完成后由 fileRevision 重读目录树、enrich 刷新四类列表；活动标签与会话不受影响。
+ */
+async function refreshLibrary(): Promise<void> {
+  if (!library.root || library.scanning) return
+  openError.value = ''
+  const ok = await library.rescanLibrary()
+  if (!ok && library.error) openError.value = `刷新失败：${library.error}`
 }
 
 /**
@@ -148,7 +159,14 @@ watch(
       <span class="status" :title="library.root">
         {{ openError || status || library.root || '未设置书库' }}
       </span>
-      <button class="yd-text-button" title="重新读取当前目录树" @click="reloadRoot">刷新</button>
+      <button
+        class="yd-text-button"
+        :disabled="!library.root || library.scanning"
+        :title="library.scanning ? '正在扫描当前书库…' : '重新扫描当前书库，更新目录与列表'"
+        @click="refreshLibrary"
+      >
+        {{ library.scanning ? '刷新中…' : '刷新' }}
+      </button>
     </footer>
   </div>
 </template>
@@ -185,6 +203,14 @@ watch(
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.yd-text-button:disabled {
+  color: var(--yd-text-3);
+  cursor: default;
+  opacity: 0.55;
+}
+.yd-text-button:disabled:hover {
+  background: transparent;
 }
 .choose {
   margin-top: 4px;

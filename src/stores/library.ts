@@ -107,19 +107,37 @@ export const useLibraryStore = defineStore('library', {
       void this.enrich()
     },
 
-    /** 后台补元数据 + 对账；完成后刷新列表（书架目录树不走库） */
-    async enrich(): Promise<void> {
-      if (!this.root || this.scanning) return
+    /**
+     * 后台补元数据 + 对账；完成后刷新列表（书架目录树不走库）。
+     * 返回本轮扫描是否成功，供「刷新」按钮区分完成与失败。
+     */
+    async enrich(): Promise<boolean> {
+      if (!this.root || this.scanning) return false
       this.scanning = true
       this.scanned = 0
+      this.error = ''
       try {
         this.lastEnrich = await libraryEnrich()
         await this.refreshLists()
+        return true
       } catch (e) {
         this.error = message(e)
+        return false
       } finally {
         this.scanning = false
       }
+    },
+
+    /**
+     * 书架「刷新」（方案 §2.5）：对活动书库做一次完整重扫——
+     * 新文件入库、文件移动按对账识别、达到阈值的删除出库，随后四类列表由 enrich 刷新；
+     * fileRevision 再驱动书架目录树重读已加载目录（保留展开态），活动标签与会话不动。
+     */
+    async rescanLibrary(): Promise<boolean> {
+      if (!this.root || this.scanning) return false
+      const ok = await this.enrich()
+      if (ok) this.fileRevision++
+      return ok
     },
 
     /**
