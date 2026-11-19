@@ -21,6 +21,15 @@ export const useTabsStore = defineStore('tabs', {
       if (i === -1) this.tabs.push(meta)
       else this.tabs[i] = meta
     },
+    /**
+     * 新建标签插到指定标签之后（afterId 不存在则追加到末尾）。
+     * 数组顺序即会话 position，落盘时按顺序写，不需要额外维护。
+     */
+    insertTabAfter(meta: TabMeta, afterId: string | null): void {
+      const i = afterId ? this.tabs.findIndex((t) => t.id === afterId) : -1
+      if (i === -1) this.tabs.push(meta)
+      else this.tabs.splice(i + 1, 0, meta)
+    },
     patchTab(id: string, patch: Partial<TabMeta>): void {
       const t = this.tabs.find((x) => x.id === id)
       if (t) Object.assign(t, patch)

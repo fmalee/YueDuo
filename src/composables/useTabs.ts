@@ -107,14 +107,18 @@ export function useTabs(): {
 
     createTabModel(id, text, encoding)
     setStatCache(id, stat)
-    store.upsertTab({
-      id,
-      path: normalized,
-      title, // 书名作标签标题，完整显示不裁切（VS Code 逻辑）
-      encoding,
-      dirty: false,
-      lastFocusedAt: Date.now()
-    })
+    // 与新建空白标签一致：插到当前标签紧后面，数组顺序变化随 schedulePersist 落盘
+    store.insertTabAfter(
+      {
+        id,
+        path: normalized,
+        title, // 书名作标签标题，完整显示不裁切（VS Code 逻辑）
+        encoding,
+        dirty: false,
+        lastFocusedAt: Date.now()
+      },
+      store.activeTabId
+    )
     store.setActive(id)
     // 打开即写最近阅读时间（方案 §2.5）；阅读中的位置变化由 useLibraryStore 60 秒防抖更新（§2.11）
     void library.markRead(normalized)
@@ -122,18 +126,25 @@ export function useTabs(): {
     return id
   }
 
-  /** Cmd+N 新建空白标签（方案 §1.5：不弹保存框） */
+  /**
+   * Cmd+N 新建空白标签（方案 §1.5：不弹保存框）：
+   * 插到当前标签紧后面并成为活动标签，数组顺序变化随 schedulePersist 落盘
+   */
   function newBlankTab(): string {
     const id = newTabId()
+    const afterId = store.activeTabId
     createTabModel(id, '')
-    store.upsertTab({
-      id,
-      path: '',
-      title: '未命名',
-      encoding: '',
-      dirty: false,
-      lastFocusedAt: Date.now()
-    })
+    store.insertTabAfter(
+      {
+        id,
+        path: '',
+        title: '未命名',
+        encoding: '',
+        dirty: false,
+        lastFocusedAt: Date.now()
+      },
+      afterId
+    )
     store.setActive(id)
     schedulePersist()
     return id
