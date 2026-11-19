@@ -9,6 +9,7 @@ import StatusBar from '@/components/StatusBar.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import { useTabs } from '@/composables/useTabs'
 import { useEditorCommands } from '@/composables/useEditorCommands'
+import { useEditorKeybindings } from '@/composables/useEditorKeybindings'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import { switchLibrary } from '@/composables/useLibrarySwitch'
 import {
@@ -84,25 +85,17 @@ function dispatchEditorCommand(
   window.dispatchEvent(new CustomEvent(event, { detail }))
 }
 
-// Cmd+N 新建空白标签（方案 §1.5：不弹保存框）；Cmd+P 命令面板（方案 §2.12）；
-// Cmd+L 锁定阅读（方案 §3.3，同 Python 视图菜单的 Ctrl+L）
-function onWindowKeydown(e: KeyboardEvent): void {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'l') {
-    e.preventDefault()
-    if (!e.repeat) reader.toggle()
-    return
+// Cmd+N / Cmd+P / Cmd+L / Cmd+S / Cmd+B / Shift+Cmd+B 统一由 useEditorKeybindings 分发，
+// 编辑器内外同一行为（方案：快捷键收口）；侧栏显隐由键盘直接翻转当前状态
+const { install: installKeybindings } = useEditorKeybindings({
+  toggleSidebar: () => {
+    leftVisible.value = !leftVisible.value
+  },
+  toggleRightPanel: () => {
+    rightVisible.value = !rightVisible.value
   }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'p') {
-    e.preventDefault()
-    e.stopPropagation()
-    palette.toggle()
-    return
-  }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'n') {
-    e.preventDefault()
-    newBlankTab()
-  }
-}
+})
+let disposeKeybindings: (() => void) | null = null
 
 /**
  * 顶部应用菜单命令（方案 §3.5）：保存/关闭类动作与标签右键菜单共用 useTabs 实现，
@@ -236,8 +229,8 @@ async function editAndSave(): Promise<Record<string, unknown>> {
 Object.assign(globalThis, { __yueEditAndSave: editAndSave })
 
 onMounted(async () => {
-  // 捕获阶段接管 Cmd+P：Monaco 的 textarea 会先收到按键，冒泡阶段拦截不稳
-  window.addEventListener('keydown', onWindowKeydown, true)
+  // 捕获阶段统一分发快捷键：Monaco 的编辑器会先收到按键，冒泡阶段拦截不稳
+  disposeKeybindings = installKeybindings()
   unsubscribeMenu = onAppMenuCommand(runMenuCommand)
   // 会话恢复先于任何打开动作：先挂退出握手，再按库还原标签顺序/active/进度
   initSession()
@@ -358,9 +351,9 @@ onMounted(async () => {
   }
 })
 
-// HMR 会重挂载根组件：不清理会让 window 上的 Cmd+N 监听器逐次叠加（一次按键新建多个标签）
+// HMR 会重挂载根组件：不清理会让 window 上的快捷键监听器逐次叠加（一次按键新建多个标签）
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onWindowKeydown, true)
+  disposeKeybindings?.()
   unsubscribeMenu?.()
 })
 </script>
