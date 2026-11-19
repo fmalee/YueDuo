@@ -27,7 +27,7 @@
   - 构建与校验工具（`electron`、`electron-builder`、`electron-vite`、`vite`、`typescript`、`vue-tsc`、`eslint`、`prettier`、`tsx`）一律 `devDependencies`。
 - 最小运行时依赖集合（本项目实际）：`@electron-toolkit/utils`、`better-sqlite3`、`chardet`、`iconv-lite`，传递依赖 `node-addon-api`、`safer-buffer`。preload 只用 `electron`；渲染层为 0。`@electron-toolkit/preload` 没有使用，不要加回。核对方法：看 `out/main/main.js` 顶部的 `require(...)` 清单，不要凭 package.json 猜。
 - electron-builder 只按 `dependencies` 收集 `node_modules`；`files` 里的 `!node_modules/...` 只是补充裁剪，不能替代正确分区。排除一个包不会连带排除它的 peer 和传递依赖（把 `pinia` 放在 `dependencies` 时，只排除 `pinia` 自己，`vue`/`@vue/devtools-api`/`nostics` 仍会进包）。
-- `better-sqlite3`：13.x 自带 N-API 预编译，加载顺序 `build/Debug` → `build/Release` → `prebuilds/<platform>-<arch>.node`；N-API 与 Electron ABI 无关，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`。`electron-builder.yml` 只保留 `darwin-x64.node`，出 arm64 包必须补回 `darwin-arm64.node` 或按 arch 配置。升级 Electron/better-sqlite3 后先跑 `npm run verify:native`，在 Electron 进程内真 `require` 并建表插查。
+- `better-sqlite3`：13.x 自带 N-API 预编译，加载顺序 `build/Debug` → `build/Release` → `prebuilds/<platform>-<arch>.node`；N-API 与 Electron ABI 无关，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`。打包不在配置里写死架构：`node_modules` 里 darwin 的 x64/arm64 两份 prebuild 都保留，打包后由 `build/afterPack.js` 按 `context.arch` 裁掉另一份，`npm run build:mac` 跟随构建机架构，`build:mac:x64` / `build:mac:arm64` 显式覆盖。升级 Electron/better-sqlite3 后先跑 `npm run verify:native`，在 Electron 进程内真 `require` 并建表插查。
 - `electron.vite.config.ts` 里 external 的 `bindings`/`file-uri-to-path` 是 better-sqlite3 12 及以前的传递依赖，13.2 已不依赖；保留无害，但不要据此认为需要安装它们。
 - `electron-vite` 与 `vite` 的版本约束：electron-vite 6 peer 为 vite `^6 || ^7 || ^8`（当前 8.3.x），@vitejs/plugin-vue 6 peer 为 `^5 || ^6 || ^7 || ^8`。vite 8 基于 rolldown（electron-vite 内部用 `build.rolldownOptions`，`rollupOptions` 是兼容别名），引擎要求 Node `^20.19 || >=22.12`。升级任一方主版本前先对齐 peer 范围，不要只升一边。
 - TypeScript 固定 `"typescript": "^5.9.3"`（5.x 末版），禁止写 `latest`/`*`/`>=5.9`：npm `latest` 现为 7.0.2；TS 7 是原生移植，包内只有 `lib/version.cjs` 与 `unstable/*`，不提供 `lib/typescript.js` 编译 API，vue-tsc/Volar 的 SFC 类型检查依赖该 API；TS 6.0.x 仍带 API 但属过渡桥；typescript-eslint 8.73 的 peer 是 `>=4.8.4 <6.1.0`，7 不在支持范围。`^5.9.3` 的大版本锁保证 `npm i` 不会被带到 7。
@@ -105,7 +105,7 @@
 - 开发用 `npm run dev`；自动化验收用 `YUE_TEST=1 npm run dev`（不显窗、不进 Dock、不抢前台），`YUE_DEBUG=1` 开 CDP 9222，配 `scripts/cdp-eval.mjs` / `cdp-shot.mjs`。
 - 开发态（存在 `ELECTRON_RENDERER_URL`）`userData` 固定指向项目内 `.dev/user-data`（已 gitignore、不进包），打包版仍用系统默认；开发态未设书库时默认 `/Users/Joey/Sites/Projects/小说`，切到其它路径先弹确认（扫描会写 Finder 星级/注释），`YUE_TEST` 下不弹框。
 - `YUE_TEST=1` 时删除（移废纸篓）的确认框直接放行，避免自动化卡在原生对话框。
-- 打包只保留 Electron 语言包 en/zh_CN（`electronLanguages`）；better-sqlite3 只带当前架构 prebuild（现为 `darwin-x64`），出 arm64 包需补回 `darwin-arm64.node` 或按 arch 配置。
+- 打包只保留 Electron 语言包 en/zh_CN（`electronLanguages`）；better-sqlite3 的 prebuild 由 `build/afterPack.js` 按目标架构裁剪（`npm run build:mac` 跟随本机架构，`build:mac:x64` / `build:mac:arm64` 显式覆盖），包内只留 `<platform>-<arch>.node` 一份。
 - 单实例锁：已有实例时重复启动会静默退出（退出码 0），排查「起不来」先查这个。
 - Electron 45 在 macOS 从 `node_modules` 启动时 `app.isPackaged` 为 true、`is.dev` 不可信；dev/生产以 `ELECTRON_RENDERER_URL` 是否存在判定。
 - native 模块只看 Electron 进程内真实 `require` 与建表插查（`npm run verify:native`），不看 rebuild 输出；better-sqlite3 13.2 自带 N-API prebuild，不需要 `prebuild-install`、`npm rebuild` 或 `electron-rebuild`；升级 Electron 后先查 `process.versions.modules`。

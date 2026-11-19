@@ -29,7 +29,7 @@ npm run verify:native  # 在 Electron 进程内真实 require better-sqlite3 并
 npm run format         # prettier --write .
 ```
 
-打包时先 `npm run build`，再按平台出包：`npm run build:mac`、`npm run build:win`、`npm run build:linux`；只想验证打包结构可用 `npm run build:unpack`（输出目录未压缩的 app）。`npm start` 是 `electron-vite preview`，预览已构建产物。
+打包时先 `npm run build`，再按平台出包：`npm run build:mac` 跟随本机架构（Intel 出 x64，Apple Silicon 出 arm64），`build:mac:x64` / `build:mac:arm64` 显式指定架构；`build:win`、`build:linux` 同理。只想验证打包结构可用 `npm run build:unpack`（输出目录未压缩的 app）。`npm start` 是 `electron-vite preview`，预览已构建产物。
 
 纯 Node 验收脚本在 `scripts/test-*.ts`，用 `npx tsx scripts/test-xxx.ts` 直接跑，测试数据在脚本内构造，不需要 Electron。
 
@@ -50,7 +50,7 @@ npm run format         # prettier --write .
 
 - macOS 用 ad-hoc 签名（`identity: '-'`），`hardenedRuntime: false`、`notarize: false`，只保证本机运行，不需要开发者证书，也不做公证。
 - Electron 语言包只保留 `en` 与 `zh_CN`，Framework 里其余 `.lproj` 约 17M 在打包时剔除。
-- better-sqlite3 只带 `darwin-x64` 预编译产物，其余平台的 `prebuilds/*.node` 与源码都被排除。要出 Apple Silicon 包必须补回 `darwin-arm64.node` 或按 arch 配置，否则打包版启动即 `MODULE_NOT_FOUND`。
+- better-sqlite3 的预编译产物按目标架构裁剪：配置里保留 macOS 的 x64/arm64 两份 prebuild，打包后由 [build/afterPack.mjs](build/afterPack.mjs) 按 `context.arch` 删掉不匹配的那份。所以 Intel 与 Apple Silicon 上都直接 `npm run build:mac` 即可，包内只有 `darwin-<arch>.node` 一份；其它平台的 prebuild 与源码不进包。dmg 文件名不带架构，同一目录先后构建两个架构会互相覆盖，想同时留两份用 `--dir`（分别落在 `dist/mac` 与 `dist/mac-arm64`）。
 - `npmRebuild: false`：better-sqlite3 13.x 自带 N-API 预编译，不需要 rebuild；升级 Electron 或 better-sqlite3 后跑 `npm run verify:native`。
 
 ## 数据位置
