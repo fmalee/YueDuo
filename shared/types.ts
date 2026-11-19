@@ -70,11 +70,13 @@ export type AppMenuCommand =
   | 'toggleRightPanel'
   | 'nextTab'
   | 'prevTab'
+  | 'readerFont'
+  | 'readerFontSize'
 
 /** 菜单命令附带值：appearance=外观模式，preloadCount=预载数量，toggleCloseButton=新勾选状态 */
 export interface AppMenuPayload {
   command: AppMenuCommand
-  value?: ThemeMode | number | boolean
+  value?: ThemeMode | ReaderFont | number | boolean
 }
 
 /** app:syncMenuState —— 渲染层侧栏显隐状态回写菜单勾选（键盘切换与菜单保持一致） */
@@ -355,6 +357,24 @@ export interface TidyResult {
 /** 外观三态（方案 §1.10：浅/深/跟随系统） */
 export type ThemeMode = 'light' | 'dark' | 'system'
 
+/**
+ * 正文字体：只列系统自带的中文字体（固定单选，默认苹方）。
+ * 字体栈的唯一来源是 styles/theme.ts 的 READING.fontFamilies，这里只给菜单用的 key 与中文名。
+ */
+export type ReaderFont = 'pingfang' | 'songti' | 'kaiti' | 'yuanti' | 'hiragino'
+
+/** 「显示 → 字体」单选组（顺序即菜单顺序） */
+export const READER_FONTS: { key: ReaderFont; label: string }[] = [
+  { key: 'pingfang', label: '苹方 PingFang SC' },
+  { key: 'songti', label: '宋体 Songti SC' },
+  { key: 'kaiti', label: '楷体 Kaiti SC' },
+  { key: 'yuanti', label: '圆体 Yuanti SC' },
+  { key: 'hiragino', label: '冬青黑 Hiragino Sans GB' }
+]
+
+/** 「显示 → 字号」离散档位（行高由 READING.lineHeightRatio 等比换算） */
+export const READER_FONT_SIZES = [13, 14, 15, 16, 17, 18, 20, 22, 24] as const
+
 /** 设置文件（userData/settings.json，方案 §1.9） */
 export interface AppSettings {
   /** 外观三态（§1.10） */
@@ -367,6 +387,10 @@ export interface AppSettings {
   preloadCount: number
   /** 标签关闭按钮是否常驻（false = 仅 hover / 当前标签显示） */
   closeButtonAlwaysVisible: boolean
+  /** 正文字体（「显示 → 字体」） */
+  readerFont: ReaderFont
+  /** 正文字号（READER_FONT_SIZES 之一） */
+  readerFontSize: number
 }
 
 /** 侧栏宽度约束（AGENTS.md 界面约定：拖拽夹 160–640） */
@@ -383,7 +407,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   sidebarWidth: 240,
   libraryRoot: '',
   preloadCount: 10,
-  closeButtonAlwaysVisible: true
+  closeButtonAlwaysVisible: true,
+  readerFont: 'pingfang',
+  readerFontSize: 15
 }
 
 /** 当前生效主题（主进程 nativeTheme 判定后推给渲染层，方案 §1.10） */

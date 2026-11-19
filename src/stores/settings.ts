@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { DEFAULT_SETTINGS } from '../../shared/types'
-import type { AppSettings, ThemeMode } from '../../shared/types'
+import type { AppSettings, ReaderFont, ThemeMode } from '../../shared/types'
 import { onThemeUpdated, settingsGet, settingsSet } from '@/ipc/bridge'
 import { applyTheme } from '@/styles/theme'
 import { applyMonacoTheme } from '@/monaco'
@@ -19,7 +19,9 @@ export const useSettingsStore = defineStore('settings', {
     sidebarWidth: DEFAULT_SETTINGS.sidebarWidth,
     libraryRoot: DEFAULT_SETTINGS.libraryRoot,
     preloadCount: DEFAULT_SETTINGS.preloadCount,
-    closeButtonAlwaysVisible: DEFAULT_SETTINGS.closeButtonAlwaysVisible
+    closeButtonAlwaysVisible: DEFAULT_SETTINGS.closeButtonAlwaysVisible,
+    readerFont: DEFAULT_SETTINGS.readerFont as ReaderFont,
+    readerFontSize: DEFAULT_SETTINGS.readerFontSize
   }),
   actions: {
     /** 首帧前初始化：读设置 → 注入 token → 订阅 nativeTheme 推送 */
@@ -31,6 +33,8 @@ export const useSettingsStore = defineStore('settings', {
         this.libraryRoot = saved.libraryRoot
         this.preloadCount = saved.preloadCount
         this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+        this.readerFont = saved.readerFont
+        this.readerFontSize = saved.readerFontSize
       } catch (e) {
         console.error('[theme] 读取设置失败，按默认外观启动:', e)
       }
@@ -56,7 +60,9 @@ export const useSettingsStore = defineStore('settings', {
         sidebarWidth: this.sidebarWidth,
         libraryRoot: this.libraryRoot,
         preloadCount: this.preloadCount,
-        closeButtonAlwaysVisible: this.closeButtonAlwaysVisible
+        closeButtonAlwaysVisible: this.closeButtonAlwaysVisible,
+        readerFont: this.readerFont,
+        readerFontSize: this.readerFontSize
       }
     },
 
@@ -69,6 +75,8 @@ export const useSettingsStore = defineStore('settings', {
         this.libraryRoot = saved.libraryRoot
         this.preloadCount = saved.preloadCount
         this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+        this.readerFont = saved.readerFont
+        this.readerFontSize = saved.readerFontSize
         return saved
       } catch (e) {
         console.error('[settings] 保存失败，本次修改仅内存生效:', e)
@@ -104,6 +112,17 @@ export const useSettingsStore = defineStore('settings', {
 
     async setCloseButtonAlwaysVisible(visible: boolean): Promise<void> {
       this.closeButtonAlwaysVisible = visible
+      await this.persist()
+    },
+
+    /** 正文字体/字号：EditorHost 监听这两个值，走 editor.updateOptions 即时生效 */
+    async setReaderFont(font: ReaderFont): Promise<void> {
+      this.readerFont = font
+      await this.persist()
+    },
+
+    async setReaderFontSize(size: number): Promise<void> {
+      this.readerFontSize = size
       await this.persist()
     },
 

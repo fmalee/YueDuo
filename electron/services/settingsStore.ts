@@ -5,10 +5,12 @@ import {
   DEFAULT_SETTINGS,
   PRELOAD_MAX_COUNT,
   PRELOAD_MIN_COUNT,
+  READER_FONTS,
+  READER_FONT_SIZES,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH
 } from '../../shared/types'
-import type { AppSettings, ThemeMode } from '../../shared/types'
+import type { AppSettings, ReaderFont, ThemeMode } from '../../shared/types'
 
 /**
  * 设置持久化 —— userData/settings.json（方案 §1.9）
@@ -56,7 +58,16 @@ function normalize(raw: unknown): AppSettings {
     closeButtonAlwaysVisible:
       typeof value.closeButtonAlwaysVisible === 'boolean'
         ? value.closeButtonAlwaysVisible
-        : DEFAULT_SETTINGS.closeButtonAlwaysVisible
+        : DEFAULT_SETTINGS.closeButtonAlwaysVisible,
+    // 字体与字号是固定单选：白名单外的值（旧文件/手工编辑）一律回落默认，不做区间夹取
+    readerFont: READER_FONTS.some((font) => font.key === value.readerFont)
+      ? (value.readerFont as ReaderFont)
+      : DEFAULT_SETTINGS.readerFont,
+    readerFontSize:
+      typeof value.readerFontSize === 'number' &&
+      (READER_FONT_SIZES as readonly number[]).includes(value.readerFontSize)
+        ? value.readerFontSize
+        : DEFAULT_SETTINGS.readerFontSize
   }
 }
 
