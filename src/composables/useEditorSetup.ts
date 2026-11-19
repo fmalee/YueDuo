@@ -36,8 +36,10 @@ export function applyReadOnly(editor: Editor, locked: boolean): void {
 export interface EditorActionHandlers {
   /** 右键「添加书签」（提示文案在调用方给状态栏） */
   addBookmark: () => void
-  /** 右键「转换」组（全角转半角 / 简转繁 / 繁转简） */
+  /** 右键「转换」组（转换为小写 / 转换为大写 / 全角转半角 / 简转繁 / 繁转简） */
   convert: (command: ConvertCommand) => void
+  /** 右键「转换为小写/大写」，只作用于选区 */
+  transformCase: (mode: 'lower' | 'upper') => void
   /** 右键「一键整理」 */
   tidy: () => void
 }
@@ -62,6 +64,23 @@ export function registerEditorActions(editor: Editor, handlers: EditorActionHand
     contextMenuOrder: 1,
     precondition: '!editorReadonly',
     run: () => handlers.convert('toHalfwidth')
+  })
+  editor.addAction({
+    id: 'yueduo.toLowerCase',
+    label: '转换为小写',
+    contextMenuGroupId: 'convert',
+    // 紧随「全角转半角」(1)，用小数避免改动既有顺序；无选区时不出现
+    contextMenuOrder: 1.1,
+    precondition: 'editorHasSelection && !editorReadonly',
+    run: () => handlers.transformCase('lower')
+  })
+  editor.addAction({
+    id: 'yueduo.toUpperCase',
+    label: '转换为大写',
+    contextMenuGroupId: 'convert',
+    contextMenuOrder: 1.2,
+    precondition: 'editorHasSelection && !editorReadonly',
+    run: () => handlers.transformCase('upper')
   })
   editor.addAction({
     id: 'yueduo.toTraditional',

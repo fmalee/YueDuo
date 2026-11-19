@@ -35,6 +35,7 @@ export function useEditorCommands(): {
     editor: Editor,
     convert: (text: string) => Promise<ConvertResult>
   ) => Promise<void>
+  transformCaseSelection: (editor: Editor, mode: 'lower' | 'upper') => void
   tidyDocument: (editor: Editor) => Promise<void>
 } {
   const store = useTabsStore()
@@ -118,6 +119,36 @@ export function useEditorCommands(): {
     showStatusMessage(`已转换${scope}，可用撤销恢复${note ? `；${note}` : ''}`, 5000)
   }
 
+  /**
+   * 大小写转换（右键「转换为小写/大写」）：只改选区，一次 executeEdits 应用，可一次撤销。
+   * 转换可能改变长度（如 ß → SS），替换后按新文本重新圈定选区。
+   */
+  function transformCaseSelection(editor: Editor, mode: 'lower' | 'upper'): void {
+    const model = editor.getModel()
+    if (!model) return
+    const selection = editor.getSelection()
+    if (!selection || selection.isEmpty()) return
+    const original = model.getValueInRange(selection)
+    const text = mode === 'lower' ? original.toLowerCase() : original.toUpperCase()
+    if (text === original) {
+      showStatusMessage('选区没有需要转换的内容')
+      return
+    }
+    const start = selection.getStartPosition()
+    const startOffset = model.getOffsetAt(start)
+    editor.pushUndoStop()
+    editor.executeEdits('transformCase', [{ range: selection, text }])
+    editor.pushUndoStop()
+    const end = model.getPositionAt(startOffset + text.length)
+    editor.setSelection({
+      startLineNumber: start.lineNumber,
+      startColumn: start.column,
+      endLineNumber: end.lineNumber,
+      endColumn: end.column
+    })
+    showStatusMessage(`已转换为${mode === 'lower' ? '小写' : '大写'}，可用撤销恢复`, 5000)
+  }
+
   /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，整篇一次替换、可撤销 */
   async function tidyDocument(editor: Editor): Promise<void> {
     const model = editor.getModel()
@@ -155,7 +186,7 @@ export function useEditorCommands(): {
     showStatusMessage('已整理完成，可用撤销恢复', 5000)
   }
 
-  return { saveActive, convertSelection, tidyDocument }
+  return { saveActive, convertSelection, transformCaseSelection, tidyDocument }
 }
 
 /** 右键「简繁/全角」转换动作（一键整理单独走 tidyDocument，返回结构不同） */

@@ -35,7 +35,7 @@ const store = useTabsStore()
 const settings = useSettingsStore()
 const library = useLibraryStore()
 const reader = useReaderStore()
-const { convertSelection, tidyDocument } = useEditorCommands()
+const { convertSelection, transformCaseSelection, tidyDocument } = useEditorCommands()
 const { addBookmarkAtCaret } = useBookmarks()
 const {
   loading,
@@ -161,6 +161,7 @@ onMounted(() => {
         .catch((e) => showStatusMessage(e instanceof Error ? e.message : String(e)))
     },
     convert: (command) => void convertSelection(instance, convertInvoker(command)),
+    transformCase: (mode) => transformCaseSelection(instance, mode),
     tidy: () => void tidyDocument(instance)
   })
 
