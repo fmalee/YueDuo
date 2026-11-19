@@ -17,6 +17,7 @@ import type {
   LibraryBook,
   LibraryEnrichResult,
   LibraryOpenResult,
+  LibrarySyncResult,
   LibraryTagSummary
 } from '../../shared/types'
 
@@ -293,14 +294,26 @@ export const useLibraryStore = defineStore('library', {
       }
     },
 
-    /** 保存后同步当前文件元数据，命中库内记录才刷新左栏（不做全库重扫） */
-    async syncMetadata(path: string): Promise<void> {
-      if (!this.root || !path) return
+    /**
+     * 保存后同步当前文件（不做全库重扫）：
+     * 库内已有记录 → 刷新左栏；另存为到库内产生新记录 → 同时驱动书架目录树重读，
+     * 新书立即出现在书架与历史/追更/评分/标签各列表。库外文件不变。
+     */
+    async syncMetadata(path: string): Promise<LibrarySyncResult | null> {
+      if (!this.root || !path) return null
       try {
         const result = await librarySyncMetadata(path)
-        if (result.updated) await this.refreshLists()
+        if (result.added) {
+          if (this.lastEnrich) {
+            this.lastEnrich = { ...this.lastEnrich, total: this.lastEnrich.total + 1 }
+          }
+          this.fileRevision++
+        }
+        if (result.added || result.updated) await this.refreshLists()
+        return result
       } catch (e) {
         this.error = message(e)
+        return null
       }
     }
   }

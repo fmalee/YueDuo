@@ -11,6 +11,7 @@ import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
 import { getTabModel, resetBaseline, setStatCache } from './useTabLifecycle'
 import { refreshChaptersForPath } from './useChapters'
+import { persistSessionNow } from './useSession'
 import { showStatusMessage } from './useStatusMessage'
 import type { ConvertResult, TidyResult } from '../../shared/types'
 
@@ -55,8 +56,18 @@ export function useEditorCommands(): {
     store.patchTab(tab.id, { dirty: false, encoding: 'UTF-16LE' })
     setStatCache(tab.id, stat)
     await fileClearDraft(tab.id)
-    // 保存即按新正文重解析书名/作者/标签并刷新左栏；不做全库重扫
-    void library.syncMetadata(tab.path)
+    // 保存即按新正文重解析书名/作者/标签并刷新左栏，不做全库重扫；
+    // 另存为到书库根内时，这一步会把新文件按扫描同口径收录进 books，并让书架/左栏立即重读
+    const synced = await library.syncMetadata(tab.path)
+    // 标签标题以库内 title 为准（与书架、元数据栏同一口径）
+    const libraryTitle = synced?.book?.title
+    if (libraryTitle && store.tabs.some((t) => t.id === tab.id && t.title !== libraryTitle)) {
+      store.patchTab(tab.id, { title: libraryTitle })
+    }
+    // 新收录的书此刻已能换算 book_id，立即落盘会话，让 session_tabs 换成「book_id + 相对路径」
+    if (synced?.added) {
+      await persistSessionNow().catch((e) => console.error('[session] 保存后落盘失败:', e))
+    }
     // 右栏章节同样以落盘后的正文为准（方案 §2.6：保存后重提）
     refreshChaptersForPath(tab.path)
     return true
