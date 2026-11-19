@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
@@ -13,6 +13,65 @@ const store = useTabsStore()
 const { activateTab, closeTab } = useTabs()
 
 const scrollRef = ref<HTMLDivElement>()
+/** 目标项进入可视区时留的上下边距 */
+const REVEAL_PADDING = 8
+/** 滚动时长：短促收尾，连续切标签时不会越积越拖 */
+const REVEAL_DURATION_MS = 140
+let revealFrame: number | null = null
+
+function cancelReveal(): void {
+  if (revealFrame !== null) {
+    cancelAnimationFrame(revealFrame)
+    revealFrame = null
+  }
+}
+
+/**
+ * 当前标签滚入左栏可视区（方案 §1.5）：
+ * 标签栏自己会跟随激活，但点标签栏、菜单上一个/下一个、Cmd+N、
+ * 会话恢复这些路径原本不会打动左栏，高亮项可能落在屏幕外。
+ * 只在目标不可见时做最小幅度滚动，已在可视区内则不动。
+ */
+function ensureActiveVisible(): void {
+  const container = scrollRef.value
+  // 侧栏隐藏时量不到位置，等下次激活或显示后的变更再滚
+  if (!container || container.clientHeight === 0) return
+  const active = container.querySelector<HTMLElement>('.sidebar-item.active')
+  if (!active) return
+  // 先停掉上一段滚动，避免它在目标已可见时继续把列表带离该条目
+  cancelReveal()
+  const viewRect = container.getBoundingClientRect()
+  const activeRect = active.getBoundingClientRect()
+  const top = activeRect.top - viewRect.top
+  const bottom = activeRect.bottom - viewRect.top
+  let next = container.scrollTop
+  if (top < REVEAL_PADDING) {
+    next = container.scrollTop + top - REVEAL_PADDING
+  } else if (
+    bottom > viewRect.height - REVEAL_PADDING &&
+    activeRect.height <= viewRect.height - REVEAL_PADDING * 2
+  ) {
+    next = container.scrollTop + bottom + REVEAL_PADDING - viewRect.height
+  }
+  const max = container.scrollHeight - container.clientHeight
+  next = Math.max(0, Math.min(max, Math.round(next)))
+  if (next === Math.round(container.scrollTop)) return
+  const start = container.scrollTop
+  const delta = next - start
+  const startedAt = performance.now()
+  const step = (now: number): void => {
+    // 隐藏/节流窗口的动画帧时间戳可能早于 startedAt，夹住避免反向越界
+    const progress = Math.min(1, Math.max(0, (now - startedAt) / REVEAL_DURATION_MS))
+    container.scrollTop = start + delta * (1 - (1 - progress) * (1 - progress))
+    revealFrame = progress < 1 ? requestAnimationFrame(step) : null
+  }
+  revealFrame = requestAnimationFrame(step)
+}
+
+// 不关心激活来源：跟随 active/标签数量变化，覆盖点击、菜单、Cmd+N 与会话恢复
+watch([() => store.activeTabId, () => store.tabs.length], () => {
+  void nextTick(ensureActiveVisible)
+})
 
 interface MenuState {
   x: number
@@ -150,12 +209,14 @@ function onWindowKeydown(e: KeyboardEvent): void {
 }
 
 onMounted(() => {
+  void nextTick(ensureActiveVisible)
   window.addEventListener('pointerdown', onWindowPointerDown, true)
   window.addEventListener('keydown', onWindowKeydown)
   window.addEventListener('blur', dismiss)
 })
 
 onBeforeUnmount(() => {
+  cancelReveal()
   window.removeEventListener('pointerdown', onWindowPointerDown, true)
   window.removeEventListener('keydown', onWindowKeydown)
   window.removeEventListener('blur', dismiss)
