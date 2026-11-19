@@ -77,6 +77,12 @@ export interface AppMenuPayload {
   value?: ThemeMode | number | boolean
 }
 
+/** app:syncMenuState —— 渲染层侧栏显隐状态回写菜单勾选（键盘切换与菜单保持一致） */
+export interface AppMenuState {
+  sidebarVisible: boolean
+  rightPanelVisible: boolean
+}
+
 /** dialog:confirmClose 返回 */
 export type ConfirmChoice = 'save' | 'discard' | 'cancel'
 

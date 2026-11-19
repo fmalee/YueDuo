@@ -6,7 +6,7 @@ import {
   type MenuItemConstructorOptions
 } from 'electron'
 import { readSettings } from './services/settingsStore'
-import type { AppMenuCommand, AppMenuPayload, ThemeMode } from '../shared/types'
+import type { AppMenuCommand, AppMenuPayload, AppMenuState, ThemeMode } from '../shared/types'
 
 /** 外观三态（方案 §1.10）：菜单里以单选组呈现，勾选项跟设置落盘值一致 */
 const APPEARANCES: { mode: ThemeMode; label: string }[] = [
@@ -213,6 +213,7 @@ export function installApplicationMenu(): void {
         },
         { type: 'separator' },
         {
+          id: 'toggleSidebar',
           label: '显示左侧栏',
           type: 'checkbox',
           checked: true,
@@ -220,6 +221,7 @@ export function installApplicationMenu(): void {
           click: (item, win) => sendMenuCommand('toggleSidebar', win, item.checked)
         },
         {
+          id: 'toggleRightPanel',
           label: '显示右侧栏',
           type: 'checkbox',
           checked: true,
@@ -264,4 +266,16 @@ export function installApplicationMenu(): void {
   )
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/**
+ * 侧栏显隐回写菜单勾选：键盘快捷键不经过菜单 click，勾选状态得由应用状态驱动。
+ * 只改现有菜单项的 checked，不重建菜单，避免菜单展开时被替换。
+ */
+export function syncMenuState(state: AppMenuState): void {
+  const menu = Menu.getApplicationMenu()
+  const sidebar = menu?.getMenuItemById('toggleSidebar')
+  if (sidebar) sidebar.checked = state.sidebarVisible
+  const rightPanel = menu?.getMenuItemById('toggleRightPanel')
+  if (rightPanel) rightPanel.checked = state.rightPanelVisible
 }

@@ -1,5 +1,6 @@
 import type {
   AppMenuPayload,
+  AppMenuState,
   AppSettings,
   BookmarkInfo,
   ChapterInfo,
@@ -173,6 +174,11 @@ export function onSessionFlush(callback: () => void): () => void {
 /** 订阅顶部应用菜单命令（保存/关闭类与标签右键菜单共用动作） */
 export function onAppMenuCommand(callback: (payload: AppMenuPayload) => void): () => void {
   return window.yue.onAppMenuCommand(callback)
+}
+
+/** app:syncMenuState —— 侧栏显隐变化后回写菜单勾选，让键盘切换与菜单状态一致 */
+export function appSyncMenuState(state: AppMenuState): Promise<null> {
+  return ipcInvoke<null>('app:syncMenuState', state)
 }
 
 /** library:current —— 主进程启动时按设置打开的活动书库（方案 §2.13） */

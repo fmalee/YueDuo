@@ -3,6 +3,7 @@ import type { AppMenuPayload, IpcResult, LibraryScanProgress, ThemeChanged } fro
 
 /** preload 与主进程保持一致的域前缀白名单 */
 const DOMAINS = [
+  'app:',
   'file:',
   'library:',
   'session:',

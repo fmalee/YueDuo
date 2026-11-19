@@ -20,6 +20,7 @@ export function handle(channel: string, fn: Handler): void {
 
 /** IPC 域前缀白名单：preload 侧同款校验，双保险 */
 export const IPC_DOMAINS = [
+  'app:',
   'file:',
   'library:',
   'session:',

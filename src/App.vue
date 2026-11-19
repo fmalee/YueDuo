@@ -13,6 +13,7 @@ import { useEditorKeybindings } from '@/composables/useEditorKeybindings'
 import { useCommandPalette } from '@/composables/useCommandPalette'
 import { switchLibrary } from '@/composables/useLibrarySwitch'
 import {
+  appSyncMenuState,
   fileReadDraft,
   fileReadText,
   chooseOpenFile,
@@ -96,6 +97,19 @@ const { install: installKeybindings } = useEditorKeybindings({
   }
 })
 let disposeKeybindings: (() => void) | null = null
+
+/**
+ * 侧栏显隐变化回写应用菜单勾选：菜单点选时 Electron 自己改 checked，
+ * 键盘切换不经过菜单，得由应用状态推一次，否则「显示/窗口」里的勾选会掉队。
+ * 同步失败只影响菜单勾选，不影响界面状态。
+ */
+watch(
+  [leftVisible, rightVisible],
+  ([sidebarVisible, rightPanelVisible]) => {
+    void appSyncMenuState({ sidebarVisible, rightPanelVisible }).catch(() => undefined)
+  },
+  { immediate: true }
+)
 
 /**
  * 顶部应用菜单命令（方案 §3.5）：保存/关闭类动作与标签右键菜单共用 useTabs 实现，

@@ -1,4 +1,5 @@
 import { handle } from './registry'
+import { appSyncMenuState } from './app'
 import { nativeSanity } from './native'
 import {
   fileReadText,
@@ -48,11 +49,13 @@ import { settingsGet, settingsSet } from './settings'
 import { sessionPersist, sessionRestore, sessionRelocate, sessionFlushDone } from './session'
 import { applyMetadataEdit, readMetadata } from './meta'
 import { convertHalfwidth, convertSimplified, convertTraditional, tidyDocument } from './convert'
-import type { AppSettings, DraftTabMeta } from '../../shared/types'
+import type { AppMenuState, AppSettings, DraftTabMeta } from '../../shared/types'
 
 /** 各域 handler 汇聚注册（新增域在此追加） */
 export function registerIpcHandlers(): void {
   handle('native:sanity', () => nativeSanity())
+  // 菜单勾选跟随应用状态（键盘切换侧栏后回写，与菜单点击一致）
+  handle('app:syncMenuState', (state: unknown) => appSyncMenuState(state as AppMenuState))
   handle('file:readText', (path: unknown) => fileReadText(String(path)))
   handle('file:stat', (path: unknown) => fileStat(String(path)))
   handle('file:writeText', (path: unknown, text: unknown) =>
