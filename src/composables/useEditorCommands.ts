@@ -1,21 +1,48 @@
-import { fileClearDraft, fileWriteText } from '@/ipc/bridge'
+import type * as Monaco from 'monaco-editor/editor/editor.api'
+import {
+  convertTidy,
+  convertToHalfwidth,
+  convertToSimplified,
+  convertToTraditional,
+  fileClearDraft,
+  fileWriteText
+} from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
-import { getTabModel, isDirty, resetBaseline, setStatCache } from './useTabLifecycle'
+import { getTabModel, resetBaseline, setStatCache } from './useTabLifecycle'
 import { refreshChaptersForPath } from './useChapters'
+import { showStatusMessage } from './useStatusMessage'
+import type { ConvertResult, TidyResult } from '../../shared/types'
 
-/** 保存当前标签：全文只在保存瞬间取自 model（方案：全文不进 reactive store） */
+type Editor = Monaco.editor.IStandaloneCodeEditor
+
+/** 简繁转换的保留项说明（Python ConvertResult.note 同款文案） */
+function conversionNote(result: ConvertResult): string {
+  const parts: string[] = []
+  if (result.kept) parts.push(`保留 ${result.kept} 处多义字`)
+  if (result.keptWords) parts.push(`保护词 ${result.keptWords} 处`)
+  return parts.join('，')
+}
+
+/**
+ * 编辑器命令（保存 + 转换/整理）：全文只在读写瞬间取自 model，结果再回到 model。
+ * 键位统一由 useEditorKeybindings 分发，右键菜单由 useEditorSetup 注册，二者共用这里的实现。
+ */
 export function useEditorCommands(): {
-  saveActive: (editor?: import('monaco-editor').editor.IStandaloneCodeEditor) => Promise<boolean>
+  saveActive: (editor?: Editor) => Promise<boolean>
+  convertSelection: (
+    editor: Editor,
+    convert: (text: string) => Promise<ConvertResult>
+  ) => Promise<void>
+  tidyDocument: (editor: Editor) => Promise<void>
 } {
   const store = useTabsStore()
   const library = useLibraryStore()
 
-  async function saveActive(
-    editor?: import('monaco-editor').editor.IStandaloneCodeEditor
-  ): Promise<boolean> {
+  /** 保存当前标签：全文只在保存瞬间取自 model（方案：全文不进 reactive store） */
+  async function saveActive(editor?: Editor): Promise<boolean> {
     const tab = store.activeTab
-    // 空白标签无保存路径（另存为流程在 closeTab/dialog:saveFile 侧处理）
+    // 空白标签无保存路径（另存为流程在 saveTab / dialog:saveFile 侧处理）
     if (!tab || !tab.path) return false
     const entry = getTabModel(tab.id)
     if (!entry) return false
@@ -35,38 +62,97 @@ export function useEditorCommands(): {
     return true
   }
 
-  return { saveActive }
+  /**
+   * 转换类动作（方案 §3.2）：有选区就转选区，否则转全文；一次 executeEdits 应用，可用撤销恢复。
+   * 等主进程返回期间标签可能已切换、正文可能被改，写回前必须复核 model 与原文。
+   */
+  async function convertSelection(
+    editor: Editor,
+    convert: (text: string) => Promise<ConvertResult>
+  ): Promise<void> {
+    const model = editor.getModel()
+    if (!model) return
+    const selection = editor.getSelection()
+    const hasSelection = !!selection && !selection.isEmpty()
+    const range = hasSelection ? selection : model.getFullModelRange()
+    const original = model.getValueInRange(range)
+    if (!original.trim()) {
+      showStatusMessage(hasSelection ? '选区没有可转换的内容' : '全文没有可转换的内容')
+      return
+    }
+    let result: ConvertResult
+    try {
+      result = await convert(original)
+    } catch (e) {
+      showStatusMessage(`转换失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+      return
+    }
+    if (model.isDisposed() || editor.getModel() !== model) return
+    if (model.getValueInRange(range) !== original) {
+      showStatusMessage('转换期间文本已修改，结果未应用', 5000)
+      return
+    }
+    if (result.text === original) {
+      showStatusMessage(hasSelection ? '选区没有可转换的内容' : '全文没有可转换的内容')
+      return
+    }
+    const position = editor.getPosition()
+    editor.pushUndoStop()
+    editor.executeEdits('convert', [{ range, text: result.text }])
+    editor.pushUndoStop()
+    // 全文整体替换会把光标挤到末尾，转换后按原行列放回（setPosition 自动夹到正文范围内）
+    if (!hasSelection && position) editor.setPosition(position)
+    const note = conversionNote(result)
+    const scope = hasSelection ? '选区' : '全文'
+    showStatusMessage(`已转换${scope}，可用撤销恢复${note ? `；${note}` : ''}`, 5000)
+  }
+
+  /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，整篇一次替换、可撤销 */
+  async function tidyDocument(editor: Editor): Promise<void> {
+    const model = editor.getModel()
+    if (!model) return
+    const original = model.getValue()
+    if (!original.trim()) {
+      showStatusMessage('当前文档为空，无需整理')
+      return
+    }
+    showStatusMessage('正在整理…', 60_000)
+    let result: TidyResult
+    try {
+      result = await convertTidy(original)
+    } catch (e) {
+      showStatusMessage(`整理失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+      return
+    }
+    if (model.isDisposed() || editor.getModel() !== model) {
+      showStatusMessage('文档已切换，整理结果未应用', 5000)
+      return
+    }
+    if (model.getValue() !== original) {
+      showStatusMessage('整理期间文本已修改，结果未应用', 5000)
+      return
+    }
+    if (result.text === original) {
+      showStatusMessage('文本无需整理')
+      return
+    }
+    const position = editor.getPosition()
+    editor.pushUndoStop()
+    editor.executeEdits('tidy', [{ range: model.getFullModelRange(), text: result.text }])
+    editor.pushUndoStop()
+    if (position) editor.setPosition(position)
+    showStatusMessage('已整理完成，可用撤销恢复', 5000)
+  }
+
+  return { saveActive, convertSelection, tidyDocument }
 }
 
-export { isDirty }
+/** 右键「简繁/全角」转换动作（一键整理单独走 tidyDocument，返回结构不同） */
+export type ConvertCommand = 'toHalfwidth' | 'toTraditional' | 'toSimplified'
 
-/* 合并段落：删除光标前面的内容+换行 */
-export function deleteToLineStart(
-  editor: import('monaco-editor').editor.IStandaloneCodeEditor
-): void {
-  const model = editor.getModel()
-  const pos = editor.getPosition()
-  if (!model || !pos) return
-  if (pos.lineNumber === 1 && pos.column === 1) return
-
-  // 第一行只有「行首到光标」；其余行从上一行行尾起，顺带吃掉换行
-  const start =
-    pos.lineNumber === 1
-      ? { lineNumber: 1, column: 1 }
-      : { lineNumber: pos.lineNumber - 1, column: model.getLineMaxColumn(pos.lineNumber - 1) }
-
-  editor.pushUndoStop()
-  editor.executeEdits('deleteToLineStart', [
-    {
-      range: {
-        startLineNumber: start.lineNumber,
-        startColumn: start.column,
-        endLineNumber: pos.lineNumber,
-        endColumn: pos.column
-      },
-      text: ''
-    }
-  ])
-  editor.pushUndoStop()
-  editor.focus()
+/** 命令名 → 主进程转换实现（右键菜单与菜单栏事件共用一份映射） */
+export function convertInvoker(command: ConvertCommand): (text: string) => Promise<ConvertResult> {
+  if (command === 'toTraditional') return convertToTraditional
+  if (command === 'toSimplified') return convertToSimplified
+  return convertToHalfwidth
 }
