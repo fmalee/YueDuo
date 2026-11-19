@@ -286,9 +286,14 @@ export interface LibraryEnrichResult {
   deleted: number
 }
 
-/** library:syncMetadata 返回：该文件是否在 books 命中并更新 */
+/** library:syncMetadata 返回：保存后单文件入库结果（库外跳过时三项均为 false/null） */
 export interface LibrarySyncResult {
+  /** 库内文件已按扫描口径写入（更新或新插入） */
   updated: boolean
+  /** 本次新收录（books 插入了一行） */
+  added: boolean
+  /** 写入后的完整书目；库外或文件不可读为 null */
+  book: LibraryBook | null
 }
 
 /** 元数据解析结果（方案 §2.4；主进程解析、渲染层展示共用） */

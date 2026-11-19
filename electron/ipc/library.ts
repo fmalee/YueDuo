@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { readFile, realpath } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
-import { listDirectory, scanLibrary } from '../services/libraryScanner'
+import { ingestFile, listDirectory, scanLibrary } from '../services/libraryScanner'
 import { reconcileLibrary } from '../services/reconcile'
 import { LibraryDatabaseManager } from '../services/libraryDatabase'
 import { readSettings } from '../services/settingsStore'
@@ -300,22 +300,23 @@ function syncMetadataFromText(resolved: string, relativePath: string, text: stri
 }
 
 /**
- * 保存文件后同步元数据（方案 §2.5 验收补丁）：读保存后的正文，按扫描同口径解析
- * 书名/作者/标签并只更新这一本，不做全库重扫。
+ * 保存文件后同步这一本（方案 §2.5 验收补丁 + 另存为入库）：
+ * 按扫描同口径解析书名/作者/标签并写库，命中则更新、未命中则插入一行——
+ * 另存为到书库根内的新文件因此无需全库扫描即可出现在书架与左栏。
+ * 退回库外/不可读时返回 updated=false（库外保存行为不变）。
  */
 export async function syncBookMetadata(path: unknown): Promise<LibrarySyncResult> {
-  if (typeof path !== 'string' || !path) return { updated: false }
+  const skipped: LibrarySyncResult = { updated: false, added: false, book: null }
+  if (typeof path !== 'string' || !path) return skipped
   const root = requireRoot()
-  const relativePath = await relativeInLibrary(root, path)
-  if (!relativePath) return { updated: false }
-  const resolved = join(root, relativePath)
-  let data: Buffer
-  try {
-    data = await readFile(resolved)
-  } catch {
-    return { updated: false }
+  // 库内判定与相对路径换算都在 ingestFile 内完成（先 realpath 书库根与文件）
+  const ingested = await ingestFile(root, path)
+  if (!ingested) return skipped
+  return {
+    updated: true,
+    added: ingested.inserted,
+    book: findBookByRelativePath(root, ingested.relativePath)
   }
-  return { updated: syncMetadataFromText(resolved, relativePath, decodeBytes(data).text) }
 }
 
 /**

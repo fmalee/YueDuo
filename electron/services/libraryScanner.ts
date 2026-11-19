@@ -1,6 +1,7 @@
 import { readdir, readFile, realpath, stat } from 'fs/promises'
 import { basename, dirname, isAbsolute, join, relative, sep } from 'path'
 import type { Dirent } from 'fs'
+import type Database from 'better-sqlite3'
 import { decodeBytes } from './textCodec'
 import { parseMetadata } from './metadataParser'
 import { readFinderRating } from './finderMetadata'
@@ -107,6 +108,123 @@ export interface ScanLibraryOptions {
   shouldContinue?: () => boolean
 }
 
+/** 单个文件的入库结果（全库扫描与保存后单文件收录共用） */
+export interface IngestedBook {
+  relativePath: string
+  filename: string
+  title: string
+  wordCount: number
+  sizeBytes: number
+  /** 本次是否新插入一行（false = 命中已有记录并更新） */
+  inserted: boolean
+}
+
+/** 扫描/单文件入库共用的三条语句（INSERT/UPDATE 口径只维护一处） */
+interface BookWriters {
+  selectBook: Database.Statement
+  updateBook: Database.Statement
+  insertBook: Database.Statement
+}
+
+/**
+ * 入库写入口径只维护这一处：books 表按 relative_path 唯一身份，
+ * 命中则更新扫描可得字段（评分/进度/最近阅读留给其它流程），未命中插入一行。
+ */
+function prepareBookWriters(db: Database.Database): BookWriters {
+  return {
+    selectBook: db.prepare('SELECT id FROM books WHERE relative_path = ?'),
+    updateBook: db.prepare(`
+      UPDATE books SET
+        filename = @filename, title = @title, author = @author, tags = @tags,
+        word_count = @wordCount, size_bytes = @sizeBytes, encoding = @encoding,
+        rating = COALESCE(@rating, rating),
+        updated_at = @updatedAt
+      WHERE id = @id
+    `),
+    insertBook: db.prepare(`
+      INSERT INTO books
+        (relative_path, filename, title, author, tags, word_count, size_bytes, encoding, rating,
+         created_at, updated_at)
+      VALUES
+        (@relativePath, @filename, @title, @author, @tags, @wordCount, @sizeBytes, @encoding,
+         COALESCE(@rating, 0), @now, @now)
+    `)
+  }
+}
+
+interface BookWriteFields {
+  relativePath: string
+  filename: string
+  title: string
+  author: string
+  tags: string
+  wordCount: number
+  sizeBytes: number
+  encoding: string
+  rating: number | null
+  updatedAt: number
+}
+
+/** 写一条扫描结果，返回是否新插入（重复路径只更新，不产生重复行） */
+function writeBookRecord(writers: BookWriters, fields: BookWriteFields, now: number): boolean {
+  const existing = writers.selectBook.get(fields.relativePath) as { id: number } | undefined
+  if (existing) writers.updateBook.run({ ...fields, id: existing.id })
+  else writers.insertBook.run({ ...fields, now })
+  return !existing
+}
+
+/**
+ * 单文件入库（另存为保存到书库根内后立即收录，不做全库扫描）：
+ * 与 scanLibrary 同一口径 —— realpath 判定库内、解码正文、解析书名/作者/标签/字数，
+ * 按 relative_path 直命中写库。文件不在库内、非 .txt 或不可读时返回 null（库外行为不变）。
+ */
+export async function ingestFile(root: string, absolutePath: string): Promise<IngestedBook | null> {
+  if (!root || !absolutePath || !isTxtFile(basename(absolutePath))) return null
+  let realRoot: string
+  let resolved: string
+  try {
+    ;[realRoot, resolved] = await Promise.all([realpath(root), realpath(absolutePath)])
+  } catch {
+    return null
+  }
+  const rel = relative(realRoot, resolved)
+  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  const relativePath = rel.split(sep).join('/')
+  try {
+    const [data, info, rating] = await Promise.all([
+      readFile(resolved),
+      stat(resolved),
+      readFinderRating(resolved)
+    ])
+    const { text, encoding } = decodeBytes(data)
+    const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
+    const now = Date.now()
+    const fields: BookWriteFields = {
+      relativePath,
+      filename: basename(resolved),
+      title: meta.title,
+      author: meta.author,
+      tags: meta.tags.join(' '),
+      wordCount: meta.wordCount,
+      sizeBytes: info.size,
+      encoding,
+      rating,
+      updatedAt: now
+    }
+    const inserted = writeBookRecord(prepareBookWriters(getDatabase()), fields, now)
+    return {
+      relativePath,
+      filename: fields.filename,
+      title: fields.title,
+      wordCount: fields.wordCount,
+      sizeBytes: fields.sizeBytes,
+      inserted
+    }
+  } catch {
+    return null
+  }
+}
+
 /**
  * 后台补元数据（library:enrich）：
  * 逐本读取 → textCodec 探测解码 → 解析书名/作者/标签/字数 → 按 relative_path 直命中写库。
@@ -117,24 +235,7 @@ export async function scanLibrary(
   root: string,
   options: ScanLibraryOptions = {}
 ): Promise<LibraryScanResult> {
-  const db = getDatabase()
-  const selectBook = db.prepare('SELECT id FROM books WHERE relative_path = ?')
-  const updateBook = db.prepare(`
-    UPDATE books SET
-      filename = @filename, title = @title, author = @author, tags = @tags,
-      word_count = @wordCount, size_bytes = @sizeBytes, encoding = @encoding,
-      rating = COALESCE(@rating, rating),
-      updated_at = @updatedAt
-    WHERE id = @id
-  `)
-  const insertBook = db.prepare(`
-    INSERT INTO books
-      (relative_path, filename, title, author, tags, word_count, size_bytes, encoding, rating,
-       created_at, updated_at)
-    VALUES
-      (@relativePath, @filename, @title, @author, @tags, @wordCount, @sizeBytes, @encoding,
-       COALESCE(@rating, 0), @now, @now)
-  `)
+  const writers = prepareBookWriters(getDatabase())
 
   const seen = new Set<string>()
   const result: LibraryScanResult = { total: 0, skipped: 0, books: [] }
@@ -181,7 +282,7 @@ export async function scanLibrary(
       const { text, encoding } = decodeBytes(data)
       const meta = parseMetadata(text, basename(resolved), basename(dirname(resolved)))
       const now = Date.now()
-      const params = {
+      const fields: BookWriteFields = {
         relativePath,
         filename: basename(resolved),
         title: meta.title,
@@ -193,17 +294,15 @@ export async function scanLibrary(
         rating,
         updatedAt: now
       }
-      const existing = selectBook.get(relativePath) as { id: number } | undefined
-      if (existing) updateBook.run({ ...params, id: existing.id })
-      else insertBook.run({ ...params, now })
+      const inserted = writeBookRecord(writers, fields, now)
       result.total++
       result.books.push({
         relativePath,
-        filename: params.filename,
-        title: params.title,
-        wordCount: params.wordCount,
-        sizeBytes: params.sizeBytes,
-        inserted: !existing
+        filename: fields.filename,
+        title: fields.title,
+        wordCount: fields.wordCount,
+        sizeBytes: fields.sizeBytes,
+        inserted
       })
       if (index % 10 === 0) options.onProgress?.({ scanned: index, path: resolved })
     } catch {
