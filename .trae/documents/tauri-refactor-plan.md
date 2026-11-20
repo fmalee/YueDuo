@@ -205,9 +205,15 @@ YueDuo/
 - **落地纪要（关键口径修正）**：`ExitRequested(None)` 在**最后窗口 Destroyed 之后**才触发
   （tauri-runtime-wry 源码证实），渲染层已死无法回执——握手不能挂在那里。实际挂两处：
   ① `WindowEvent::CloseRequested`（红点/关闭窗口菜单，窗口存活）prevent_close → 握手 →
-  `app.exit(0)`；② `ExitRequested(Some(code))`（Cmd+Q/app.exit，窗口存活）同步握手后
-  放行（不 prevent）。`flush_handled` 标记防双路径二次握手；YUE_TEST 跳过握手（对齐原版
-  quitFlushled）。
+  `app.exit(0)`；② `ExitRequested(Some(code))`（Cmd+Q/app.exit，窗口存活）prevent_exit →
+  握手 → 完成后 `app.exit(0)`（handled 标记防双路径二次握手）；YUE_TEST 跳过握手
+  （对齐原版 quitFlushled）。
+- **真机反馈修正（2026-11-21，老李验证发现）**：初版在 run 回调里**同步**等回执——
+  Tauri 的 emit 经主线程事件循环派发到 WKWebView，同步等待把主线程堵死 3 秒，事件根本
+  发不出去（Electron 的 webContents.send 跨进程投递不依赖此循环，WKWebView 这套不行）。
+  修正为异步握手：prevent 后立即返回，`FlushGate` 拆成独立 managed state（AppState 含
+  rusqlite Connection 非 Sync，不能跨线程），后台线程等回执，完成后 run_on_main_thread
+  → shutdown + app.exit(0)。
 
 **P3.5 单实例锁 ✅ 已完成（2026-11-21）**：tauri-plugin-single-instance，Builder 首位注册；
 second-instance → run_on_main_thread → show + set_focus。

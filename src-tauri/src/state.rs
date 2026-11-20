@@ -73,7 +73,9 @@ impl EnrichResultSlot {
 }
 
 /// 退出握手槽（方案 §1.8）：发 session:flush → 渲染层 persist → session_flush_done 回执 → 放行。
-/// 超时由等待方控制（3 秒，对齐原版 FLUSH_TIMEOUT_MS）；handled 标记防止关窗→退出双路径二次握手。
+/// 独立 managed state（AppState 含 rusqlite Connection 非 Sync，不能跨线程访问；
+/// 握手等待在后台线程进行，FlushGate 自身 Send+Sync）。超时 3 秒（FLUSH_TIMEOUT_MS），
+/// handled 标记防关窗/退出双路径二次握手。
 #[derive(Default)]
 pub struct FlushGate {
     done: Mutex<bool>,
@@ -81,10 +83,43 @@ pub struct FlushGate {
     handled: Mutex<bool>,
 }
 
+impl FlushGate {
+    pub fn reset(&self) {
+        *self.done.lock().unwrap() = false;
+    }
+
+    /// 渲染层回执（session_flush_done 命令调用）
+    pub fn signal(&self) {
+        *self.done.lock().unwrap() = true;
+        self.cond.notify_all();
+    }
+
+    /// 等待渲染层落盘回执；超时返回 false（调用方强制放行）
+    pub fn wait(&self, timeout: Duration) -> bool {
+        let mut guard = self.done.lock().unwrap();
+        let deadline = Instant::now() + timeout;
+        while !*guard {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                return false;
+            };
+            let (new_guard, _) = self.cond.wait_timeout(guard, remaining).unwrap();
+            guard = new_guard;
+        }
+        true
+    }
+
+    pub fn mark_handled(&self) {
+        *self.handled.lock().unwrap() = true;
+    }
+
+    pub fn handled(&self) -> bool {
+        *self.handled.lock().unwrap()
+    }
+}
+
 pub struct AppState {
     pub(super) inner: Mutex<StateInner>,
     pub user_data: PathBuf,
-    pub(super) flush: FlushGate,
 }
 
 pub(super) struct StateInner {
@@ -131,7 +166,6 @@ impl AppState {
                 enrich_job: None,
             }),
             user_data,
-            flush: FlushGate::default(),
         })
     }
 
@@ -192,41 +226,6 @@ impl AppState {
             Some(runtime) => f(&runtime.db, &runtime.root).map(Some),
             None => Ok(None),
         }
-    }
-
-    /// 退出握手：清零回执标志（发出 session:flush 前调用）
-    pub fn reset_flush(&self) {
-        *self.flush.done.lock().unwrap() = false;
-    }
-
-    /// 退出握手：渲染层回执（session_flush_done）
-    pub fn signal_flush_done(&self) {
-        let mut guard = self.flush.done.lock().unwrap();
-        *guard = true;
-        self.flush.cond.notify_all();
-    }
-
-    /// 退出握手：等待渲染层落盘回执；超时返回 false（调用方强制放行）
-    pub fn wait_flush(&self, timeout: Duration) -> bool {
-        let mut guard = self.flush.done.lock().unwrap();
-        let deadline = Instant::now() + timeout;
-        while !*guard {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            let (new_guard, _) = self.flush.cond.wait_timeout(guard, remaining).unwrap();
-            guard = new_guard;
-        }
-        true
-    }
-
-    /// 退出握手已完成标记（关窗与退出双路径共用，避免二次握手）
-    pub fn mark_flush_handled(&self) {
-        *self.flush.handled.lock().unwrap() = true;
-    }
-
-    pub fn flush_handled(&self) -> bool {
-        *self.flush.handled.lock().unwrap()
     }
 
     /// 退出前收尾：置位扫描取消 + WAL checkpoint 落盘（连接由进程退出时 drop）。

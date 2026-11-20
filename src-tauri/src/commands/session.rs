@@ -5,7 +5,7 @@
 use tauri::State;
 
 use crate::state::session as session_store;
-use crate::state::AppState;
+use crate::state::{AppState, FlushGate};
 use crate::types::*;
 
 #[tauri::command]
@@ -42,7 +42,7 @@ pub async fn session_relocate(
 
 /// 退出握手回执：渲染层已落盘，主进程可继续退出
 #[tauri::command]
-pub async fn session_flush_done(state: State<'_, AppState>) -> Result<(), String> {
-    state.signal_flush_done();
+pub async fn session_flush_done(gate: State<'_, FlushGate>) -> Result<(), String> {
+    gate.signal();
     Ok(())
 }

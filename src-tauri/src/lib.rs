@@ -15,18 +15,36 @@ pub mod types;
 
 use tauri::{AppHandle, Manager, RunEvent, Theme, WindowEvent};
 
-/// 退出握手（方案 §1.8）：发 session:flush → 渲染层 persist 草稿 → session_flush_done 回执
-/// → 标记已握手 → 关库 checkpoint → app.exit(0)。3 秒无回执强制放行（FLUSH_TIMEOUT_MS）。
-fn flush_and_exit(app: &AppHandle, state: &state::AppState) {
-    state.reset_flush();
+/// 真正退出：关库 checkpoint → app.exit(0)。触发 ExitRequested(Some(0))，
+/// 由 handled 标记放行。
+fn exit_now(app: &AppHandle) {
+    if let Some(state) = app.try_state::<state::AppState>() {
+        state.shutdown();
+    }
+    app.exit(0);
+}
+
+/// 退出握手（方案 §1.8，异步版）：发 session:flush 后**立即返回**（绝不阻塞主线程——
+/// 事件经主线程循环派发到 WKWebView，同步等待会让事件永远发不出去，渲染层收不到），
+/// 后台线程等 session_flush_done 回执（3 秒超时强制放行），完成后回主线程关库并退出。
+fn begin_flush_then_exit(app: &AppHandle) {
+    let gate = app.state::<state::FlushGate>();
+    gate.reset();
+    drop(gate);
     use tauri::Emitter;
     let _ = app.emit("session:flush", ());
-    if !state.wait_flush(std::time::Duration::from_secs(3)) {
-        eprintln!("[exit] 渲染层落盘回执超时（3s），强制退出");
-    }
-    state.mark_flush_handled();
-    state.shutdown();
-    app.exit(0);
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let gate = handle.state::<state::FlushGate>();
+        let ok = gate.wait(std::time::Duration::from_secs(3));
+        if !ok {
+            eprintln!("[exit] 渲染层落盘回执超时（3s），强制退出");
+        }
+        gate.mark_handled();
+        drop(gate);
+        let app_for_exit = handle.clone();
+        let _ = handle.run_on_main_thread(move || exit_now(&app_for_exit));
+    });
 }
 
 /// Tauri 应用入口（供 main.rs 调用）。
@@ -43,6 +61,7 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .manage(state::FlushGate::default())
         .setup(|app| {
             // 数据目录：优先 YUE_USER_DATA（自动化验收隔离），否则 app_data_dir。
             let user_data = match std::env::var("YUE_USER_DATA") {
@@ -139,35 +158,38 @@ pub fn run() {
                     }
                 }
                 // 退出握手（方案 §1.8）：关窗请求（红点 / 关闭窗口菜单）时窗口仍存活，
-                // 在这里拦下 → 发 session:flush → 渲染层 persist 草稿 → session_flush_done
-                // 回执 → 关库 → app.exit(0)。（ExitRequested(None) 在窗口 Destroyed 之后才
-                // 触发，渲染层已无法回执，故握手不能挂在那里。）
+                // 在这里拦下 → 异步握手（见 begin_flush_then_exit）→ 完成后 app.exit(0)。
+                // （ExitRequested(None) 在窗口 Destroyed 之后才触发，渲染层已无法回执，
+                // 握手不能挂在那里。）
                 // YUE_TEST 验收模式跳过握手直接退出（对齐原版 quitFlushed，避免掩盖真实耗时）。
                 RunEvent::WindowEvent {
                     event: WindowEvent::CloseRequested { api, .. },
                     ..
                 } => {
-                    if let Some(state) = app.try_state::<state::AppState>() {
-                        if state.flush_handled() || std::env::var("YUE_TEST").is_ok() {
-                            state.shutdown();
-                            app.exit(0);
-                        } else {
-                            api.prevent_close();
-                            flush_and_exit(app, &state);
-                        }
+                    if std::env::var("YUE_TEST").is_ok() {
+                        exit_now(app);
+                    } else {
+                        api.prevent_close();
+                        begin_flush_then_exit(app);
                     }
                 }
-                // Cmd+Q / 外部 app.exit 触发（code=Some，窗口仍存活）：同步握手后放行，
-                // 不调 prevent_exit 让退出继续。code=None（最后窗口 Destroyed 后）数据已在
+                // Cmd+Q / 外部 app.exit 触发（code=Some，窗口仍存活）：先 prevent_exit
+                // 停住退出流程（否则窗口销毁渲染层无法回执），异步握手完成后 app.exit(0)
+                // 再次触发（handled → 放行）。code=None（最后窗口 Destroyed 后）数据已在
                 // CloseRequested 握手落盘，直接放行；restart 的特殊 code 不拦截。
-                RunEvent::ExitRequested { code, .. } => {
-                    if let Some(state) = app.try_state::<state::AppState>() {
-                        let needs_handshake = code.is_some()
-                            && code != Some(tauri::RESTART_EXIT_CODE)
-                            && !state.flush_handled()
-                            && std::env::var("YUE_TEST").is_err();
-                        if needs_handshake {
-                            flush_and_exit(app, &state);
+                RunEvent::ExitRequested { code, api, .. } => {
+                    if let Some(gate) = app.try_state::<state::FlushGate>() {
+                        let handled = gate.handled();
+                        drop(gate);
+                        if handled
+                            || std::env::var("YUE_TEST").is_ok()
+                            || code == Some(tauri::RESTART_EXIT_CODE)
+                        {
+                            return; // 放行 → RunEvent::Exit
+                        }
+                        if code.is_some() {
+                            api.prevent_exit();
+                            begin_flush_then_exit(app);
                         }
                     }
                 }
