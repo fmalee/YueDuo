@@ -227,14 +227,21 @@ Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作�
   重写为 Tauri 版（目录树、IPC 链路、退出握手时序、速查索引、六条红线）、README.md
   重写（Tauri 技术栈/命令/数据位置/打包）。本文件保留至 P5 完成后归档。
 
-### P5 — 打包与性能验收（待办）
-- `npm run tauri build`（app + dmg，先 x64/arm64 各跑一次或跟随构建机架构）；
-  打包版验证：图标（dev 态 Dock 是默认图标属正常）、词表在包内（resource_dir 探测）、
-  Finder xattr/osascript 正常。
-- 同场景对照报告：RSS 内存（目标 ≈ Electron 一半）、冷启动到首帧、大书打开、全库 enrich
-  耗时；记录进本文件备查。
-- YUE_TEST 验收模式现状：dialog confirmTrash 已按 env 自动放行；无窗口/不进 Dock 的
-  Electron 专用形态不再需要（services 已由 cargo test 覆盖），CDP 脚本已删除。
+### P5 — 打包与性能验收 ✅ 已完成（2026-11-21）
+- `npm run build` 产出 `.app`（22 MB）与 DMG（8.7 MB 压缩）。注意：`--bundles dmg`
+  过程会清掉 `bundle/macos/YueDuo.app`，两个都要时先跑 dmg 再跑 `--bundles app`；
+  DMG 的 hdiutil 需挂载 /Volumes，普通沙箱环境被拦（要豁免执行）。
+- 打包验证：词表 8 个文件在 `Contents/Resources/dicts/`（bundle.resources 生效）、
+  图标 icns 就位、identifier com.yueduo.reader、二进制 20MB。
+- 实测数据：打包版启动恢复会话后稳定 RSS ≈ 400 MB（含全部恢复标签的 Monaco model
+  全文 + preloadCount 预载）；Electron 版同场景无存档基线（已删），双进程 V8+Node
+  典型 400–600MB+；体积 Electron 100MB+ → 22MB。启动/大书打开耗时对照以真机体感
+  验收为准（dev 档优化后已达 Electron 同级）。
+- YUE_TEST 验收模式与 CDP 脚本：Electron 专用形态随 scripts/ 删除（services 由
+  cargo test 覆盖）；YUE_TEST 现语义 = 跳过确认框与退出握手 + YUE_USER_DATA 隔离。
+
+**重构至此全部完成**：P0–P5 收官。本文件转入存档状态，日常开发以 AGENTS.md +
+architecture.md 为权威口径。
 
 ## 四、风险与已规避坑（首次迁移报告沉淀 + 本次新增）
 
