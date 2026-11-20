@@ -8,75 +8,77 @@
 
 | 层 | 选型 | 版本 |
 | --- | --- | --- |
-| 桌面运行时 | Electron（内置 Node 24 / ABI 150） | 45.3.3 |
+| 桌面运行时 | Tauri 2（Rust 后端 + 系统 WebView，无 Node 进程） | 2.12.x |
+| 后端语言 | Rust（edition 2021） | ≥1.90 |
 | 渲染层 | Vue 3 + Pinia | 3.5.x / 4.1.x |
-| 类型 | TypeScript（严格模式） | 5.9.3 |
+| 类型 | TypeScript（严格模式，`noImplicitAny: false`） | 5.9.x |
 | 编辑器 | Monaco Editor | 0.57.x |
-| 存储 | better-sqlite3（N-API 预编译） | 13.2.x |
-| 构建 | electron-vite 6 + Vite 8 + electron-builder 26 | — |
+| 存储 | rusqlite（bundled SQLite，同步 API + 完整事务） | 0.32.x |
 
-TypeScript 锁在 `^5.9.3`（5.x 末版）不是随手写的：npm 上 `latest` 已是 7.0.2，TS 7 是原生移植，包内只有 `lib/version.cjs` 与 `unstable/*`，不提供 `lib/typescript.js` 编译 API，而 vue-tsc / Volar 的 SFC 类型检查依赖这个 API；ts 6.0.x 仍带 API 但属过渡桥，typescript-eslint 8.73 的 peer 也只到 `<6.1.0`。因此禁止把版本写成 `latest`、`*` 或 `>=5.9`。
+TypeScript 锁在 `^5.9.3`（5.x 末版）不是随手写的：npm 上 `latest` 已是 7.0.2，TS 7 是原生移植，不提供 `lib/typescript.js` 编译 API，而 vue-tsc / Volar 的 SFC 类型检查依赖这个 API。因此禁止把版本写成 `latest`、`*` 或 `>=5.9`。
+
+2026-11-20 起从 Electron 完成向 Tauri 的重构：前端（Vue/Monaco/composables/stores）原样迁移，主进程以 Rust 重写；Electron 版代码已删除，历史参考用 `git show a46ae4a:<路径>`。
 
 ## 常用命令
 
 ```bash
-npm install            # 安装依赖；postinstall 会跑 install-electron 与 electron-builder install-app-deps
-npm run dev            # 开发模式：electron-vite dev，起 Vite dev server 并启动 Electron
-npm run build          # 先 typecheck（node + web），再 electron-vite build 产出 out/
-npm run typecheck      # tsc 检查主进程/preload/shared，vue-tsc 检查渲染层
+npm install            # 安装前端依赖（dependencies 为空，运行时零 npm 包）
+npm run dev            # 开发模式：tauri dev（改 Rust 后重编译 1–3 分钟属正常，dev 档已开优化）
+npm run build          # 先 typecheck，再 tauri build（app + dmg）
+npm run typecheck      # tsc 检查 vite 配置/shared，vue-tsc 检查渲染层
 npm run lint           # eslint --cache .
-npm run verify:native  # 在 Electron 进程内真实 require better-sqlite3 并建表插查
 npm run format         # prettier --write .
 ```
 
-打包时先 `npm run build`，再按平台出包：`npm run build:mac` 跟随本机架构（Intel 出 x64，Apple Silicon 出 arm64），`build:mac:x64` / `build:mac:arm64` 显式指定架构；`build:win`、`build:linux` 同理。只想验证打包结构可用 `npm run build:unpack`（输出目录未压缩的 app）。`npm start` 是 `electron-vite preview`，预览已构建产物。
+Rust 侧检查与测试（services 单测的唯一口径）：
 
-纯 Node 验收脚本在 `scripts/test-*.ts`，用 `npx tsx scripts/test-xxx.ts` 直接跑，测试数据在脚本内构造，不需要 Electron。
+```bash
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test  --manifest-path src-tauri/Cargo.toml                    # 54+ 用例
+cargo test  --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture   # 真实书库编码回归
+```
 
 ## 开发环境隔离
 
-开发态与打包版的数据完全分开，避免调试时写坏正式书库：
+- 数据目录：`app_data_dir`（`~/Library/Application Support/com.yueduo.reader`）。需要指到别处（自动化验收隔离）设 `YUE_USER_DATA=<目录>`。
+- 首次启动自动把 Electron 版数据（`~/Library/Application Support/YueDuo` 的 settings.json 与回落库）搬过来：copy 不删源、标记幂等；旧目录原样保留，随时可切回 Electron 版（git 历史 `a46ae4a`）。
+- `YUE_TEST=1`：自动化验收。跳过删除确认框与退出握手、开发环境书库确认直接放行；配合 `YUE_USER_DATA` 指向临时目录。
+- 开发环境书库确认：debug 构建下打开测试库（`/Users/Joey/Sites/Projects/小说`）以外的书库先弹确认——扫描会写 Finder 星级与注释，避免调试改动正式数据。
+- 单实例锁：tauri-plugin-single-instance，二次启动聚焦已有窗口。
 
-- 存在 `ELECTRON_RENDERER_URL` 即判定为开发态（Electron 45 从 `node_modules` 启动时 `app.isPackaged` 会误报 `true`，不能拿它判断）。
-- 开发态 `userData` 固定指向项目内 `.dev/user-data`（已 gitignore、不进包），打包版仍用系统默认 `userData`。
-- 需要把设置与数据库指到别处时，设 `YUE_USER_DATA=<目录>`；自动化验收用它指向临时目录。
-- 开发态未设置书库根时默认打开 `/Users/Joey/Sites/Projects/小说`（复制出来的测试库）；打包版默认为空，由用户选择。切到其它路径会先弹确认，因为扫描会写 Finder 星级/注释。
-- `YUE_TEST=1 npm run dev`：自动化验收模式。不显示窗口、不进 Dock、不抢前台，删除确认框直接放行，关窗 flush 完成后直接退出。配合 `YUE_DEBUG=1` 开 CDP 9222，用 `scripts/cdp-eval.mjs` / `scripts/cdp-shot.mjs` 执行 JS 与截图。
-- 单实例锁：已有实例在跑时，再次启动会静默退出（退出码 0）。「改完主进程起不来」先查有没有残留进程；electron-vite 只重建 `out/main`，不重启 Electron，改主进程后要整个实例重启。
+## 打包
 
-## 打包与签名
+`npm run build`（= typecheck + `tauri build`，产出 `.app` 与 `.dmg`）：
 
-配置在 [electron-builder.yml](electron-builder.yml)：
-
-- macOS 用 ad-hoc 签名（`identity: '-'`），`hardenedRuntime: false`、`notarize: false`，只保证本机运行，不需要开发者证书，也不做公证。
-- Electron 语言包只保留 `en` 与 `zh_CN`，Framework 里其余 `.lproj` 约 17M 在打包时剔除。
-- better-sqlite3 的预编译产物按目标架构裁剪：配置里保留 macOS 的 x64/arm64 两份 prebuild，打包后由 [build/afterPack.mjs](build/afterPack.mjs) 按 `context.arch` 删掉不匹配的那份。所以 Intel 与 Apple Silicon 上都直接 `npm run build:mac` 即可，包内只有 `darwin-<arch>.node` 一份；其它平台的 prebuild 与源码不进包。dmg 文件名不带架构，同一目录先后构建两个架构会互相覆盖，想同时留两份用 `--dir`（分别落在 `dist/mac` 与 `dist/mac-arm64`）。
-- `npmRebuild: false`：better-sqlite3 13.x 自带 N-API 预编译，不需要 rebuild；升级 Electron 或 better-sqlite3 后跑 `npm run verify:native`。
+- 词表经 `bundle.resources` 进包（运行时从 `resource_dir/dicts` 探测；开发态回落仓库根）。
+- dev 态 Dock 图标是 Tauri 默认属正常现象（debug 可执行无 Info.plist icon），打包版带真实图标。
+- 签名与公证配置待补（当前仅本机构建运行）。
 
 ## 数据位置
 
 - 每个书库一份数据库：首选 `<书库根>/yueduo.db`，`relative_path` 相对书库根。
-- 书库根不可写时回落到 `<userData>/library-db/<realpath 哈希>.db`，按库隔离，不共用。
-- 设置写在 `<userData>/settings.json`（先写临时文件再 rename）。
+- 书库根不可写时回落到 `<app_data_dir>/library-db/<sha1(realpath)[:16]>.db`，按库隔离，不共用。
+- 设置写在 `<app_data_dir>/settings.json`（逐字段归一化，坏值回落）。
 - 会话标签、阅读进度、草稿全文都在当前书库的数据库里；换库会切到新库的会话。
+- schema 迁移用 `PRAGMA user_version`（v1–v3，SQL 与 Electron 版逐字一致），数据双向兼容。
 
 ## 项目结构
 
 ```
-electron/   主进程：ipc/ 按域收敛参数，services/ 纯 Node 业务（不 import Electron）
-shared/     两侧共用纯函数与跨进程类型
-src/        渲染层：components/ + composables/ + stores/ + ipc/bridge.ts
-scripts/    纯 Node 验收脚本与 CDP 工具
-resources/  打包图标与简繁转换词表
+src-tauri/  Rust 后端：commands/ 按域收敛 IPC 参数，services/ 纯业务（不依赖 tauri 类型），
+            state/ SQLite 仓储，shell.rs 菜单，theme.rs 主题
+shared/     两侧共用契约与规则（findRules.json 唯一正则来源，TS 与 Rust 共读）
+src/        渲染层：components/ + composables/ + stores/ + ipc/bridge.ts（原样迁移自 Electron 版）
+resources/  简繁转换词表（经 bundle.resources 进包）
 ```
 
-- 跨进程唯一通道：preload 通过 `contextBridge` 暴露 `window.yue.invoke`，渲染层只经 `src/ipc/bridge.ts` 调用，渲染层不 import Node 模块。
+- 跨进程唯一通道：`src/ipc/bridge.ts` 的 typed commands（command 名 = Rust fn 名），渲染层不 import Node 模块、不直接用 `@tauri-apps/api`。
 - 全文只存在 Monaco model（`useTabLifecycle` 的非响应式 `Map`），Pinia 只存标签元信息。
 - 主题颜色/间距只在 `src/styles/theme.ts` 定义，经 `--yd-*` CSS 变量注入。
-- 目录级职责、IPC 链路、会话落盘/恢复、书库扫描与对账等细节，见 [.trae/documents/architecture.md](.trae/documents/architecture.md)；开发约定、依赖分区、数据库与 Monaco 硬约束见 [AGENTS.md](AGENTS.md)。
+- 目录级职责、IPC 链路、退出握手、会话落盘/恢复、书库扫描与对账等细节，见 [.trae/documents/architecture.md](.trae/documents/architecture.md)；开发约定、Tauri 纪律、数据库与 Monaco 硬约束见 [AGENTS.md](AGENTS.md)。
 
 ## 开发流程
 
 - 在 `dev` 分支开发，`master` 为默认分支，不直接推远端。
-- 每写完一个文件立即 `npm run typecheck`，提交前跑 `npm run lint`。
-- 一次提交一件事，中文提交信息写「为什么」；不提交 `out/`、`dist/`、`node_modules`、`public/test/`。
+- 每写完一个文件立即 `npm run typecheck`；Rust 改动后 `cargo check` → `cargo test`；提交前跑 `npm run lint`。
+- 一次提交一件事，中文提交信息写「为什么」；不提交 `out/`、`dist/`、`node_modules`、`src-tauri/target/`、`public/test/`、`.workbuddy/`。

@@ -221,9 +221,11 @@ second-instance → run_on_main_thread → show + set_focus。
 **P3.6 验收**：按首次迁移真机清单全项复测——对话框/读写/菜单/主题/握手/Finder 星级注释/
 Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作。
 
-### P4 — 清理与文档（待办）
-- AGENTS.md 重写（§五要点，含 findRules 单一源、convert 链路、退出握手口径）、
-  architecture.md 更新为 Tauri 版、README 更新；本文件届时归档。
+### P4 — 清理与文档 ✅ 已完成（2026-11-21）
+- AGENTS.md 重写（§五要点全落实：作废 Electron 章节、Tauri 纪律新增——主线程规则/
+  消息框 Custom 文案判定/资源探测/capabilities/dev 优化档/握手口径）、architecture.md
+  重写为 Tauri 版（目录树、IPC 链路、退出握手时序、速查索引、六条红线）、README.md
+  重写（Tauri 技术栈/命令/数据位置/打包）。本文件保留至 P5 完成后归档。
 
 ### P5 — 打包与性能验收（待办）
 - `npm run tauri build`（app + dmg，先 x64/arm64 各跑一次或跟随构建机架构）；

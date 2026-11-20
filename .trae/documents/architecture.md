@@ -5,140 +5,97 @@
 
 ## 0. 一句话分层
 
-- `electron/` 主进程：文件、SQLite、Finder 扩展属性、原生对话框、应用菜单；`services/` 纯 Node、不 import Electron。
-- `src/` 渲染层：Vue 组件 + composables 编排 + Pinia 元信息 + Monaco；零 Node 能力。
-- `shared/`：两侧共用的纯函数与跨进程类型，不许 import 任一侧运行时。
-- `electron/preload.ts`：唯一跨进程通道，暴露 `window.yue.invoke` 与四个订阅。
+- `src-tauri/src/` Rust 后端：文件与编码、SQLite、Finder 扩展属性、原生对话框、应用菜单、主题；`services/` 纯 Rust、不依赖 tauri 类型。
+- `src/` 渲染层：Vue 组件 + composables 编排 + Pinia 元信息 + Monaco；零 Node 能力（与 Electron 版相同，原样迁移）。
+- `shared/`：两侧共用的契约与规则（TS 与 Rust 经 findRules.json/types 镜像对齐），不许 import 任一侧运行时。
+- 跨进程唯一通道：typed commands（`bridge.ts` → `@tauri-apps/api` invoke → `commands/` 各域）+ 四个事件订阅。
 
 ## 1. 目录树（文件级）
 
 ```
 YueDuo/
-├── package.json                  依赖分区（运行时 dependencies / 其余 devDependencies）与 npm 脚本
-├── electron.vite.config.ts       主进程 / preload / 渲染层三份构建配置 + Monaco 中文标点插件
-├── electron-builder.yml          打包目标、asar 过滤、Electron 语言包
+├── package.json                  npm 脚本（dev=tauri dev / typecheck / lint / build:web）；dependencies 为空，运行时零 npm 包
+├── vite.config.ts                渲染层构建（含 Monaco 中文标点行宽插件，自 electron.vite 迁移）
 ├── tsconfig.json                 TS 工程引用入口
-├── tsconfig.node.json            主进程 + shared 的 TS 编译范围
-├── tsconfig.web.json             渲染层 + shared 的 TS 编译范围
+├── tsconfig.node.json            vite 配置 + shared 的 TS 编译范围
+├── tsconfig.web.json             渲染层 + shared 的 TS 编译范围（noImplicitAny:false，见 AGENTS.md）
 ├── eslint.config.mjs             lint 规则
 ├── AGENTS.md                     项目实现约定（每轮常驻注入）
 ├── README.md                     使用说明
 ├── resources/
-│   ├── icon.png                  打包图标
-│   └── dicts/                    简繁转换词表（st/ts 字表词表、keep/ambiguous）
-├── public/test/                  大文件验收样本（gitignore，不入库）
-│
-├── electron/
-│   ├── main.ts                   应用入口：单实例锁、userData 隔离、建窗、初始化 IPC/菜单/主题/书库、退出握手
-│   ├── devEnv.ts                 开发态判定、开发默认书库根、按开发态取默认库路径
-│   ├── menu.ts                   构建应用菜单、把菜单点击转成 app:menuCommand、同步勾选状态
-│   ├── preload.ts                contextBridge 暴露 yue.invoke（域白名单）与四个订阅通道
-│   ├── preload.d.ts              window.yue 的全局类型声明
-│   ├── ipc/
-│   │   ├── registry.ts           handle() 统一注册器（ok/data|error）+ IPC_DOMAINS 白名单
-│   │   ├── index.ts              各域 handler 汇聚注册：channel → 实现（新增通道只改这里 + 实现文件）
-│   │   ├── app.ts                app:syncMenuState —— 渲染层侧栏显隐回写菜单勾选
-│   │   ├── file.ts               文本读写、stat、改名、废纸篓、Finder 显示、草稿读写
-│   │   ├── dialog.ts             原生对话框：关闭三选一、选/存文件、删除确认、报错、选书库
-│   │   ├── library.ts            活动书库状态、换库三步、目录/列表查询、评分、元数据同步、章节与书签
-│   │   ├── meta.ts               元数据读取与写回、评分读写（库内写库+Finder，库外只写 Finder）
-│   │   ├── session.ts            会话 persist/restore/relocate/flushDone + 主进程发起 flush 握手
-│   │   ├── settings.ts           settings:get/set，写入后切换 nativeTheme.themeSource
-│   │   ├── theme.ts              初始化与切换 themeSource，向渲染层推送 theme:updated
-│   │   ├── convert.ts            简繁、全角半角、一键整理的 IPC 包装
-│   │   └── native.ts             native:sanity —— 在 Electron 内真实 require better-sqlite3 冒烟
-│   └── services/
-│       ├── database.ts           建库、user_version 迁移、活动连接切换、WAL 收尾
-│       ├── libraryDatabase.ts    每书库一份库：根目录解析、userData 回落、prepare/commit/abort
-│       ├── bookRepository.ts     books 表：列表/评分/最近阅读/元数据/改名/删除/标签评分
-│       ├── bookmarkRepository.ts bookmarks 表：当前书书签与全库分组
-│       ├── sessionStore.ts       session_tabs/session_state 落盘、恢复、按 book_id 重定位
-│       ├── draftStore.ts         草稿全文 + viewState 落库（LRU 卸载与退出补写）
-│       ├── settingsStore.ts      settings.json 读写、坏值/旧字段回落
-│       ├── libraryScanner.ts     目录列举、全库扫描入库、单文件 ingest
-│       ├── reconcile.ts          扫描后对账：移动合并、连续零匹配删库
-│       ├── metadataParser.ts     主进程侧元数据解析出口（实现复用 shared/metadataParser）
-│       ├── metadataWriter.ts     正文前 10 行最小替换写回 + 应用 TextEdit
-│       ├── chapterParser.ts      章节标题行提取
-│       ├── textCodec.ts          编码探测、解码、换行归一、写回编码
-│       ├── textConvert.ts        全角转半角（只按规则表 to_halfwidth）
-│       ├── chineseConvert.ts     简繁转换（词表 + 保护词/多义字）
-│       └── finderMetadata.ts     Finder 星级/注释的 bplist xattr 读写
-│
+│   └── dicts/                    简繁转换词表（st/ts 字表词表、keep/ambiguous）→ bundle.resources 带入 .app
+├── public/
+│   ├── bootstrap-theme.js        首帧主题引导（同步外链脚本，CSP 'self' 放行）
+│   └── test/                     大文件验收样本（gitignore，不入库）
 ├── shared/
-│   ├── types.ts                  跨进程共享类型与常量（IPC 契约、TabMeta、LibraryBook、默认设置）
-│   ├── metadataParser.ts         书名/作者/标签解析（渲染层与主进程同一份正则）
-│   ├── findRules.ts              查找/一键整理规则表（唯一来源，数组顺序即整理顺序）
-│   ├── replaceTemplate.ts        替换串转义与分组展开的共用入口
+│   ├── types.ts                  跨进程共享类型与常量（Rust 侧镜像 src-tauri/src/types.rs）
+│   ├── metadataParser.ts         书名/作者/标签解析（渲染层引用；Rust 侧在 services/metadata.rs）
+│   ├── findRules.json            查找/整理规则表（唯一来源：TS 薄导出 + Rust include_str! 嵌入）
+│   ├── findRules.ts              findRules.json 的类型导出
+│   ├── replaceTemplate.ts        替换串转义与分组展开的共用入口（Rust 侧在 services/convert.rs）
 │   ├── crossLineSearch.ts        全文跨行正则匹配（Monaco 逐行 find 的补充）
 │   └── librarySearch.ts          命令面板检索、字段加权与排序
 │
-├── src/
-│   ├── index.html                渲染层 HTML 入口
-│   ├── main.ts                   Vue 挂载、Pinia、先初始化设置再 mount
+├── src-tauri/
+│   ├── Cargo.toml                Rust 依赖（rusqlite bundled / encoding_rs / regex / xattr / trash 等）+ dev 优化档
+│   ├── tauri.conf.json           窗口（visible:false）、bundle（图标、词表 resources）、dev/build 命令
+│   ├── capabilities/default.json 最小权限（core:default + dialog + window:allow-show）
+│   └── src/
+│       ├── main.rs               进程入口（调 lib::run）
+│       ├── lib.rs                Builder：插件注册、setup（数据目录/搬家/菜单/主题）、退出握手、RunEvent 分发
+│       ├── shell.rs              原生中文菜单：单选组（外观/字体/字号/预载）、点击转 app:menuCommand、勾选回写
+│       ├── theme.rs              set_theme 三态应用 + ThemeChanged 推送 theme:updated
+│       ├── types.rs              shared/types.ts 的 serde 镜像（camelCase）+ 白名单常量
+│       ├── commands/             按域 typed async commands（对应原 electron/ipc）
+│       │   ├── app.rs            app_sync_menu_state（侧栏显隐回写菜单勾选，run_on_main_thread）
+│       │   ├── convert.rs        简繁、全角半角、一键整理（词表目录双路径探测）
+│       │   ├── dialog.rs         原生对话框：关闭三选一、选/存文件、删除确认、报错、选书库
+│       │   ├── file.rs           文本读写（readText 走二进制 Response）、stat、改名、废纸篓、reveal、草稿读写
+│       │   ├── library.rs        活动书库状态、换库三步、目录/列表查询、评分、元数据同步、章节与书签
+│       │   ├── meta.rs           元数据读取与写回、评分读写（库内写库+Finder，库外只写 Finder）
+│       │   ├── session.rs        会话 persist/restore/relocate/flushDone
+│       │   └── settings.rs       settings_get/set（落盘后同步窗口主题并推送权威值）
+│       ├── state/                AppState 子模块（rusqlite 仓储）
+│       │   ├── db.rs             建库、user_version 迁移 v1–v3（SQL 与 Electron 版逐字一致）、WAL
+│       │   ├── library.rs        每书库一份库：根目录 realpath、sha1 回落命名、prepare/commit/abort
+│       │   ├── books.rs          books 表：列表/评分/最近阅读/元数据/改名/删除/标签评分
+│       │   ├── bookmarks.rs      bookmarks 表：当前书书签与全库分组
+│       │   ├── session.rs        session_tabs/session_state 落盘、恢复、按 book_id 重定位、草稿
+│       │   └── settings.rs       settings.json 读写、逐字段归一化
+│       ├── state.rs              AppState + FlushGate（退出握手槽，独立 manage）+ Electron userData 搬家
+│       └── services/             纯 Rust 业务（可单测，不依赖 tauri 类型）
+│           ├── codec.rs          编码探测链、解码、换行归一、encode_for_write
+│           ├── files.rs          read_text / stat / write_text（tmp+rename 原子替换）
+│           ├── metadata.rs       元数据解析、split_tags、find_topic
+│           ├── metadata_writer.rs 正文前 10 行最小替换写回（UTF-16 码元偏移）+ 应用 TextEdit
+│           ├── text.rs           章节标题行提取
+│           ├── scanner.rs        目录列举、全库扫描入库（独立线程运行）、单文件 ingest
+│           ├── reconcile.rs      扫描后对账：移动合并、连续零匹配删库
+│           ├── convert.rs        简繁（词表 trie）、全角半角、一键整理管线 + 替换模板展开
+│           ├── find_rules.rs     findRules.json 解析 + JS 正则转译（\uXXXX → \u{XXXX}）
+│           └── finder.rs         Finder 星级/注释：bplist00 手写 + xattr 直读写 + osascript 同步
+│
+├── src/                          （前端与 Electron 版相同，原样迁移）
+│   ├── index.html                渲染层 HTML 入口（含 bootstrap-theme.js 引导）
+│   ├── main.ts                   Vue 挂载、Pinia、先初始化设置再 mount → windowShow
 │   ├── App.vue                   根布局 + 全局编排（菜单命令、快捷键安装、会话初始化、换库、缺失标签重连）
-│   ├── env.d.ts                  Vite 类型引用
-│   ├── monaco.ts                 Monaco 单例、纯文本 editor 选项、字体、主题
+│   ├── monaco.ts                 Monaco 单例、纯文本 editor 选项、字体、主题、accessibilitySupport:'off'
 │   ├── monaco/cjkWrapStrings.ts  中文标点按全角处理的行宽补丁（由 Vite 插件接管）
 │   ├── assets/base.css           基础样式与 CSS 变量分层
 │   ├── assets/main.css           应用主体样式
-│   ├── ipc/bridge.ts             渲染层唯一 IPC 出口：invoke 包装、每个通道的类型化函数、订阅
+│   ├── ipc/bridge.ts             渲染层唯一 IPC 出口：typed invoke、每通道类型化函数、事件订阅、windowShow
 │   ├── styles/theme.ts           主题 token（颜色/间距/字号）与 --yd-* 注入
-│   ├── stores/
-│   │   ├── tabs.ts               标签元信息（TabMeta）与 UI 状态，只存元信息不存全文
-│   │   ├── library.ts            书库根、左栏列表、扫描进度、最近阅读防抖、评分筛选
-│   │   ├── settings.ts           设置状态、持久化、主题应用与推送订阅
-│   │   └── reader.ts             阅读锁定与翻页状态（不跨会话持久化）
-│   ├── composables/
-│   │   ├── useTabs.ts            标签打开/新建/切换/关闭/保存/改名/删除编排
-│   │   ├── useTabLifecycle.ts    Monaco model 注册表（非响应式 Map）、dirty 基线、LRU 卸载与草稿
-│   │   ├── useEditorSetup.ts     创建唯一编辑器实例、阅读字体、只读与右键动作注册
-│   │   ├── useEditorCommands.ts  保存、转换、一键整理（全文只在读写瞬间取自 model）
-│   │   ├── useEditorKeybindings.ts 全局/编辑器键位表与分发（焦点在输入框时放行）
-│   │   ├── useEditorViewState.ts 驻留集合计算、定时 LRU 兜底、视图状态存取
-│   │   ├── useLineCommands.ts    纯文本编辑动作：缩进换行、行下插入、删到行首、翻页
-│   │   ├── useSession.ts         会话快照/恢复、进度与光标 Map、退出握手、换库存档
-│   │   ├── useLibrarySwitch.ts   换库编排：open → 存档旧会话 → activate → 恢复新会话
-│   │   ├── useMetadataEdit.ts    元数据栏提交：最小可撤销编辑 + 同步库
-│   │   ├── useRatingGesture.ts   评分「再点同分清零」手势判定
-│   │   ├── useChapters.ts        当前书章节状态与刷新
-│   │   ├── useBookmarks.ts       当前书书签状态（增删以主进程返回为准）
-│   │   ├── useBookmarkDrift.ts   编辑后书签行号按行数差量平移与防抖回写
-│   │   ├── useLibraryBookmarks.ts 全库书签分组状态
-│   │   ├── useCommandPalette.ts  Cmd+P 书库快照与内存过滤
-│   │   ├── useStatusMessage.ts   状态栏临时提示（模块级，任何组件可触发）
-│   │   └── useStatusMetrics.ts   状态栏数字：光标行、总行数、字数
-│   └── components/
-│       ├── EditorHost.vue        单 Monaco 实例宿主：挂 model、视图恢复、右键菜单、查找/转换事件、标题跟随
-│       ├── TabBar.vue            自绘标签栏、flare 圆弧、横向滚动、右键菜单
-│       ├── Sidebar.vue           左栏壳：五页切换与拖拽宽度
-│       ├── sidebar/SidebarEdit.vue      打开中的标签列表（顺序同标签栏，可拖动排序）
-│       ├── sidebar/SidebarShelf.vue     书架惰性目录树（只读文件系统）
-│       ├── sidebar/SidebarBookList.vue  书库书籍行列表（打开、评分、筛选）
-│       ├── sidebar/SidebarTags.vue      标签列表与标签下钻
-│       ├── sidebar/SidebarRating.vue    评分筛选页
-│       ├── sidebar/StarRating.vue       五星评分控件
-│       ├── MetadataBar.vue       书名/作者/标签/评分四项编辑与双向同步
-│       ├── RightPanel.vue        右栏壳：章节/书签/历史三页与拖拽宽度
-│       ├── right/ChapterPage.vue        章节列表 + 当前书书签
-│       ├── right/BookmarkList.vue       当前书书签列表与跳转
-│       ├── right/LibraryBookmarkPage.vue 全库书签按书分组
-│       ├── FindReplaceBar.vue    自绘查找替换栏（单行 + 跨行正则）
-│       ├── CommandPalette.vue    Cmd+P 检索浮层
-│       └── StatusBar.vue         底部状态栏：编码、行列、字数、临时提示
-│
-└── scripts/
-    ├── cdp-eval.mjs              通过 CDP 9222 在页面执行 JS
-    ├── cdp-shot.mjs              通过 CDP 截图（视觉验收）
-    ├── test-convert.ts           简繁/全角/一键整理用例
-    ├── test-find-rules.ts        规则表内容、顺序与默认开关
-    ├── test-finder-metadata.ts   Finder 星级/注释 xattr 往返
-    ├── test-library-search.ts    命令面板检索与排序
-    ├── test-library-switch.ts    换库、每库一份数据库、会话随库隔离
-    ├── test-metadata-writer.ts   前 10 行写回的最小替换区间
-    ├── test-right-panel.ts       章节提取与书签增删
-    ├── test-session-paths.ts     会话路径落盘/恢复/换库/重定位
-    └── test-text-codec.ts        编码探测与写回编码
+│   ├── stores/                   tabs / library / settings / reader（职责同前，不变）
+│   ├── composables/              useTabs / useTabLifecycle / useEditorSetup / useEditorCommands /
+│   │                             useEditorKeybindings / useEditorViewState / useLineCommands /
+│   │                             useSession / useLibrarySwitch / useMetadataEdit / useRatingGesture /
+│   │                             useChapters / useBookmarks / useBookmarkDrift / useLibraryBookmarks /
+│   │                             useCommandPalette / useStatusMessage / useStatusMetrics
+│   └── components/               EditorHost / TabBar / Sidebar(+) / MetadataBar / RightPanel(+) /
+│                                 FindReplaceBar / CommandPalette / StatusBar（职责同前，不变）
+└── .trae/documents/
+    ├── tauri-refactor-plan.md    重构方案与踩坑沉淀（重构完成后归档）
+    └── architecture.md           本文件
 ```
 
 ## 2. 关键数据流
@@ -147,132 +104,129 @@ YueDuo/
 
 ```
 组件 / composable
-  → src/ipc/bridge.ts            类型化函数 + ipcInvoke
-  → window.yue.invoke            preload 暴露
-  → preload.ts DOMAINS 前缀校验
-  → ipcMain.handle              registry.ts 的 handle() 包装
-  → ipc/index.ts 注册表中的实现
-  → electron/ipc/<域>.ts        参数收敛
-  → electron/services/<域>.ts   纯 Node 业务
-  ← { ok: true, data } | { ok: false, error }
+  → src/ipc/bridge.ts            类型化函数（invoke('command 名', { camelCase 参数 })）
+  → @tauri-apps/api/core invoke  tauri IPC（大文本走 tauri::ipc::Response 二进制帧）
+  → commands/<域>.rs             typed async command（fn 名即 command 名）
+  → state/ 或 services/          业务
+  ← Result<T, String>（Err 经 bridge.ts 转异常，前缀 [command名]）
 ```
 
-**新增一个通道要同步四处**（AGENTS.md 说三处，另加实现文件本身）：
+**新增一个通道要同步四处**：
 
-1. `electron/ipc/registry.ts` 的 `IPC_DOMAINS`：新域前缀才需要，已有域跳过。
-2. `electron/preload.ts` 的 `DOMAINS`：与上表保持一致（当前 10 个前缀）。
-3. `electron/ipc/index.ts` 的 `registerIpcHandlers()`：`handle('域:动作', ...)`。
-4. `src/ipc/bridge.ts`：对应的类型化函数（渲染层只从这里调）。
+1. `commands/<域>.rs`（或新建域文件）：`#[tauri::command] pub async fn ...`
+2. `src-tauri/src/lib.rs` 的 `generate_handler!`：注册命令
+3. `src/ipc/bridge.ts`：对应的类型化函数（渲染层只从这里调）
+4. `shared/types.ts` + `src-tauri/src/types.rs`：新类型两侧镜像（serde camelCase）
 
-当前域前缀：`app:`、`file:`、`library:`、`session:`、`meta:`、`finder:`、`convert:`、`dialog:`、`native:`、`settings:`。
-注意 `finder:` 只是白名单占位，目前没有注册通道；Finder xattr 实际走 `meta:readRating/applyRating` 与 `library:setBookRating`。
-
-**主进程 → 渲染层的推送通道**（不走 invoke 白名单，preload 里按固定名订阅）：
+**Rust → 渲染层的推送通道**（`app.emit`，bridge.ts 按固定名订阅）：
 
 | 通道 | 方向与用途 | 发送点 |
 | --- | --- | --- |
-| `theme:updated` | 生效主题变化 | `ipc/theme.ts` |
-| `session:flush` | 关窗/退出前要求渲染层落盘 | `ipc/session.ts requestRendererFlush()` |
-| `library:scanProgress` | enrich 扫描进度 | `ipc/library.ts enrichLibrary()` |
-| `app:menuCommand` | 菜单/快捷键动作转交渲染层 | `menu.ts` |
+| `theme:updated` | 生效主题变化（system 模式随系统切换） | `theme.rs` + `commands/settings.rs` |
+| `session:flush` | 关窗/退出前要求渲染层落盘 | `lib.rs begin_flush_then_exit()` |
+| `library:scanProgress` | enrich 扫描进度（每 10 个文件） | `commands/library.rs` 扫描线程 |
+| `app:menuCommand` | 菜单/快捷键动作转交渲染层 | `shell.rs` |
+
+**退出握手时序**（与 Electron 版 before-quit 语义对齐，实现不同）：
+
+```
+红点/关闭窗口菜单 → WindowEvent::CloseRequested（窗口存活）
+  → api.prevent_close()
+  → begin_flush_then_exit：emit session:flush（立即返回，不阻塞主线程！）
+  → 渲染层 flushForQuit(): 书签漂移 → 最近阅读时间戳 → 快照 → 并行写驻留脏标签草稿
+  → session_flush_done 命令 signal FlushGate
+  → 后台线程 wait 返回 → run_on_main_thread → shutdown（WAL checkpoint）→ app.exit(0)
+Cmd+Q / app.exit → RunEvent::ExitRequested(Some) → prevent_exit → 同款异步握手
+  → 完成后 app.exit(0) 再次触发（handled → 放行）→ RunEvent::Exit
+超时 3 秒强制放行；YUE_TEST 跳过握手；ExitRequested(None)（窗口已销毁）直接放行
+```
 
 ### 2.2 编辑器：单实例 + 每标签一个 model
+
+（前端与 Electron 版一致）
 
 - 实例：`EditorHost.vue` 创建唯一 `IStandaloneCodeEditor`（`useEditorSetup.createReaderEditor`），全应用只此一个。
 - 模型：`useTabLifecycle.ts` 的模块级 `Map<tabId, ModelEntry>`，**非 reactive**；全文只存在 `monaco.editor.ITextModel`，Pinia 只存 `TabMeta`。
 - 切换：`editor.setModel(entry.model)`，禁止用 `:key` 重建实例。
-- dirty：`model.getAlternativeVersionId()` 与 `ModelEntry.baselineVersionId` 比较，O(1)，不读全文；保存后 `resetBaseline`。
-- 视图：切标签前 `saveViewState`，切回 `restoreViewState`；启动恢复的视口/光标在 `useSession.applyRestoredView` 消费一次。
-- LRU：驻留集合 = 当前标签 + `lastFocusedAt` 最新的 `preloadCount` 个；`useEditorViewState` 在切换时同步计算并每 5 分钟兜底。卸载前把 dirty 全文与 viewState 经 `file:writeDraft` 写库，再 `dispose()`，标签元信息保留。
-- 竞态：卸载单飞 `unloadInFlight`、重载单飞 `reloadInFlight`、换库代际 `epoch`；异步结果发现代际变了直接放弃。
-- 打开：`useTabs.openFile` → `file:readText`（主进程解码）→ `createTabModel` → 激活 → `setModel`。同一文件用 `statCache`（inode 优先、realPath 兜底）去重。
-- 保存：`useEditorCommands.saveActive` 即时 `model.getValue()` → `file:writeText`（临时文件 + rename）→ 刷新 stat、清草稿、同步元数据到库（`library:syncMetadata`，不做全库重扫）。
-- 标题：正文前 10 行书名号优先，变更时节流更新标签标题；blank 标签用首行。
+- dirty：`model.getAlternativeVersionId()` 与基线比较，O(1)；保存后 `resetBaseline`。
+- LRU：驻留集合 = 当前标签 + `lastFocusedAt` 最新的 `preloadCount` 个；卸载前把 dirty 全文与 viewState 经 `file_write_draft` 写库，再 `dispose()`，标签元信息保留。
+- 打开：`useTabs.openFile` → `file_read_text`（Rust 解码，**二进制 Response 帧拆包**）→ `createTabModel` → 激活 → `setModel`。同一文件用 `statCache`（inode 优先、realPath 兜底）去重。
+- 保存：`useEditorCommands.saveActive` 即时 `model.getValue()` → `file_write_text`（临时文件 + rename，保存钩子同步 Finder 注释）→ 刷新 stat、清草稿、同步元数据到库（`library_sync_metadata`，不做全库重扫）。
 - 编辑相关事件：`yueduo:findReplace`、`yueduo:convert`、`yueduo:tabRelocated` 由 `App.vue` / 菜单派发，`EditorHost` 监听执行。
 
 ### 2.3 会话落盘与恢复
 
 **落盘**
 
-1. 标签增删、切换、滚动 → `useSession.schedulePersist()` 2 秒防抖；进度（视口顶部行）与光标行列存模块级 `Map`，不进响应式。
-2. `session:persist` → `ipc/session.ts sessionPersist` → `services/sessionStore.persistSession` 写 `session_tabs` + `session_state`。
-3. 库内标签写 `book_id` + 相对路径，库外写绝对路径 + `book_id NULL`；判定在主进程（`useSession` 只传绝对路径）。
-
-**退出/关窗握手**
-
-```
-main window 'close' / app 'before-quit'
-  → e.preventDefault()
-  → requestRendererFlush() 发 session:flush
-  → 渲染层 flushForQuit(): 书签漂移 → 最近阅读时间戳 → 快照 → 并行写驻留脏标签草稿
-  → session:flushDone
-  → 主进程放行 close/quit → will-quit 里 shutdownLibrary()（关库、WAL checkpoint）
-```
-
-草稿与快照分开 try：任一草稿失败不影响快照，也不阻塞 `flushDone`。
+1. 标签增删、切换、滚动 → `useSession.schedulePersist()` 2 秒防抖；进度与光标存模块级 `Map`，不进响应式。
+2. `session_persist` → `state/session.rs persist_session` 写 `session_tabs` + `session_state`。
+3. 库内标签写 `book_id` + 相对路径，库外写绝对路径 + `book_id NULL`；判定在 Rust 侧（渲染层只传绝对路径）。
 
 **恢复**
 
-1. `App.vue` 初始化 → `restoreSession()` → `session:restore` → `loadSession()`。
+1. `App.vue` 初始化 → `restoreSession()` → `session_restore`。
 2. 库内标签按 `books.relative_path` 拼当前书库根；查不到或文件不存在 → 保留标签并标 `missing`。
-3. `applyRestoredSession` 重置渲染层（解绑 model、清注册表、清 Map）再灌入标签元信息；正文由 `EditorHost` 激活时懒加载，草稿按 `tabId` 从当前库懒读。
-4. 后台 enrich 扫完 → `App.vue` 监听 `library.scanning` → `retryMissingTabs()` → `session:relocate` 按 `book_id` 重算路径，只重试一次。
+3. `applyRestoredSession` 重置渲染层再灌入标签元信息；正文懒加载，草稿按 `tabId` 懒读。
+4. 后台 enrich 扫完 → `retryMissingTabs()` → `session_relocate` 按 `book_id` 重算路径，只重试一次。
 
 **换库**（`useLibrarySwitch`，顺序固定）
 
 ```
-library:open（主进程建新库 + 停扫描 + 读新会话，旧库仍活动）
+library_open（Rust 建新库 + 停扫描 + 读新会话，旧库仍活动）
 → archiveSessionForSwitch（书签/时间戳落盘 → 快照 → 驻留脏标签草稿，写进旧库）
-→ library:activate（提交点：关旧库、切新库）
+→ library_activate（提交点：关旧库、切新库）
 → applyRestoredSession（清空旧 model，灌入新库会话）
-任一失败 → library:abort（只关新库，旧库继续可用）
+任一失败 → library_abort（只关新库，旧库继续可用）
 ```
 
 ### 2.4 书库扫描、对账与单文件入库
 
-- 启动：`main.ts` 在 `registerIpcHandlers` 之后调用 `initActiveLibrary()`；`LibraryDatabaseManager.init()` 按设置里的书库根打开 `<根>/yueduo.db`，不可写时回落 `userData/library-db/<根哈希>.db`。建窗后渲染层用 `library:current` 读取状态。
-- 惰性浏览：`library:fastScan` → `libraryScanner.listDirectory`，只读一层，不碰数据库（书架目录树）。
-- 全库补全：`library:enrich` → `libraryScanner.scanLibrary`（解码 + 解析元数据 + 写 `books`，每 10 个推送进度）→ `reconcileLibrary` 对账。
+- 启动：`lib.rs` setup 里 `AppState::new` 按设置的书库根打开 `<根>/yueduo.db`，不可写时回落 `app_data_dir/library-db/<sha1[:16]>.db`；渲染层用 `library_current` 读取状态。
+- 惰性浏览：`library_fast_scan` → `scanner::list_directory`，只读一层，不碰数据库。
+- 全库补全：`library_enrich` → **独立线程 + 独立 SQLite 连接**（WAL 多连接安全，不占主锁；单飞去重 EnrichResultSlot）→ `scanner::scan_library`（解码 + 解析元数据 + 写 `books`，每 10 个推送进度）→ `reconcile::reconcile_library` 对账；AtomicBool 取消令牌 + 代际校验，被换库中止的扫描不做对账。
 - 对账：直命中重置 `miss_count`；疑似移动用「标题+文件名 / 文件名+大小 / 标题+字数」匹配，旧 `id` 接手新路径以保留评分、进度、书签；连续零匹配达到阈值才删记录；空扫描结果直接返回，避免把全库误删。
-- 单文件入库：保存或另存为后 `library:syncMetadata` → `libraryScanner.ingestFile`，路径判定与相对路径换算都在这里（先 realpath 书库根与文件），命中更新、未命中插入，无需全库重扫。
+- 单文件入库：保存或另存为后 `library_sync_metadata` → `scanner::ingest_file`，路径判定与相对路径换算都在这里（先 realpath 书库根与文件），命中更新、未命中插入。
 - 评分：库内 `books.rating` + Finder 星级 xattr；库外只写文件 xattr。读评分同理分流。
 
 ### 2.5 设置读写与菜单同步
 
-- 启动：`src/main.ts` 先 `settings.init()`（`settings:get`）再 mount，主题 token 首帧前注入，避免闪白。
-- 读写：`settings:get/set` → `services/settingsStore`（`userData/settings.json`，写临时文件再 rename）；`set` 与旧值合并，部分字段不会重置其余设置。
-- 主题：`settings:set` 里 `applyThemeSource(appearance)` 切 `nativeTheme.themeSource`，`ipc/theme.ts` 再推 `theme:updated`；渲染层以主进程推送为权威值。
-- 菜单动作：`menu.ts` 点击 → `webContents.send('app:menuCommand', payload)` → `App.vue runMenuCommand` 按当前 active 标签分发（保存/关闭/打开/书库/外观/预载/关闭按钮等）。
-- 菜单勾选：侧栏显隐变化 → `app:syncMenuState` → `menu.syncMenuState()` 回写 `checked`，键盘与菜单两条路径一致。
+- 启动：`src/main.ts` 先 `settings.init()`（`settings_get`）再 mount → `windowShow()`；主题 token 首帧前注入（`public/bootstrap-theme.js` 先于一切渲染按 prefers-color-scheme 铺底色）。
+- 读写：`settings_get/set` → `state/settings.rs`（`app_data_dir/settings.json`，逐字段归一化，坏值/旧字段回落）；`set` 落盘后同步窗口主题（`set_theme`）并推送权威值。
+- 主题：`theme.rs` 三态应用——light/dark 锁定，system 恢复跟随系统；`WindowEvent::ThemeChanged` 推 `theme:updated`（渲染层以推送为权威值）。
+- 菜单动作：`shell.rs` 点击 → `emit app:menuCommand` → `App.vue runMenuCommand` 按当前 active 标签分发。
+- 菜单勾选：侧栏显隐变化 → `app_sync_menu_state` → `shell.rs` 经 `run_on_main_thread` 回写 `checked`，键盘与菜单两条路径一致。
 - 快捷键：`useEditorKeybindings` 统一收口（全局捕获阶段 + 编辑器 scope），焦点在输入框时放行；菜单与快捷键都只转交意图。
 
 ## 3. 速查索引
 
 | 想改什么 | 先看这些文件 |
 | --- | --- |
-| 加一个 IPC 通道 | `ipc/index.ts`、`preload.ts`、`ipc/registry.ts`（新域才改）、`src/ipc/bridge.ts`、对应 `ipc/<域>.ts` |
-| 改文件读写 / 编码 | `ipc/file.ts`、`services/textCodec.ts`、`services/metadataWriter.ts` |
+| 加一个 IPC 通道 | `src-tauri/src/commands/<域>.rs`、`lib.rs`（generate_handler）、`src/ipc/bridge.ts`、`shared/types.ts` + `types.rs` |
+| 改文件读写 / 编码 | `commands/file.rs`、`services/codec.rs`、`services/files.rs`、`services/metadata_writer.rs` |
 | 改标签行为（打开/关闭/保存/改名） | `composables/useTabs.ts`、`components/TabBar.vue`、`composables/useTabLifecycle.ts` |
 | 改编辑器选项 / 主题 / 字体 | `src/monaco.ts`、`composables/useEditorSetup.ts`、`styles/theme.ts` |
-| 改快捷键 | `composables/useEditorKeybindings.ts`、`composables/useLineCommands.ts`、`electron/menu.ts` |
-| 改 LRU / 草稿 / 会话 | `composables/useTabLifecycle.ts`、`composables/useEditorViewState.ts`、`composables/useSession.ts`、`services/sessionStore.ts`、`services/draftStore.ts` |
-| 改元数据解析 / 写回 | `shared/metadataParser.ts`、`services/metadataWriter.ts`、`ipc/meta.ts`、`components/MetadataBar.vue` |
-| 改书库扫描 / 对账 | `services/libraryScanner.ts`、`services/reconcile.ts`、`ipc/library.ts` |
-| 改换库流程 | `composables/useLibrarySwitch.ts`、`services/libraryDatabase.ts`、`ipc/library.ts`、`composables/useSession.ts` |
-| 改数据库表 / 迁移 | `services/database.ts`（`MIGRATIONS`，追加新版本，不改旧版本） |
-| 改书库列表 / 评分 / 标签 | `services/bookRepository.ts`、`stores/library.ts`、`components/sidebar/*` |
-| 改书签漂移 / 章节 | `composables/useBookmarkDrift.ts`、`services/bookmarkRepository.ts`、`services/chapterParser.ts` |
-| 改查找替换 / 一键整理规则 | `shared/findRules.ts`、`shared/replaceTemplate.ts`、`shared/crossLineSearch.ts`、`services/tidy.ts`、`components/FindReplaceBar.vue` |
-| 改简繁 / 全角半角 | `services/chineseConvert.ts`、`services/textConvert.ts`、`resources/dicts/` |
-| 改 Finder 星级 / 注释 | `services/finderMetadata.ts`、`ipc/meta.ts`、`ipc/library.ts` |
-| 改应用菜单 / 菜单勾选 | `electron/menu.ts`、`src/App.vue`（`runMenuCommand`）、`ipc/app.ts` |
-| 改设置项 | `shared/types.ts`（`AppSettings`/`DEFAULT_SETTINGS`）、`services/settingsStore.ts`、`stores/settings.ts`、`electron/menu.ts` |
-| 改主题颜色 / 间距 | `styles/theme.ts`、`assets/base.css` |
-| 加验收脚本 | `scripts/test-*.ts`（纯 Node，`tsx` 运行） |
+| 改快捷键 | `composables/useEditorKeybindings.ts`、`composables/useLineCommands.ts`、`src-tauri/src/shell.rs` |
+| 改 LRU / 草稿 / 会话 | `composables/useTabLifecycle.ts`、`useEditorViewState.ts`、`useSession.ts`、`state/session.rs` |
+| 改元数据解析 / 写回 | `shared/metadataParser.ts`、`services/metadata.rs`、`services/metadata_writer.rs`、`commands/meta.rs`、`components/MetadataBar.vue` |
+| 改书库扫描 / 对账 | `services/scanner.rs`、`services/reconcile.rs`、`commands/library.rs` |
+| 改换库流程 | `composables/useLibrarySwitch.ts`、`state/library.rs`、`commands/library.rs`、`composables/useSession.ts` |
+| 改数据库表 / 迁移 | `state/db.rs`（追加新版本，不改旧版本；SQL 与 Electron 版逐字对齐） |
+| 改书库列表 / 评分 / 标签 | `state/books.rs`、`stores/library.ts`、`components/sidebar/*` |
+| 改书签漂移 / 章节 | `composables/useBookmarkDrift.ts`、`state/bookmarks.rs`、`services/text.rs` |
+| 改查找替换 / 一键整理规则 | `shared/findRules.json`（唯一来源）、`shared/replaceTemplate.ts`、`shared/crossLineSearch.ts`、`services/find_rules.rs`、`services/convert.rs`、`components/FindReplaceBar.vue` |
+| 改简繁 / 全角半角 | `services/convert.rs`、`commands/convert.rs`、`resources/dicts/` |
+| 改 Finder 星级 / 注释 | `services/finder.rs`、`commands/meta.rs`、`commands/library.rs`、`commands/file.rs` |
+| 改应用菜单 / 菜单勾选 | `src-tauri/src/shell.rs`、`src/App.vue`（`runMenuCommand`）、`commands/app.rs` |
+| 改设置项 | `shared/types.ts`（`AppSettings`/`DEFAULT_SETTINGS`）+ `types.rs`、`state/settings.rs`、`stores/settings.ts`、`shell.rs` |
+| 改主题颜色 / 间距 | `styles/theme.ts`、`assets/base.css`（首帧底色另见 `public/bootstrap-theme.js`） |
+| 改退出握手 | `lib.rs`（CloseRequested / ExitRequested 分支）、`state.rs`（FlushGate）、`composables/useSession.ts`（flushForQuit） |
+| 加验收测试 | `src-tauri/src/services/*.rs` 的 `#[cfg(test)]`（cargo test） |
 
-## 4. 动手前的四条红线
+## 4. 动手前的六条红线
 
-- 渲染层不 import Node 模块；路径拼接、文件判定都在主进程。
+- 渲染层不 import Node 模块、不直接用 `@tauri-apps/api`；路径拼接、文件判定都在 Rust 侧。
 - 全文不进 Pinia / Vue reactive；只经 `useTabLifecycle` 的非响应式 `Map` 与 Monaco model。
 - 不重建 Monaco 实例：单实例 + `setModel()` 切换。
-- `shared/findRules.ts` 的数组顺序就是整理顺序，增删规则只改这一处。
+- `shared/findRules.json` 的数组顺序就是整理顺序，增删规则只改这一处（TS/Rust 共用）。
+- command 一律 async；事件回调里绝不同步长等（emit 依赖主线程循环派发，见 AGENTS.md 主线程规则）。
+- 消息框自定义按钮按 `Custom(文案)` 判定结果（插件统一转换，`Yes/No/Ok` 只作兜底）。
