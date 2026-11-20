@@ -5,8 +5,9 @@ import {
   fileReveal,
   fileStat,
   fileTrash,
+  chooseSaveFile,
+  confirmClose,
   confirmTrash,
-  ipcInvoke,
   libraryBookByPath,
   showError
 } from '@/ipc/bridge'
@@ -161,7 +162,7 @@ export function useTabs(): {
     if (!getTabModel(id)) return false
     store.setActive(id)
     if (!tab.path) {
-      const chosen = await ipcInvoke<string | null>('dialog:saveFile', tab.title)
+      const chosen = await chooseSaveFile(tab.title)
       if (!chosen) return false
       // 落盘后按正文书名（含书名号）重算标题，没有就走新文件名去后缀
       const text = getTabModel(id)?.model.getValue() ?? ''
@@ -191,7 +192,7 @@ export function useTabs(): {
     await waitUnloadSettled(id)
     if (isDirty(id)) {
       store.setActive(id)
-      const choice: ConfirmChoice = await ipcInvoke<ConfirmChoice>('dialog:confirmClose', tab.title)
+      const choice: ConfirmChoice = await confirmClose(tab.title)
       if (choice === 'cancel') return
       if (choice === 'save' && !(await saveTab(id))) return
     }

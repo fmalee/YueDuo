@@ -10,3 +10,10 @@ public/test/
 
 # 开发态独立 userData（设置/会话/数据库索引），不入库
 .dev/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# AI 工作日志（本地记忆，不入库）
+.workbuddy/

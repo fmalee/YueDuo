@@ -1,0 +1,43 @@
+[package]
+name = "yueduo"
+version = "1.1.0"
+description = "悦读 - 本地 TXT 小说管理与阅读器"
+edition = "2021"
+rust-version = "1.90"
+
+[lib]
+name = "yueduo_lib"
+path = "src/lib.rs"
+
+# 权威依赖优先；SQLite 官方绑定 rusqlite 为成熟件（bundled 自带源码，同步 API + 完整事务）。
+[dependencies]
+# Tauri 运行时（devtools：release 下保留「切换开发者工具」菜单项）
+tauri = { version = "2", features = ["devtools"] }
+# 编码探测与解码（Mozilla/Firefox 栈）
+encoding_rs = "0.8"
+chardetng = "0.1"
+# 数据结构与序列化
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# SQLite（bundled：避免系统版本差异；不用 plugin-sql，其无事务 API 且全异步会连锁改 services）
+rusqlite = { version = "0.32", features = ["bundled"] }
+# 回落库文件名按书库根 sha1 哈希隔离（与 Electron 版同名回落文件保持一致）
+sha1 = "0.10"
+# 元数据/章节/整理正则（tidyEnabled 的规则均为 RE2 兼容语法，无 lookahead）
+regex = "1"
+# 移到系统废纸篓（对齐 Electron shell.trashItem）
+trash = "5"
+# 原生文件/目录选择与消息对话框（async command 内调用，绝不占主线程）
+tauri-plugin-dialog = "2"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+# dev（tauri dev）默认零优化：解码/字数统计/换行归一这类 CPU 密集路径比 release 慢一个
+# 数量级以上（大书打开与全库扫描「特别慢」的根因）。本 crate 开 O1 保增量编译速度，
+# 依赖（encoding_rs/regex/rusqlite）全量 O3 —— 语义与 release 一致，仅编译期开销变大。
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

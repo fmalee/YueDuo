@@ -104,6 +104,10 @@ export const READER_EDITOR_OPTIONS: monaco.editor.IStandaloneEditorConstructionO
   smoothScrolling: false,
   // 中文输入法
   automaticLayout: true,
+  // WKWebView 无 EditContext，Monaco 靠隐藏 textarea 收输入；'auto' 下 Monaco 与 WebKit
+  // 各自改 textarea.scrollTop（差 ~3px）互相拉锯导致逐字输入时行抖动（monaco-editor#4796）。
+  // 关掉无障碍探测换输入稳定（自用阅读器无屏幕阅读器需求；Electron/Chromium 无此问题）。
+  accessibilitySupport: 'off',
   contextmenu: true,
   mouseWheelZoom: false,
   quickSuggestions: false,
