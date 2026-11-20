@@ -4,6 +4,7 @@
 //! 新增通道同步三处：本目录对应域文件、`src/ipc/bridge.ts`、`shared/types.ts`（Rust 侧镜像 `types.rs`）。
 
 pub mod app;
+pub mod convert;
 pub mod dialog;
 pub mod file;
 pub mod library;

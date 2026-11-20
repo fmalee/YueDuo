@@ -335,3 +335,21 @@ pub struct FileRenameResult {
 pub struct FileTrashResult {
     pub removed_book: bool,
 }
+
+/// convert 域结果（shared/types.ts 镜像）：kept = 一字多义保留原字的位置数，keptWords = 保护词命中数
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertResult {
+    pub text: String,
+    pub kept: i64,
+    pub kept_words: i64,
+}
+
+/// 一键整理结果：转换计数供状态栏提示，text 为整理后的全文
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TidyResult {
+    pub text: String,
+    pub convert_kept: i64,
+    pub convert_kept_words: i64,
+}

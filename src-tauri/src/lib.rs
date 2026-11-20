@@ -86,6 +86,10 @@ pub fn run() {
             commands::session::session_restore,
             commands::session::session_relocate,
             commands::session::session_flush_done,
+            commands::convert::convert_to_halfwidth,
+            commands::convert::convert_to_simplified,
+            commands::convert::convert_to_traditional,
+            commands::convert::convert_tidy,
         ])
         .build(tauri::generate_context!())
         .expect("悦读启动失败")

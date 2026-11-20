@@ -122,7 +122,7 @@ YueDuo/
 > （bridge.ts + shared/types.ts + 组件调用都在），以下任务只写 Rust 侧；
 > bridge.ts 中已声明但 Rust 未注册的命令共 8 个 = P3.1 + P3.2 的全部工作量。
 
-**P3.1 convert 域（4 命令，工作量最大）**
+**P3.1 convert 域（4 命令）✅ 已完成（2026-11-21）**
 - 缺失命令：`convert_to_halfwidth` / `convert_to_simplified` / `convert_to_traditional` /
   `convert_tidy`（bridge.ts 的 convertToHalfwidth/ToSimplified/ToTraditional/Tidy 已在调，
   菜单链路已通，注册后即整体生效）。
@@ -145,6 +145,12 @@ YueDuo/
   转换流水线对齐 `git show a46ae4a:electron/services/chineseConvert.ts`（保护词 keep →
   词组 phrases 最长匹配 → 单字 characters → ambiguous 保留）。
 - 正则库注意：tidyEnabled 规则均为 RE2 兼容语法（无 lookahead），regex crate 可直接用。
+- **落地纪要**：findRules.ts→JSON 用 node 从 TS 原文求值生成（非手抄）；Rust 侧
+  `translate_pattern` 把 JS `\uXXXX` 转 regex crate 的 `\u{XXXX}`；替换模板展开
+  （unescape + 分组）逐语义移植 TS replaceTemplate；tidy 的 JS gm 空匹配前进语义、
+  文末幻影行加缩进均已用 node 复现原版验证为一致后写进测试断言；regex 只编译
+  tidyEnabled + to_halfwidth 模式（无 lookahead，fix_dialogue 等纯查找规则不进 Rust）。
+  验证：cargo test 42/42（新增 find_rules 4 + convert 7）、typecheck/lint/build 全绿。
 
 **P3.2 meta 域（4 命令）**
 - 缺失命令：`meta_read` / `meta_apply_edit` / `meta_read_rating` / `meta_apply_rating`。
