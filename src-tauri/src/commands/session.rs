@@ -40,8 +40,9 @@ pub async fn session_relocate(
         .unwrap_or_default())
 }
 
-/// 退出握手回执：渲染层落盘完成，主进程可继续退出（P3 shell 消费）
+/// 退出握手回执：渲染层已落盘，主进程可继续退出
 #[tauri::command]
-pub async fn session_flush_done() -> Result<(), String> {
+pub async fn session_flush_done(state: State<'_, AppState>) -> Result<(), String> {
+    state.signal_flush_done();
     Ok(())
 }

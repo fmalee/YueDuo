@@ -176,7 +176,7 @@ YueDuo/
   是 JS 原版口径（第 10 行的《书名》不算 title 行）。applyEdit 的 tags→Finder 注释同步
   与库外评分 xattr 留 P3.3 接入点（当前 log-skip / persisted=false）。cargo test 49/49。
 
-**P3.3 Finder 元数据（services/finder.rs）**
+**P3.3 Finder 元数据（services/finder.rs）✅ 已完成（2026-11-21）**
 - xattr 直读写（`xattr` crate，免 spawn）：星级 `com.apple.metadata:kMDItemStarRating`
   （bplist00 实数：float marker `0x23` + 8 字节 BE double）；注释
   `com.apple.metadata:kMDItemFinderComment`（bplist00 字符串：UTF-16BE marker
@@ -188,8 +188,13 @@ YueDuo/
 - 写前读旧值，相同跳过。字节级往返单测 + 与 CLI `xattr -px` 输出对照。
 - 接入点：① P3.2 的 tags 同步与 applyRating；② `file_write_text` 成功后库内文件同步注释
   （AGENTS.md 保存链路口径，失败仅 warning）。
+- **落地纪要**：xattr crate 直读写原始字节（等价原版 CLI 十六进制通道）；bplist00 手写
+  构造以 **python3 plistlib.dumps(FMT_BINARY) 逐字节对照测试**为权威防漂移口径（测试
+  内联 spawn python3，比 CLI 对照更强）；osascript 2s 超时用 spawn+try_wait 轮询实现。
+  接入点三处全通：meta applyRating（库内+库外）、meta applyEdit tags、file_write_text
+  保存钩子、library_set_book_rating。cargo test 54/54。
 
-**P3.4 退出握手（已排期未实现的最后一环）**
+**P3.4 退出握手 ✅ 已完成（2026-11-21）**
 - 语义（对齐 `git show a46ae4a:electron/ipc/session.ts`）：退出请求 → emit `session:flush`
   → 渲染层 persist 草稿后调 `session_flush_done`（命令已在 bridge.ts）→ 放行退出；
   超时 **3000ms** 强制放行（FLUSH_TIMEOUT_MS）。
@@ -197,9 +202,15 @@ YueDuo/
   Condvar 等待 `session_flush_done`（AppState 加一个 flush 槽，参照 EnrichResultSlot）→
   超时或收到 → `std::process::exit` / `api.exit(0)`；先 `state.shutdown()`（checkpoint）。
 - 渲染层监听 `session:flush` 的逻辑已存在（原 Electron 会话 composable），零改动。
+- **落地纪要（关键口径修正）**：`ExitRequested(None)` 在**最后窗口 Destroyed 之后**才触发
+  （tauri-runtime-wry 源码证实），渲染层已死无法回执——握手不能挂在那里。实际挂两处：
+  ① `WindowEvent::CloseRequested`（红点/关闭窗口菜单，窗口存活）prevent_close → 握手 →
+  `app.exit(0)`；② `ExitRequested(Some(code))`（Cmd+Q/app.exit，窗口存活）同步握手后
+  放行（不 prevent）。`flush_handled` 标记防双路径二次握手；YUE_TEST 跳过握手（对齐原版
+  quitFlushled）。
 
-**P3.5 单实例锁**：tauri-plugin-single-instance，second-instance 回调聚焦主窗口
-（run_on_main_thread → show + set_focus）。Cargo.toml 加依赖 + lib.rs 注册。
+**P3.5 单实例锁 ✅ 已完成（2026-11-21）**：tauri-plugin-single-instance，Builder 首位注册；
+second-instance → run_on_main_thread → show + set_focus。
 
 **P3.6 验收**：按首次迁移真机清单全项复测——对话框/读写/菜单/主题/握手/Finder 星级注释/
 Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作。

@@ -7,7 +7,7 @@
 
 use tauri::State;
 
-use crate::services::{codec, metadata, metadata_writer};
+use crate::services::{codec, finder, metadata, metadata_writer};
 use crate::state::books;
 use crate::state::AppState;
 use crate::types::{
@@ -59,8 +59,8 @@ pub async fn meta_apply_edit(
     if path.is_empty() {
         return Err("缺少文件路径".into());
     }
-    // tags 的临时 Vec 需要与 fields 同生命周期，先落到局部变量
-    let mut tags_holder: Vec<String> = Vec::new();
+    // tags 的临时 Vec 需要与 fields 同生命周期，先声明后赋值（避免多余初始化）
+    let tags_holder: Vec<String>;
     let fields = match field {
         MetadataField::Title => metadata_writer::MetadataWriteFields {
             title: Some(&value),
@@ -103,9 +103,10 @@ pub async fn meta_apply_edit(
                 .unwrap_or(false);
         }
     }
-    // 主题写回后同步 Finder 注释（方案 §2.10）——P3.3 finder 服务接入，此处仅提示
+    // 主题写回后同步 Finder 注释（方案 §2.10）：无主题与「旧注释相同」都由 service 跳过
     if matches!(field, MetadataField::Tags) {
-        eprintln!("[meta] Finder 注释同步待 P3.3（finder 服务）接入");
+        let topic = metadata::find_topic(&next_text);
+        finder::write_comment(&path, topic.as_deref(), finder::sync_finder_comment_via_osascript);
     }
     Ok(MetadataEditResult {
         edit,
@@ -139,9 +140,10 @@ pub async fn meta_read_rating(
             }
         }
     }
-    // 库外没有 books 行 → 取文件 Finder 星级（P3.3 接入 xattr 前恒 0）
+    // 库外没有 books 行 → 取文件 Finder 星级（读取失败按 0，对齐 Python finder_metadata）
+    let rating = finder::read_rating(&path).unwrap_or(0);
     Ok(RatingReadResult {
-        rating: 0,
+        rating,
         in_library: false,
     })
 }
@@ -176,8 +178,11 @@ pub async fn meta_apply_rating(
                 let (written, file_relative) = state
                     .with_active_db(|db, _| books::set_book_rating(db, book.id, value))?
                     .ok_or_else(|| "尚未打开书库".to_string())?;
-                // 文件星级 xattr 写入由 P3.3 finder 服务接入（当前仅库内评分生效）
-                let _ = file_relative;
+                // 文件星级 xattr：写失败静默，不影响库内评分（对齐原版）
+                if let Some(relative) = file_relative {
+                    let absolute = format!("{root}/{relative}");
+                    finder::write_rating(&absolute, written);
+                }
                 return Ok(RatingWriteResult {
                     rating: written,
                     in_library: true,
@@ -186,10 +191,11 @@ pub async fn meta_apply_rating(
             }
         }
     }
-    // 库外没有 books 行，只写文件 Finder 星级（P3.3 接入前恒 persisted=false → 渲染层回退）
+    // 库外没有 books 行，只写文件 Finder 星级；persisted=false 时渲染层必须回退
+    let persisted = finder::write_rating(&path, value);
     Ok(RatingWriteResult {
         rating: value,
         in_library: false,
-        persisted: false,
+        persisted,
     })
 }

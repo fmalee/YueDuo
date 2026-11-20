@@ -4,6 +4,7 @@ pub mod codec;
 pub mod convert;
 pub mod files;
 pub mod find_rules;
+pub mod finder;
 pub mod metadata;
 pub mod metadata_writer;
 pub mod reconcile;

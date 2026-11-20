@@ -296,7 +296,12 @@ pub async fn library_set_book_rating(
     let (value, relative) = state
         .with_active_db(|db, _| books::set_book_rating(db, id, rating))?
         .ok_or_else(|| "尚未打开书库".to_string())?;
-    let _ = relative; // P3：join(activeRoot, relativePath) 后写 Finder 星级
+    // 路径由库内 relative_path 拼出；xattr 失败静默，不影响库内评分（对齐原版）
+    if let Some(relative) = relative {
+        let root = state.active_root();
+        let absolute = format!("{root}/{relative}");
+        crate::services::finder::write_rating(&absolute, value);
+    }
     Ok(value)
 }
 

@@ -43,6 +43,14 @@ pub async fn file_stat(path: String) -> Result<FileStat, String> {
 #[tauri::command]
 pub async fn file_write_text(path: String, text: String) -> Result<FileWriteResult, String> {
     let stat = files::write_text(Path::new(&path), &text)?;
+    // 保存后按正文前十行「主题」同步 Finder 注释（方案 §2.10）：无主题/相同内容由 service 跳过；
+    // xattr 已写入但 Finder 同步失败只降级为 written，不阻塞保存主流程
+    let topic = crate::services::metadata::find_topic(&text);
+    crate::services::finder::write_comment(
+        &path,
+        topic.as_deref(),
+        crate::services::finder::sync_finder_comment_via_osascript,
+    );
     Ok(FileWriteResult { stat })
 }
 
