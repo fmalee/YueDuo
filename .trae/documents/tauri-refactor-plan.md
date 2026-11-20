@@ -2,7 +2,9 @@
 
 > 2026-11-20 制定，同日开始实施。本文件是重构期间的行为准则与进度存档（防意外），
 > 重构完成后其内容并入 AGENTS.md 与 architecture.md，届时本文件可归档。
-> 现阶段权威口径：本文档 + AGENTS.md（其中 Electron 专属章节已作废，见 §八）。
+> 现阶段权威口径：本文档 + AGENTS.md（其中 Electron 专属章节已作废，见 §五）。
+> 进度基线：commit `d9612cc`（dev 分支）。P0–P2 已完成并真机验收通过，待办见 §三 P3–P5
+> 与 §七 续接指南。
 
 ## 一、重构目的与已确认决策
 
@@ -114,29 +116,95 @@ YueDuo/
 - P3 剩余：退出握手（ExitRequested → session:flush → flushDone → 放行）、Finder xattr、
   简繁/全角转换与 tidy、单实例锁、打包验收。
 
-### P3 — 集成域
-- 原生中文菜单（对齐 electron/menu.ts 的命令与单选/复选组；menuCommand 事件；syncMenuState 回写）。
-- 对话框（全部 async command 防主线程死锁——tauri-plugin-dialog 的 blocking_* 内部
-  sync_channel(0)，同步 command 在主线程会自己等自己）；confirmClose 用前端自绘浮层。
-- Finder 元数据：`xattr` crate 直读写（免 spawn）+ osascript 同步 Finder 注释（Spotlight
-  索引口径）；bplist00 手写（Python plistlib 风格 marker，**不能用 plist crate 的 buildBinary**）。
-- 简繁转换：OpenCC 词表（bundle.resources map 形式 `{ "../resources/dicts": "dicts" }` +
-  resource_dir 探测注入 + ignored 回归测试）；保护词→词组最长匹配→单字→ambiguous 保留。
+### P3 — 集成域（待办，按 P3.1→P3.6 顺序执行）
+
+> 进度基线：commit `d9612cc`（dev 分支，2026-11-21）。P3 前端契约**已全部备齐**
+> （bridge.ts + shared/types.ts + 组件调用都在），以下任务只写 Rust 侧；
+> bridge.ts 中已声明但 Rust 未注册的命令共 8 个 = P3.1 + P3.2 的全部工作量。
+
+**P3.1 convert 域（4 命令，工作量最大）**
+- 缺失命令：`convert_to_halfwidth` / `convert_to_simplified` / `convert_to_traditional` /
+  `convert_tidy`（bridge.ts 的 convertToHalfwidth/ToSimplified/ToTraditional/Tidy 已在调，
+  菜单链路已通，注册后即整体生效）。
+- 新文件：`services/find_rules.rs`、`services/convert.rs`、`commands/convert.rs`。
 - **findRules 单一规则源**（老李 2026-11-20 强调，务必遵守）：
-  - `shared/findRules.json` 是**全项目唯一正则来源**（TS 类型导出 + Rust `include_str!` 嵌入）；
-  - 列出的**所有正则**用于编辑器查找的正则下拉列表；
-  - `tidyEnabled: true` 的正则**严格按数组顺序**用于一键整理；
-  - 一键整理 = 繁体转简体 + 全角转半角（匹配集也取自 findRules 的 to_halfwidth 规则）+
-    tidyEnabled 正则逐一替换（替换串展开语义与 TS expandReplacement 一致：`$1`/`$&`/`\n` 等）；
-  - 加 Rust↔Electron 历史行为的逐字节对照测试防漂移。
-- 验收：按首次迁移真机清单全项复测（对话框/读写/菜单/主题/握手/Finder/Cmd+Z/简繁/输入法）。
+  - 把 `shared/findRules.ts` 改造成 `shared/findRules.json`（数组顺序即整理顺序）+ 薄 TS
+    类型导出（`resolveJsonModule`），引用方 `src/components/FindReplaceBar.vue`（查找正则
+    下拉列表用全部规则）保持语义不变；
+  - Rust 侧 `include_str!("../../../shared/findRules.json")` 嵌入（注意从
+    `src-tauri/src/services/` 起算的相对路径是三级 `../`），serde 解析成
+    `Vec<FindRule>{ pattern, flags, replacement, description, tidy_enabled }`；
+  - 所有规则进查找下拉（前端现状已如此）；`tidyEnabled: true` 严格按数组顺序用于一键整理；
+  - 一键整理 = 繁转简 + 全角转半角（匹配集取 findRules 的 to_halfwidth 规则）+
+    tidyEnabled 逐一替换；替换串展开语义与 TS expandReplacement 一致（`$1`/`$&`/`\n`），
+    参考 `git show a46ae4a:shared/replaceTemplate.ts` 与 `electron/services/tidy.ts`；
+  - 加 Rust↔Electron 逐字节对照测试防漂移（用 findRules 里的每条规则构造样例）。
+- 简繁词表：`resources/dicts/`（ts/st_characters、ts/st_phrases、keep、ambiguous）。
+  tauri.conf.json `bundle.resources` 加 `"../resources/dicts": "dicts"`；**dev 态
+  resource_dir 不含资源** → 探测顺序：resource_dir/dicts → CARGO_MANIFEST_DIR/../resources/dicts。
+  转换流水线对齐 `git show a46ae4a:electron/services/chineseConvert.ts`（保护词 keep →
+  词组 phrases 最长匹配 → 单字 characters → ambiguous 保留）。
+- 正则库注意：tidyEnabled 规则均为 RE2 兼容语法（无 lookahead），regex crate 可直接用。
 
-### P4 — 清理与文档
-- AGENTS.md 重写（§八要点）、architecture.md 更新为 Tauri 版、README 更新。
+**P3.2 meta 域（4 命令）**
+- 缺失命令：`meta_read` / `meta_apply_edit` / `meta_read_rating` / `meta_apply_rating`。
+- 语义（对齐 `git show a46ae4a:electron/ipc/meta.ts`）：
+  - `meta_read(path)`：读磁盘 → decode_bytes → `parse_metadata`（services/metadata.rs
+    已有），库外/未入库文件的元数据栏首屏用；
+  - `meta_apply_edit(path, text, field, value)`：**渲染层传当前正文**（可能是未保存内容），
+    主进程只在内存算最小区间替换（port `electron/services/metadataWriter.ts` 的
+    rewriteHeader/applyTextEdit → TextEdit{范围+新文本}），返回
+    `{ edit, updated, metadata }`；按写回后正文重解析并同步 books（不等保存，B1）；
+    field=tags 时同步 Finder 注释（P3.3 完成前可 log-skip）；
+  - `meta_read_rating(path)`：库内取 books.rating（inLibrary=true），库外取 Finder 星级
+    （无则 0）；
+  - `meta_apply_rating(path, rating)`：clamp 0–5；库内走 books 更新 + 文件星级 xattr；
+    库外只写 xattr，`persisted=false` 时渲染层回退（不能假成功）。
+- 新文件：`services/metadata_writer.rs`、`commands/meta.rs`；types 补
+  MetadataTextEdit/MetadataEditResult/RatingReadResult/RatingWriteResult（shared/types.ts
+  已有定义，镜像到 types.rs）。
+- 书库身份判定复用 `books::relative_in_library` + `find_book_by_relative_path`。
 
-### P5 — 打包与性能验收
-- `tauri build`（app + dmg）；单实例锁（tauri-plugin-single-instance）；
-  YUE_TEST 等验收模式（env 判定）；同场景内存/启动恢复耗时对照报告。
+**P3.3 Finder 元数据（services/finder.rs）**
+- xattr 直读写（`xattr` crate，免 spawn）：星级 `com.apple.metadata:kMDItemStarRating`
+  （bplist00 实数：float marker `0x23` + 8 字节 BE double）；注释
+  `com.apple.metadata:kMDItemFinderComment`（bplist00 字符串：UTF-16BE marker
+  `0x60|字符数`，字符数 ≥16 用 `0x6F` + 2 字节长度；trailer 32 字节）。
+  **禁止 plist crate 的 buildBinary**（字节布局与 Finder 期待不一致）。
+- 注释写完再 `osascript`（spawn，路径与注释走 argv 不拼脚本）让 Finder `set comment`
+  同步 Spotlight 索引（raw xattr 显示滞后）；返回
+  refreshed/written/skipped/failed，失败记 warning 不阻塞。
+- 写前读旧值，相同跳过。字节级往返单测 + 与 CLI `xattr -px` 输出对照。
+- 接入点：① P3.2 的 tags 同步与 applyRating；② `file_write_text` 成功后库内文件同步注释
+  （AGENTS.md 保存链路口径，失败仅 warning）。
+
+**P3.4 退出握手（已排期未实现的最后一环）**
+- 语义（对齐 `git show a46ae4a:electron/ipc/session.ts`）：退出请求 → emit `session:flush`
+  → 渲染层 persist 草稿后调 `session_flush_done`（命令已在 bridge.ts）→ 放行退出；
+  超时 **3000ms** 强制放行（FLUSH_TIMEOUT_MS）。
+- 实现：lib.rs `.run()` 的 `RunEvent::ExitRequested`：`api.prevent_exit()` + 发 flush +
+  Condvar 等待 `session_flush_done`（AppState 加一个 flush 槽，参照 EnrichResultSlot）→
+  超时或收到 → `std::process::exit` / `api.exit(0)`；先 `state.shutdown()`（checkpoint）。
+- 渲染层监听 `session:flush` 的逻辑已存在（原 Electron 会话 composable），零改动。
+
+**P3.5 单实例锁**：tauri-plugin-single-instance，second-instance 回调聚焦主窗口
+（run_on_main_thread → show + set_focus）。Cargo.toml 加依赖 + lib.rs 注册。
+
+**P3.6 验收**：按首次迁移真机清单全项复测——对话框/读写/菜单/主题/握手/Finder 星级注释/
+Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作。
+
+### P4 — 清理与文档（待办）
+- AGENTS.md 重写（§五要点，含 findRules 单一源、convert 链路、退出握手口径）、
+  architecture.md 更新为 Tauri 版、README 更新；本文件届时归档。
+
+### P5 — 打包与性能验收（待办）
+- `npm run tauri build`（app + dmg，先 x64/arm64 各跑一次或跟随构建机架构）；
+  打包版验证：图标（dev 态 Dock 是默认图标属正常）、词表在包内（resource_dir 探测）、
+  Finder xattr/osascript 正常。
+- 同场景对照报告：RSS 内存（目标 ≈ Electron 一半）、冷启动到首帧、大书打开、全库 enrich
+  耗时；记录进本文件备查。
+- YUE_TEST 验收模式现状：dialog confirmTrash 已按 env 自动放行；无窗口/不进 Dock 的
+  Electron 专用形态不再需要（services 已由 cargo test 覆盖），CDP 脚本已删除。
 
 ## 四、风险与已规避坑（首次迁移报告沉淀 + 本次新增）
 
@@ -179,3 +247,44 @@ YueDuo/
 - 回落库命名：sha1(root) 十六进制**前 16 位** + `.db`。
 - 测试隔离：`std::env::temp_dir().join(format!("yueduo-p0-{tag}-{pid}-{ms}"))`，用完删除。
 - dev 态 Dock 图标是 Tauri 默认（debug 可执行无 Info.plist icon），打包后的 .app 才带真实图标。
+
+## 七、续接指南（新会话/新模型从这里开始）
+
+**第一步**：读本文件（全文）+ AGENTS.md（注意其中 Electron 专属章节已作废）。
+不需要读历史对话——本文档 + 代码即全部上下文。
+
+**当前状态快照（2026-11-21，commit `d9612cc`）**：
+- P0–P2 完成且真机验收通过（老李确认：窗口/主题/书库/打开文件/扫描/菜单均正常）。
+- Rust 已注册 45 个 command（settings 2 / app 2 / file 7 / library 21 / session 4 / dialog 若干，
+  见 lib.rs 的 generate_handler）。
+- **bridge.ts 已声明、Rust 未注册的命令 = P3 全部缺口**：convert 域 4 个 + meta 域 4 个。
+  注册前点击对应菜单/按钮会走 reject 报「命令未实现」。
+- 退出握手（session:flush / session_flush_done）前端侧已就绪，Rust 侧 ExitRequested 未接。
+- 工作树干净（除 .workbuddy/ 本地日志，已 gitignore）。
+
+**常用命令**：
+- 开发：`npm run dev`（= tauri dev；改 Rust 后重编译 1–3 分钟属正常）
+- Rust 检查/测试：`cargo check --manifest-path /Users/Joey/Sites/Projects/YueDuo/src-tauri/Cargo.toml`
+  与 `cargo test --manifest-path ...`（31 个用例；`-- --ignored --nocapture` 跑真实书库
+  87 本编码回归，需已授权的验收书库在位）
+- 前端：`npm run typecheck`（node+web 双侧）、`npm run lint`、`npm run build:web`
+
+**关键文件地图**：
+- IPC 契约三方：`src/ipc/bridge.ts`（前端唯一出口）↔ `src-tauri/src/types.rs`（serde 镜像）
+  ↔ `src-tauri/src/commands/*.rs`；新命令三处同步 + lib.rs generate_handler 注册。
+- 状态层：`src-tauri/src/state.rs` + `state/`（settings/db/library/books/bookmarks/session）；
+  DB 操作都走 `state.with_active_db`（锁内同步执行，勿放长 I/O）。
+- 业务层：`services/`（codec/files/scanner/reconcile/metadata/text），纯 Rust 可单测。
+
+**Electron 原版参考**（已从工作树删除，git 历史可读，父提交 `a46ae4a`）：
+- `git show a46ae4a:electron/ipc/meta.ts`、`electron/services/metadataWriter.ts`（P3.2）
+- `git show a46ae4a:electron/services/finderMetadata.ts`（P3.3，bplist00 字节细节在此）
+- `git show a46ae4a:electron/services/chineseConvert.ts`、`textConvert.ts`、`tidy.ts`（P3.1）
+- `git show a46ae4a:electron/ipc/session.ts`（P3.4 握手）、`shared/replaceTemplate.ts`
+- 首次 Tauri 迁移踩坑记录：
+  `/Users/Joey/Sites/Projects/YueDuo-tauri/.trae/documents/tauri-migration-status.md`
+  （其中「复刻时的关键事实」与「真机反馈与修复记录」仍有参考价值）
+
+**纪律**：每完成一个文件跑 `npm run typecheck`；Rust 改动后 `cargo check` → `cargo test`；
+提交前 `npm run lint`；单文件超 ~500 行拆分；新依赖需说明理由并锁版本；大型改动先在此
+文档登记再动手。
