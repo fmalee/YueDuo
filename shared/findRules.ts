@@ -57,9 +57,17 @@ export const DEFAULT_RULES: readonly FindRule[] = [
     tidyEnabled: false
   },
   {
+    key: 'find_halfwidth',
+    label: '查找半角字符',
+    pattern: '[,;:~!@"\'\\?\\. ]',
+    description: '查找文本中的半角字符',
+    replacement: null,
+    tidyEnabled: false
+  },
+  {
     key: 'spliced_paragraph',
     label: '拼接段落',
-    pattern: '([^。！”……？])\\n\\u3000+([\u4e00-\u9fa5].*[^。！”……？])',
+    pattern: '([^。！”……？])\\n\\u3000+([\\u4e00-\\u9fa5].*[^。！”……？])',
     description: '将顶格段落拼接到上一个段落',
     replacement: '$1$2',
     tidyEnabled: false
