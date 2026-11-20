@@ -252,6 +252,7 @@ Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作�
 | tsconfig：monaco 深层 JS 导入无 .d.ts，靠 `noImplicitAny: false`（旧 toolkit 预设同款） | ✅ 已内联 |
 | `tauri dev` 零优化构建：解码/字数统计/换行归一比 release 慢一个数量级（大书打开与全库扫描「特别慢」的真凶，对照 V8 JIT）→ dev 档本 crate O1 + 依赖 O3 | ✅ 已修（真机反馈） |
 | 启动主题闪烁（深→浅→深）：WKWebView 默认白底，在页面加载到 applyTheme 之间露出 → 窗口 `visible:false` + bootstrap-theme.js 同步首帧底色 + 主题就绪后 `windowShow()`（capability 补 core:window:allow-show） | ✅ 已修（真机反馈） |
+| 消息框按钮映射：tauri-plugin-dialog 在所有平台都把原生结果转为 `Custom(按钮文案)`（desktop.rs 统一转换），按 `Yes/No/Ok` 枚举匹配恒落 default → 「放弃更改/保存/移到废纸篓」全部失效当「取消」。改按 `Custom(文案)` 匹配 + 原生值兜底（confirm_close/trash/dev_library 三处） | ✅ 已修（真机反馈） |
 
 ## 五、AGENTS.md 调整要点（P4 执行）
 

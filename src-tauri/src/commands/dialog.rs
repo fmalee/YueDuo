@@ -75,6 +75,17 @@ fn show_message(
         .blocking_show_with_result()
 }
 
+/// 插件在所有平台都把原生按钮结果映射为 `Custom(按钮文案)`（desktop.rs 统一转换，
+/// macOS 上 rfd 返回 Yes/No/Cancel 也不例外）。按文案判定；Yes/No/Ok 原始值兜底
+/// （rfd 行为可能随版本变化）。
+fn result_is(result: &MessageDialogResult, text: &str, native_yes_ok: bool) -> bool {
+    match result {
+        MessageDialogResult::Custom(s) => s == text,
+        MessageDialogResult::Ok | MessageDialogResult::Yes => native_yes_ok,
+        _ => false,
+    }
+}
+
 /// dialog:confirmClose —— dirty 标签关闭前三选一（中文三按钮；YesNoCancelCustom 原生支持）
 #[tauri::command]
 pub async fn dialog_confirm_close(app: AppHandle, title: String) -> Result<String, String> {
@@ -86,10 +97,12 @@ pub async fn dialog_confirm_close(app: AppHandle, title: String) -> Result<Strin
         "关闭前是否保存？",
         MessageDialogButtons::YesNoCancelCustom("保存".into(), "放弃更改".into(), "取消".into()),
     );
-    Ok(match result {
-        MessageDialogResult::Yes => "save",
-        MessageDialogResult::No => "discard",
-        _ => "cancel",
+    Ok(if result_is(&result, "保存", true) {
+        "save"
+    } else if result_is(&result, "放弃更改", false) {
+        "discard"
+    } else {
+        "cancel"
     }
     .to_string())
 }
@@ -97,7 +110,11 @@ pub async fn dialog_confirm_close(app: AppHandle, title: String) -> Result<Strin
 /// dialog:confirmTrash —— 删除标签文件前确认（默认按钮是取消，防误删）。
 /// 自动化验收：YUE_TEST 下窗口不可见，模态框会卡住流程，直接放行。
 #[tauri::command]
-pub async fn dialog_confirm_trash(app: AppHandle, title: String, dirty: bool) -> Result<bool, String> {
+pub async fn dialog_confirm_trash(
+    app: AppHandle,
+    title: String,
+    dirty: bool,
+) -> Result<bool, String> {
     if std::env::var("YUE_TEST").is_ok() {
         return Ok(true);
     }
@@ -113,12 +130,16 @@ pub async fn dialog_confirm_trash(app: AppHandle, title: String, dirty: bool) ->
         },
         MessageDialogButtons::OkCancelCustom("移到废纸篓".into(), "取消".into()),
     );
-    Ok(matches!(result, MessageDialogResult::Ok))
+    Ok(result_is(&result, "移到废纸篓", true))
 }
 
 /// dialog:showError —— 文件操作失败的可见提示
 #[tauri::command]
-pub async fn dialog_show_error(app: AppHandle, title: String, message: String) -> Result<(), String> {
+pub async fn dialog_show_error(
+    app: AppHandle,
+    title: String,
+    message: String,
+) -> Result<(), String> {
     show_message(
         &app,
         MessageDialogKind::Error,
@@ -136,7 +157,8 @@ pub async fn confirm_dev_library(app: &AppHandle, root: &str) -> Result<bool, St
         return Ok(true);
     }
     let requested = std::fs::canonicalize(root).unwrap_or_else(|_| root.into());
-    let dev_root = std::fs::canonicalize(DEV_LIBRARY_ROOT).unwrap_or_else(|_| DEV_LIBRARY_ROOT.into());
+    let dev_root =
+        std::fs::canonicalize(DEV_LIBRARY_ROOT).unwrap_or_else(|_| DEV_LIBRARY_ROOT.into());
     if requested == dev_root {
         return Ok(true);
     }
@@ -150,5 +172,5 @@ pub async fn confirm_dev_library(app: &AppHandle, root: &str) -> Result<bool, St
         ),
         MessageDialogButtons::OkCancelCustom("仍然打开".into(), "取消".into()),
     );
-    Ok(matches!(result, MessageDialogResult::Ok))
+    Ok(result_is(&result, "仍然打开", true))
 }
