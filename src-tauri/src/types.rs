@@ -353,3 +353,49 @@ pub struct TidyResult {
     pub convert_kept: i64,
     pub convert_kept_words: i64,
 }
+
+/// meta 域（shared/types.ts 镜像）：可写回的元数据字段
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MetadataField {
+    Title,
+    Author,
+    Tags,
+}
+
+/// 元数据写回的最小替换区间：UTF-16 码元偏移，由编辑器一次 executeEdits 应用（方案 §2.8）
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataTextEdit {
+    pub start: usize,
+    pub end: usize,
+    pub replacement: String,
+}
+
+/// meta:applyEdit 返回：edit=None 表示正文无需改动；updated=是否同步到书库
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MetadataEditResult {
+    pub edit: Option<MetadataTextEdit>,
+    pub updated: bool,
+    /// 按写回后的正文重新解析的元数据（供元数据栏刷新）
+    pub metadata: ParsedMetadata,
+}
+
+/// meta:readRating 返回：inLibrary 决定来源（库内 books.rating / 库外文件 Finder 星级）
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingReadResult {
+    pub rating: i64,
+    pub in_library: bool,
+}
+
+/// meta:applyRating 返回：库内写 books + 文件星级；库外只写文件 Finder 星级。
+/// persisted=false 表示星级没写进去（非 macOS / xattr 失败），渲染层需回退。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RatingWriteResult {
+    pub rating: i64,
+    pub in_library: bool,
+    pub persisted: bool,
+}

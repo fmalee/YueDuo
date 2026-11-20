@@ -90,6 +90,10 @@ pub fn run() {
             commands::convert::convert_to_simplified,
             commands::convert::convert_to_traditional,
             commands::convert::convert_tidy,
+            commands::meta::meta_read,
+            commands::meta::meta_apply_edit,
+            commands::meta::meta_read_rating,
+            commands::meta::meta_apply_rating,
         ])
         .build(tauri::generate_context!())
         .expect("悦读启动失败")

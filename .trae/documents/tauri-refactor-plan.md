@@ -152,7 +152,7 @@ YueDuo/
   tidyEnabled + to_halfwidth 模式（无 lookahead，fix_dialogue 等纯查找规则不进 Rust）。
   验证：cargo test 42/42（新增 find_rules 4 + convert 7）、typecheck/lint/build 全绿。
 
-**P3.2 meta 域（4 命令）**
+**P3.2 meta 域（4 命令）✅ 已完成（2026-11-21）**
 - 缺失命令：`meta_read` / `meta_apply_edit` / `meta_read_rating` / `meta_apply_rating`。
 - 语义（对齐 `git show a46ae4a:electron/ipc/meta.ts`）：
   - `meta_read(path)`：读磁盘 → decode_bytes → `parse_metadata`（services/metadata.rs
@@ -170,6 +170,11 @@ YueDuo/
   MetadataTextEdit/MetadataEditResult/RatingReadResult/RatingWriteResult（shared/types.ts
   已有定义，镜像到 types.rs）。
 - 书库身份判定复用 `books::relative_in_library` + `find_book_by_relative_path`。
+- **落地纪要**：`services/metadata_writer.rs` 按行移植 rewriteHeader（UTF-16 码元偏移，
+  `apply_text_edit` 内做 utf16→字节偏移换算）；测试验证了扩展区汉字偏移、缺行补入顺序
+  （书名→作者紧随→标签紧随）、前缀裁剪、头末追加分支；注意 **titleLineIndex 只看前两行**
+  是 JS 原版口径（第 10 行的《书名》不算 title 行）。applyEdit 的 tags→Finder 注释同步
+  与库外评分 xattr 留 P3.3 接入点（当前 log-skip / persisted=false）。cargo test 49/49。
 
 **P3.3 Finder 元数据（services/finder.rs）**
 - xattr 直读写（`xattr` crate，免 spawn）：星级 `com.apple.metadata:kMDItemStarRating`

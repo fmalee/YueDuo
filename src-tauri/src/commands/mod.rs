@@ -8,5 +8,6 @@ pub mod convert;
 pub mod dialog;
 pub mod file;
 pub mod library;
+pub mod meta;
 pub mod session;
 pub mod settings;
