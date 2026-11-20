@@ -33,6 +33,13 @@ import type { ConfirmChoice, FileStat } from '../../shared/types'
 let seq = 0
 const newTabId = (): string => `tab-${Date.now().toString(36)}-${seq++}`
 
+/**
+ * 在途打开去重（方案 §1.5 补丁）：大文件 readText 有数百毫秒在途窗口，
+ * 窗口内再次双击会同文件打开两个标签（Electron 版历史 bug）。同路径并发调用
+ * 共享同一个 Promise，天然只建一个标签；打开完成后由第一层 path 快查兜底。
+ */
+const pendingOpens = new Map<string, Promise<string>>()
+
 /** IPC 错误带 `[file:rename] ` 前缀：UI 只展示给用户看的部分 */
 function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error)
@@ -81,7 +88,7 @@ export function useTabs(): {
     return null
   }
 
-  async function openFile(path: string): Promise<string> {
+  async function doOpenFile(path: string): Promise<string> {
     const normalized = path.replace(/\/+$/, '')
     // 第一层：path 快查（已打开则免一次 IPC）
     const byPath = store.tabs.find((t) => t.path === normalized)
@@ -134,6 +141,16 @@ export function useTabs(): {
     void library.markRead(normalized)
     schedulePersist()
     return id
+  }
+
+  /** 带在途去重的对外入口：同路径并发调用共享同一个 Promise */
+  function openFile(path: string): Promise<string> {
+    const normalized = path.replace(/\/+$/, '')
+    const pending = pendingOpens.get(normalized)
+    if (pending) return pending
+    const p = doOpenFile(path).finally(() => pendingOpens.delete(normalized))
+    pendingOpens.set(normalized, p)
+    return p
   }
 
   /**
