@@ -99,25 +99,91 @@ export function onAppMenuCommand(callback: (payload: AppMenuPayload) => void): (
  * 二进制帧协议（tauri::ipc::Response）：[u32 headerLen LE][header JSON utf-8][UTF-16LE 正文]，
  * 绕开 JSON 序列化大文本（省掉两侧 parse/serialize 与全量拷贝），WKWebView 侧用
  * TextDecoder 原生解码，大书恢复显著提速。 */
-export async function fileReadText(path: string): Promise<FileReadResult> {
-  let raw: ArrayBuffer | Uint8Array
-  try {
-    raw = await invoke<ArrayBuffer>('file_read_text', { path })
-  } catch (e) {
-    const message = typeof e === 'string' ? e : String(e)
-    throw new Error(`[file_read_text] ${message}`)
-  }
+/** 单发读取：file_read_text 的二进制帧解析（[u32 headerLen][header][UTF-16LE 正文]） */
+async function readTextSingle(path: string): Promise<FileReadResult> {
+  const raw = await invoke<ArrayBuffer>('file_read_text', { path })
   const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
-  const headerLen = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteOffset + 4).getUint32(
-    0,
-    true
-  )
-  const metaStart = bytes.byteOffset + 4
+  const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true)
   const header = JSON.parse(
-    new TextDecoder('utf-8').decode(bytes.subarray(metaStart, metaStart + headerLen))
+    new TextDecoder('utf-8').decode(bytes.subarray(4, 4 + headerLen))
   ) as { encoding: string; stat: FileStat }
-  const text = new TextDecoder('utf-16le').decode(bytes.subarray(metaStart + headerLen))
+  const text = new TextDecoder('utf-16le').decode(bytes.subarray(4 + headerLen))
   return { text, encoding: header.encoding, stat: header.stat }
+}
+
+/**
+ * file:readText —— 读文本。主路径：并行分块 + gzip 压缩（等效吞吐 ~26MB/s，
+ * 单发 ~13MB/s 但分块并行度受 WebKit 串行编组限制，两法实测打平 ~450ms/6.5M 字；
+ * 压缩收益体现在多标签恢复的总字节减半）。原始字节前端 TextDecoder 解码
+ * （TextDecoder 默认剥 BOM），换行归一（CRLF/CR→LF）与主进程解码链对齐。
+ * 分块失败（utf-16be 等不支持编码/异常）回落单发二进制通道。
+ */
+export async function fileReadText(path: string): Promise<FileReadResult> {
+  const tA = performance.now()
+  const CHUNK = 4 * 1024 * 1024
+  let chunked: FileReadResult | null = null
+  let chunkInfo = '分块失败'
+  try {
+    const stat = await fileStat(path)
+    const n = Math.max(1, Math.ceil(stat.size / CHUNK))
+    const tC0 = performance.now()
+    const raws = await Promise.all(
+      Array.from({ length: n }, (_, i) =>
+        invoke<ArrayBuffer>('file_read_chunk', { path, offset: i * CHUNK, len: CHUNK })
+      )
+    )
+    const tC1 = performance.now()
+    const parts = raws.map((r) => (r instanceof Uint8Array ? r : new Uint8Array(r)))
+    // 帧格式对每块统一：[u32 LE 头长][头 JSON][gzip 数据]。chunk 0 的头含 encoding/size/compressed。
+    // DecompressionStream 不接受拼接 gzip 成员（读完首个成员即报 Extra bytes），逐块独立解压后拼接
+    const pieces = await Promise.all(
+      parts.map(async (p) => {
+        const dl = new DataView(p.buffer, p.byteOffset, 4)
+        const hl = dl.getUint32(0, true)
+        const h = JSON.parse(new TextDecoder('utf-8').decode(p.subarray(4, 4 + hl))) as {
+          encoding?: string
+          compressed?: boolean
+        }
+        const gz = p.subarray(4 + hl)
+        const raw = h.compressed
+          ? new Uint8Array(
+              await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+            )
+          : gz
+        return { raw, encoding: h.encoding }
+      })
+    )
+    const header0 = pieces[0]
+    if (!header0.encoding) {
+      throw new Error('chunk0 缺少 encoding')
+    }
+    const total = pieces.reduce((s, p) => s + p.raw.length, 0)
+    const all = new Uint8Array(total)
+    let pos = 0
+    for (const piece of pieces) {
+      all.set(piece.raw, pos)
+      pos += piece.raw.length
+    }
+    // utf-16be 浏览器 TextDecoder 不支持 → 抛错走单发回落
+    const text0 = new TextDecoder(header0.encoding).decode(all)
+    // 与主进程解码链对齐：CRLF/CR → LF（无 \r 时跳过扫描之外的开销）
+    const text = all.includes(13)
+      ? text0.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+      : text0
+    chunked = { text, encoding: header0.encoding, stat }
+    chunkInfo = `分块=${Math.round(tC1 - tC0)}ms(${n}块) 解压+后处理=${Math.round(performance.now() - tC1)}ms`
+  } catch (e) {
+    void appPerfLog(`分块失败回落单发: ${String(e)}`)
+    chunked = null
+  }
+  const finalResult = chunked ?? (await readTextSingle(path))
+  const tB = performance.now()
+  if (tB - tA > 120) {
+    void appPerfLog(
+      `readText ${path.split('/').pop()}: ${chunkInfo} 总=${Math.round(tB - tA)}ms chars=${finalResult.text.length}`
+    )
+  }
+  return finalResult
 }
 
 /** file:stat —— 同文件去重（inode） */
@@ -421,4 +487,11 @@ export function onThemeUpdated(callback: (payload: ThemeChanged) => void): () =>
 /** 显示主窗口：tauri.conf.json 里 visible=false，主题注入首帧后由渲染层拉起（消除启动闪白） */
 export function windowShow(): Promise<void> {
   return getCurrentWindow().show()
+}
+
+// ---------- 性能日志 ----------
+
+/** 前端关键耗时回传 Rust 打 stderr（[perf:fe] 前缀，打包版从终端启动可见） */
+export function appPerfLog(message: string): Promise<void> {
+  return invoke('app_perf_log', { message })
 }

@@ -262,6 +262,7 @@ architecture.md 为权威口径。
 | `tauri dev` 零优化构建：解码/字数统计/换行归一比 release 慢一个数量级（大书打开与全库扫描「特别慢」的真凶，对照 V8 JIT）→ dev 档本 crate O1 + 依赖 O3 | ✅ 已修（真机反馈） |
 | 启动主题闪烁（深→浅→深）：WKWebView 默认白底，在页面加载到 applyTheme 之间露出 → 窗口 `visible:false` + bootstrap-theme.js 同步首帧底色 + 主题就绪后 `windowShow()`（capability 补 core:window:allow-show） | ✅ 已修（真机反馈） |
 | 消息框按钮映射：tauri-plugin-dialog 在所有平台都把原生结果转为 `Custom(按钮文案)`（desktop.rs 统一转换），按 `Yes/No/Ok` 枚举匹配恒落 default → 「放弃更改/保存/移到废纸篓」全部失效当「取消」。改按 `Custom(文案)` 匹配 + 原生值兜底（confirm_close/trash/dev_library 三处） | ✅ 已修（真机反馈） |
+| **大文本 IPC 传输墙（性能专项实测沉淀）**：`tauri::ipc::Response` 单响应编组 ~13MB/s（6.5M 字大书 ~450ms）；并行分块受 WebKit 串行编组限制几乎无并行收益；zstd/fzstd 解压 60MB/s 吃掉全部收益；gzip+DecompressionStream 原生解压 ~1GB/s 但每块 async 管道 ~30ms × 块数。**最终口径：4MB 分块 + gzip L1 + 逐块原生解压 ≈ 单发打平（~450ms/6.5M 字），压缩收益留给多标签恢复的总字节减半**。死路备忘：http://127.0.0.1 被 mixed content 拦（安全上下文页禁明文，ATS 豁免无用）、DecompressionStream 不接受拼接 gzip 成员、fzstd 解压太慢、`Vec<u8>` 返回退 JSON 数字数组（必须 Response）。 | ✅ 已修（真机三轮 A/B） |
 
 ## 五、AGENTS.md 调整要点（P4 执行）
 

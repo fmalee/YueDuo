@@ -1,4 +1,5 @@
 import {
+  appPerfLog,
   fileClearDraft,
   fileReadText,
   fileRename,
@@ -99,7 +100,9 @@ export function useTabs(): {
       return dup
     }
 
+    const t0 = performance.now()
     const { text, encoding } = await fileReadText(normalized)
+    const t1 = performance.now()
 
     const id = newTabId()
     // 打开时书名优先取库内记录（扫描口径与正文解析一致），库外文件按正文/文件名兜底
@@ -107,6 +110,12 @@ export function useTabs(): {
     const title = book?.title || bookTitle(text, normalized)
 
     createTabModel(id, text, encoding)
+    const t2 = performance.now()
+    if (t1 - t0 > 80) {
+      void appPerfLog(
+        `openFile ${normalized.split('/').pop()}: readText=${Math.round(t1 - t0)}ms model=${Math.round(t2 - t1)}ms chars=${text.length}`
+      )
+    }
     setStatCache(id, stat)
     // 与新建空白标签一致：插到当前标签紧后面，数组顺序变化随 schedulePersist 落盘
     store.insertTabAfter(

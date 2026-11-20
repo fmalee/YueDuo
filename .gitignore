@@ -17,3 +17,7 @@ src-tauri/gen/schemas/
 
 # AI 工作日志（本地记忆，不入库）
 .workbuddy/
+
+# 测试用的 Electron 原版应用（本地对照，不入库）
+YueDuo.app/
+YueDuo_副本.app/

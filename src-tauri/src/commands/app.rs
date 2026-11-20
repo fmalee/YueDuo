@@ -14,3 +14,10 @@ pub async fn app_sync_menu_state(app: AppHandle, state: AppMenuState) -> Result<
     })
     .map_err(|e| e.to_string())
 }
+
+/// app:perfLog —— 前端关键耗时回传（stderr [perf:fe]，打包版从终端启动可见）
+#[tauri::command]
+pub async fn app_perf_log(message: String) -> Result<(), String> {
+    eprintln!("[perf:fe] {message}");
+    Ok(())
+}

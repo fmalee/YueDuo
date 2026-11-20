@@ -49,6 +49,25 @@ pub fn read_text(path: &Path) -> Result<ReadTextOutcome, String> {
     })
 }
 
+/// readText 二进制帧：[u32 LE headerLen][header JSON utf-8][UTF-16LE 正文]。
+/// IPC（tauri::ipc::Response）与回环 HTTP 传输服务共用同一格式。
+pub fn build_read_frame(path: &Path) -> Result<Vec<u8>, String> {
+    let outcome = read_text(path)?;
+    let stat = stat_of(path)?;
+    let meta = serde_json::to_vec(&serde_json::json!({
+        "encoding": outcome.encoding,
+        "stat": stat,
+    }))
+    .map_err(|e| e.to_string())?;
+    let mut payload = Vec::with_capacity(4 + meta.len() + outcome.text.len() * 2);
+    payload.extend_from_slice(&(meta.len() as u32).to_le_bytes());
+    payload.extend_from_slice(&meta);
+    for unit in outcome.text.encode_utf16() {
+        payload.extend_from_slice(&unit.to_le_bytes());
+    }
+    Ok(payload)
+}
+
 fn tmp_path(dir: &Path) -> PathBuf {
     let nanos = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)

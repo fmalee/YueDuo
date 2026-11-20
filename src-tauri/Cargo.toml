@@ -31,6 +31,9 @@ trash = "5"
 xattr = "1"
 # 原生文件/目录选择与消息对话框（async command 内调用，绝不占主线程）
 tauri-plugin-dialog = "2"
+# 分块传输压缩（WKWebView 编组有每块固定开销+边际字节成本，压完再传；
+# 前端用内置 DecompressionStream('gzip') 原生解压）
+flate2 = "1"
 # 单实例锁：二次启动转交第一实例并聚焦主窗口
 tauri-plugin-single-instance = "2"
 
