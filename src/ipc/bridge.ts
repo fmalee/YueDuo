@@ -469,10 +469,12 @@ export function convertToSimplified(text: string): Promise<ConvertResult> {
   return ipcInvoke<ConvertResult>('convert_to_simplified', { text })
 }
 
-/** convert:tidy —— 一键整理全文：原始字节通道（UTF-8 直传免 ~20MB JSON 往返），
- *  返回 patience 行级 diff 的编辑列表（只含变更行） */
+/** convert:tidy —— 一键整理全文（固定顺序，返回转换保留项计数供状态栏提示）。
+ *  请求走 { text } JSON：WKWebView 下 custom-protocol fetch 不可用时会永久回落 postMessage
+ *  （IPC 通道注入脚本内 customProtocolIpcFailed 会话级标记），raw 字节载荷会被 JSON 化成数字数组。
+ *  单个大字符串的 stringify/parse 只是转义扫描，成本可接受；返回值已是行级 diff 小 JSON（主要收益）。 */
 export function convertTidy(text: string): Promise<TidyResult> {
-  return ipcInvoke<TidyResult>('convert_tidy', new TextEncoder().encode(text))
+  return ipcInvoke<TidyResult>('convert_tidy', { text })
 }
 
 // ---------- 主题推送 ----------
