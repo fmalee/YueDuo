@@ -196,7 +196,7 @@ pub fn run() {
                         }
                     }
                 }
-                // 退出前关库：WAL checkpoint 落盘，避免残留 -wal/-shm。
+                // 退出前显式关闭库连接：checkpoint 落盘并删除 -wal/-shm 残留。
                 RunEvent::Exit => {
                     if let Some(state) = app.try_state::<state::AppState>() {
                         state.shutdown();

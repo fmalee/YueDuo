@@ -228,21 +228,25 @@ impl AppState {
         }
     }
 
-    /// 退出前收尾：置位扫描取消 + WAL checkpoint 落盘（连接由进程退出时 drop）。
+    /// 退出前收尾：置位扫描取消 + 显式关闭全部库连接。
+    /// SQLite 在最后一个连接关闭时自动 checkpoint 并删除 -wal/-shm；
+    /// app.exit(0) 是进程级退出跑不到 Drop，必须在这里显式 close。
+    /// take() 消费连接保证幂等（exit_now 与 RunEvent::Exit 双路径调用）；
+    /// close 失败（如 enrich 扫描线程的独立连接还开着）只影响残留文件，不影响数据一致性。
     pub fn shutdown(&self) {
-        let guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock().unwrap();
         guard
             .scan_cancel
             .store(true, std::sync::atomic::Ordering::SeqCst);
-        if let Some(runtime) = &guard.active {
-            let _ = runtime
-                .db
-                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        if let Some(runtime) = guard.active.take() {
+            if let Err((_, e)) = runtime.db.close() {
+                eprintln!("[shutdown] 活动库关闭失败: {e}");
+            }
         }
-        if let Some(runtime) = &guard.pending {
-            let _ = runtime
-                .db
-                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        if let Some(runtime) = guard.pending.take() {
+            if let Err((_, e)) = runtime.db.close() {
+                eprintln!("[shutdown] 待切换库关闭失败: {e}");
+            }
         }
     }
 }
