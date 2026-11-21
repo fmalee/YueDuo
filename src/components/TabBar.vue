@@ -599,9 +599,13 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   height: var(--yd-tab-bar-height);
+  padding-bottom: var(--yd-tab-border-width);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+  /* 三栏共用的基准线画在滚动视口自身：不随内容横向滚动，与左右栏头部线同一高度连成一条；
+     活动标签靠负 margin 盖出断口（方案 A 统一底线版） */
+  box-shadow: inset 0 calc(-1 * var(--yd-tab-border-width)) 0 var(--yd-border-1);
 }
 .tabs-scroll::-webkit-scrollbar {
   display: none;
@@ -705,10 +709,12 @@ onBeforeUnmount(() => {
 .tab.active {
   background: var(--yd-bg-3);
   border-color: var(--yd-border-1);
-  /* 顶部 2px 强调条（方案 A）：活动标签比非活动高 1px，底部仍与正文连通 */
+  /* 顶部 2px 强调条（方案 A）：活动标签比非活动高 1px */
   border-top-width: 2px;
   border-top-color: var(--yd-accent);
   color: var(--yd-text-2);
+  /* 伸进基准线那一像素盖出断口：标签底部与正文连成一片（Chrome 同款） */
+  margin-bottom: calc(-1 * var(--yd-tab-border-width));
   z-index: 1;
 }
 .flare {
