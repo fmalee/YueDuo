@@ -599,12 +599,9 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: flex-end;
   height: var(--yd-tab-bar-height);
-  padding-bottom: var(--yd-tab-border-width);
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
-  /* 底边画在滚动视口自身：不随内容横向滚动，且绘制在标签之下，活动标签才能盖出断口 */
-  box-shadow: inset 0 calc(-1 * var(--yd-tab-border-width)) 0 var(--yd-border-1);
 }
 .tabs-scroll::-webkit-scrollbar {
   display: none;
@@ -687,6 +684,20 @@ onBeforeUnmount(() => {
 .tab.last {
   margin-right: 8px;
 }
+/* 非活动标签之间的 14px 短竖线分隔（方案 A）：替代原贯穿底线 */
+.tab:not(.active):not(.first)::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: var(--yd-border-1);
+}
+/* 活动标签与右侧邻标签之间不画竖线：活动标签已由实底与强调条区分 */
+.tab.active + .tab::before {
+  display: none;
+}
 .tab:hover:not(.active) {
   background: var(--yd-hover-1);
   color: var(--yd-text-2);
@@ -694,10 +705,10 @@ onBeforeUnmount(() => {
 .tab.active {
   background: var(--yd-bg-3);
   border-color: var(--yd-border-1);
+  /* 顶部 2px 强调条（方案 A）：活动标签比非活动高 1px，底部仍与正文连通 */
+  border-top-width: 2px;
+  border-top-color: var(--yd-accent);
   color: var(--yd-text-2);
-  /* 伸进标签栏底边那一像素，盖住底线与正文连成一片 */
-  height: 30px;
-  margin-bottom: calc(-1 * var(--yd-tab-border-width));
   z-index: 1;
 }
 .flare {
