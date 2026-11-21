@@ -25,6 +25,7 @@ TypeScript 锁在 `^5.9.3`（5.x 末版）不是随手写的：npm 上 `latest` 
 npm install            # 安装前端依赖（dependencies 为空，运行时零 npm 包）
 npm run dev            # 开发模式：tauri dev（改 Rust 后重编译 1–3 分钟属正常，dev 档已开优化）
 npm run build          # 先 typecheck，再 tauri build（app + dmg）
+npm run build:app      # 先 typecheck，再只打包 .app（跳过 dmg，自用推荐）
 npm run typecheck      # tsc 检查 vite 配置/shared，vue-tsc 检查渲染层
 npm run lint           # eslint --cache .
 npm run format         # prettier --write .
@@ -48,11 +49,18 @@ cargo test  --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture   # �
 
 ## 打包
 
-`npm run build`（= typecheck + `tauri build`，产出 `.app` 与 `.dmg`）：
+`npm run build`（= typecheck + `tauri build`，产出 `.app` 与 `.dmg`）；自用推荐 `npm run build:app`（`--bundles app`，只出 `.app`、跳过 dmg）：
 
 - 词表经 `bundle.resources` 进包（运行时从 `resource_dir/dicts` 探测；开发态回落仓库根）。
 - dev 态 Dock 图标是 Tauri 默认属正常现象（debug 可执行无 Info.plist icon），打包版带真实图标。
-- 签名与公证配置待补（当前仅本机构建运行）。
+- 签名：`bundle.macOS.signingIdentity: "-"`（Ad Hoc，`codesign -dv` 显示 `Signature=adhoc`）。无开发者身份即可本机运行；Apple Silicon 上 arm64 应用强制要求至少 Ad Hoc。正式分发需 Developer ID 签名 + 公证，未配置。
+
+## 构建缓存（src-tauri/target）
+
+`target/` 只占开发机磁盘，**与应用包体积无关**——`.app`/`.dmg` 是从中挑出的最终产物（当前约 15.6MB）。正常重编是原地覆盖、不增长；膨胀只来自「孤儿产物」：依赖增删、`cargo update`、工具链升级，cargo 从不主动清理旧版本产物（迁移期试过 zstd/OpenCC 等方案，一轮实验就是一批尸体）。正常水位约 3–4GB（debug + release 两个 profile），滚到十几 GB 再清：
+
+- 推荐 `cargo install cargo-sweep`，先正常构建一次，再 `cargo sweep -f`：按指纹只删当前 Cargo.toml 用不到的孤儿产物，不破坏增量编译速度；也可 `cargo sweep -t 30`（删 30 天未触碰的）。
+- `cargo clean`：全删，下次全量重编（Intel Mac 上数分钟），适合睡前或离开电脑时跑。
 
 ## 数据位置
 
