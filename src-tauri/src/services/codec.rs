@@ -13,9 +13,6 @@
 
 use encoding_rs::{Encoding, UTF_16BE, UTF_16LE, UTF_8};
 
-/// 工作编码（对齐 Python constants.WORK_ENCODING）
-pub const WORK_ENCODING: &str = "utf-16-le";
-
 pub struct DecodedText {
     pub text: String,
     pub encoding: String,

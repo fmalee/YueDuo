@@ -1,9 +1,7 @@
 //! 文件读写：read_text / stat / write_text（对齐 electron/ipc/file.ts 的纯文件部分）。
 //! 保存先写临时文件再 rename 原子替换（Python 同款语义）；保存后 inode 已变，
 //! 必须由调用方用返回的 stat 刷新缓存。
-//!
-//! P2 待接入：rename/trash（需书库身份同步，走与 move 共用的「重定位」函数）；
-//! P3 待接入：保存后按正文前十行「主题」同步 Finder 注释（writeFinderComment）。
+//! rename/trash 与 Finder 注释同步已接入：见 commands/file.rs 与 services/finder.rs。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,25 +45,6 @@ pub fn read_text(path: &Path) -> Result<ReadTextOutcome, String> {
         text: out.text,
         encoding: out.encoding,
     })
-}
-
-/// readText 二进制帧：[u32 LE headerLen][header JSON utf-8][UTF-16LE 正文]。
-/// IPC（tauri::ipc::Response）与回环 HTTP 传输服务共用同一格式。
-pub fn build_read_frame(path: &Path) -> Result<Vec<u8>, String> {
-    let outcome = read_text(path)?;
-    let stat = stat_of(path)?;
-    let meta = serde_json::to_vec(&serde_json::json!({
-        "encoding": outcome.encoding,
-        "stat": stat,
-    }))
-    .map_err(|e| e.to_string())?;
-    let mut payload = Vec::with_capacity(4 + meta.len() + outcome.text.len() * 2);
-    payload.extend_from_slice(&(meta.len() as u32).to_le_bytes());
-    payload.extend_from_slice(&meta);
-    for unit in outcome.text.encode_utf16() {
-        payload.extend_from_slice(&unit.to_le_bytes());
-    }
-    Ok(payload)
 }
 
 fn tmp_path(dir: &Path) -> PathBuf {

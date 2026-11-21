@@ -1,10 +1,9 @@
 //! 书库查询与书目仓储（对齐 electron/services/bookRepository.ts，方案 §2.5）：
 //! 历史/追更/标签/评分排序口径与旧项目一致；连接与书库根由调用方注入。
 
-use std::path::Path;
-
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::services::now_ms;
 use crate::types::*;
 
 /// 评分页未筛选时最多列出的书目数量（对齐 Python RATED_LIST_LIMIT）
@@ -340,7 +339,8 @@ pub fn delete_book_record(db: &Connection, relative_path: &str) -> Result<bool, 
     Ok(changed > 0)
 }
 
-/// 绝对路径 → 库内相对路径（POSIX 分隔）；不在书库内返回 None
+/// 绝对路径 → 库内相对路径（POSIX 分隔）；不在书库内返回 None。
+/// root 与文件统一 realpath 后比较（AGENTS.md 硬约束；/var→/private/var 符号链接场景靠它兜底）。
 pub fn relative_in_library(root: &str, path: &str) -> Option<String> {
     if root.is_empty() || path.is_empty() {
         return None;
@@ -355,18 +355,4 @@ pub fn relative_in_library(root: &str, path: &str) -> Option<String> {
     Some(rel_str.replace('\\', "/"))
 }
 
-/// 判定路径是否是 txt（大小写不敏感，兼容 .TXT）
-pub fn is_txt_file(name: &str) -> bool {
-    name.to_lowercase().ends_with(".txt")
-}
-
-/// 复用检查（保持 pub 供扫描器等使用）
-pub fn _root_unused(_root: &Path) {}
-
-pub(super) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 

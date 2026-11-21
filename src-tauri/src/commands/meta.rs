@@ -124,21 +124,11 @@ pub async fn meta_read_rating(
     if path.is_empty() {
         return Err("缺少文件路径".into());
     }
-    let root = state.active_root();
-    if !root.is_empty() {
-        if let Some(relative) = books::relative_in_library(&root, &path) {
-            let book = state
-                .with_active_db(|db, _| {
-                    books::find_book_by_relative_path(db, &root, &relative)
-                })?
-                .unwrap_or(None);
-            if let Some(book) = book {
-                return Ok(RatingReadResult {
-                    rating: book.rating,
-                    in_library: true,
-                });
-            }
-        }
+    if let Some(book) = state.find_book_by_abs_path(&path)? {
+        return Ok(RatingReadResult {
+            rating: book.rating,
+            in_library: true,
+        });
     }
     // 库外没有 books 行 → 取文件 Finder 星级（读取失败按 0，对齐 Python finder_metadata）
     let rating = finder::read_rating(&path).unwrap_or(0);
@@ -169,18 +159,19 @@ pub async fn meta_apply_rating(
     let root = state.active_root();
     if !root.is_empty() {
         if let Some(relative) = books::relative_in_library(&root, &path) {
-            let book = state
-                .with_active_db(|db, _| {
-                    books::find_book_by_relative_path(db, &root, &relative)
+            // 查书 + 写评分单次拿锁完成（原先查、写各拿一次锁）
+            let outcome = state
+                .with_active_db(|db, root| {
+                    let Some(book) = books::find_book_by_relative_path(db, root, &relative)? else {
+                        return Ok(None);
+                    };
+                    books::set_book_rating(db, book.id, value).map(Some)
                 })?
                 .unwrap_or(None);
-            if let Some(book) = book {
-                let (written, file_relative) = state
-                    .with_active_db(|db, _| books::set_book_rating(db, book.id, value))?
-                    .ok_or_else(|| "尚未打开书库".to_string())?;
+            if let Some((written, file_relative)) = outcome {
                 // 文件星级 xattr：写失败静默，不影响库内评分（对齐原版）
-                if let Some(relative) = file_relative {
-                    let absolute = format!("{root}/{relative}");
+                if let Some(file_relative) = file_relative {
+                    let absolute = format!("{root}/{file_relative}");
                     finder::write_rating(&absolute, written);
                 }
                 return Ok(RatingWriteResult {

@@ -53,7 +53,7 @@ pub fn normalize_settings(raw: &Value) -> AppSettings {
         // 字体与字号是固定单选：白名单外一律回落默认，不做区间夹取
         reader_font: get("readerFont")
             .and_then(Value::as_str)
-            .filter(|s| READER_FONTS.contains(s))
+            .filter(|s| READER_FONTS.iter().any(|(key, _)| key == s))
             .unwrap_or(&defaults.reader_font)
             .to_string(),
         reader_font_size: get("readerFontSize")

@@ -8,8 +8,14 @@ use crate::types::ChapterInfo;
 
 pub const CHAPTER_PATTERN: &str = r"^[ \t\u{3000}]*(?:第[0-9零〇一二三四五六七八九十百千万两]+[章回节卷集部篇][^\n]*|序章[^\n]*|楔子[^\n]*|卷首[^\n]*|尾声[^\n]*|后记[^\n]*|番外[^\n]*)$";
 
+/// 章节正则编译一次复用（扫描循环内逐行调用，不宜每次 Regex::new）
+fn chapter_pattern() -> &'static Regex {
+    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(CHAPTER_PATTERN).unwrap())
+}
+
 pub fn parse_chapters(text: &str) -> Vec<ChapterInfo> {
-    let pattern = Regex::new(CHAPTER_PATTERN).unwrap();
+    let pattern = chapter_pattern();
     text.split('\n')
         .enumerate()
         .filter(|(_, line)| pattern.is_match(line))

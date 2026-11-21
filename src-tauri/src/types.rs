@@ -6,8 +6,14 @@ use serde::{Deserialize, Serialize};
 
 /// 外观三态白名单（shared/types.ts ThemeMode）
 pub const THEME_MODES: [&str; 3] = ["light", "dark", "system"];
-/// 正文字体白名单（shared/types.ts READER_FONTS 的 key）
-pub const READER_FONTS: [&str; 5] = ["pingfang", "songti", "kaiti", "yuanti", "hiragino"];
+/// 正文字体（key + 菜单中文名）：settings 校验用 key，shell.rs 菜单构建用整表
+pub const READER_FONTS: [(&str, &str); 5] = [
+    ("pingfang", "苹方 PingFang SC"),
+    ("songti", "宋体 Songti SC"),
+    ("kaiti", "楷体 Kaiti SC"),
+    ("yuanti", "圆体 Yuanti SC"),
+    ("hiragino", "冬青黑 Hiragino Sans GB"),
+];
 /// 字号档位（shared/types.ts READER_FONT_SIZES）
 pub const READER_FONT_SIZES: [i64; 9] = [13, 14, 15, 16, 17, 18, 20, 22, 24];
 

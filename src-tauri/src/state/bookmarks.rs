@@ -5,6 +5,7 @@
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::services::now_ms;
 use crate::types::*;
 
 /// 服务层分组：只带相对路径，绝对路径由命令层拼书库根
@@ -179,9 +180,3 @@ pub fn replace_bookmarks(
     list_bookmarks(db, relative_path)
 }
 
-pub(super) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}

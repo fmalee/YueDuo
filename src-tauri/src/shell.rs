@@ -14,23 +14,14 @@ use serde_json::json;
 use tauri::menu::{AboutMetadata, CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
+use crate::types::{READER_FONTS, READER_FONT_SIZES};
+
 /// 「显示 → 预载数量」可选值（对齐 electron/menu.ts）
 const PRELOAD_CHOICES: [i64; 5] = [4, 8, 10, 15, 20];
 
 /// 外观三态（方案 §1.10）：菜单里以单选组呈现，勾选项跟设置落盘值一致
 const APPEARANCES: [(&str, &str); 3] =
     [("system", "跟随系统"), ("light", "浅色"), ("dark", "深色")];
-
-/// 正文字体（shared/types.ts READER_FONTS 同源）
-const READER_FONTS: [(&str, &str); 5] = [
-    ("pingfang", "苹方 PingFang SC"),
-    ("songti", "宋体 Songti SC"),
-    ("kaiti", "楷体 Kaiti SC"),
-    ("yuanti", "圆体 Yuanti SC"),
-    ("hiragino", "冬青黑 Hiragino Sans GB"),
-];
-
-const READER_FONT_SIZES: [i64; 9] = [13, 14, 15, 16, 17, 18, 20, 22, 24];
 
 /// 菜单项句柄集：单选/复选组需要跨事件读写勾选状态
 pub struct MenuState {

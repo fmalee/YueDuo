@@ -54,25 +54,11 @@ pub async fn convert_to_traditional(
     service::to_traditional(&text, &dict_dir)
 }
 
-/// 一键整理：原始字节通道（大文书的主要 IPC 成本在 ~20MB 全文 JSON 序列化/解析）。
-/// 前端 invoke(cmd, Uint8Array) → InvokeBody::Raw；返回值只含变更行编辑列表（小 JSON）。
+/// 一键整理：请求走 { text } JSON——WKWebView 下 custom-protocol fetch 不可用时会永久
+/// 回落 postMessage，raw 字节载荷会被 JSON 化成数字数组，raw 通道不可用（实测结论，
+/// 见 bridge.ts convertTidy 注释）；单串 stringify 只是转义扫描，成本可接受。
 #[tauri::command]
-pub async fn convert_tidy(
-    app: AppHandle,
-    request: tauri::ipc::Request<'_>,
-) -> Result<TidyResult, String> {
-    let text = match request.body() {
-        tauri::ipc::InvokeBody::Raw(bytes) => {
-            // TextEncoder 保证合法 UTF-8，lossy 对合法输入零拷贝借用
-            String::from_utf8_lossy(bytes).into_owned()
-        }
-        // 兼容回落：HMR 过渡期旧前端仍可能发 { text } JSON（dev 下编译期常量不变但模块未整页刷新）
-        tauri::ipc::InvokeBody::Json(value) => value
-            .get("text")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .ok_or_else(|| "一键整理需要原始字节载荷（Uint8Array）或 { text } JSON".to_string())?,
-    };
+pub async fn convert_tidy(app: AppHandle, text: String) -> Result<TidyResult, String> {
     let dict_dir = resolve_dict_dir(&app)?;
     // 纯 CPU 流水线放 blocking 线程，避免占死 async 池
     tauri::async_runtime::spawn_blocking(move || service::tidy(&text, &dict_dir))

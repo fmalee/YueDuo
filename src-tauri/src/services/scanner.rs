@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
 
+use crate::services::now_ms;
 use crate::services::codec::decode_bytes;
 use crate::services::metadata::parse_metadata;
 use crate::types::*;
@@ -260,10 +260,6 @@ struct BookWriteFields {
     encoding: String,
 }
 
-/// 扫描进度推送（每 10 个成功入库的文件一次，对齐 Python _ScanThread）
-pub trait ScanProgressSink: FnMut(LibraryScanProgress) + Send {}
-impl<T: FnMut(LibraryScanProgress) + Send> ScanProgressSink for T {}
-
 /// 后台补元数据（library:enrich）：
 /// 逐本读取 → 探测解码 → 解析书名/作者/标签/字数 → 按 relative_path 直命中写库。
 /// 不可读文件与重复 inode 一律跳过，不中断整次扫描；
@@ -362,8 +358,7 @@ pub fn scan_library(
 }
 
 /// 单文件入库结果（全库扫描与保存后单文件收录共用）
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct IngestedBook {
     pub relative_path: String,
     pub filename: String,
@@ -374,80 +369,94 @@ pub struct IngestedBook {
     pub inserted: bool,
 }
 
-/// 单文件入库（另存为保存到书库根内后立即收录，不做全库扫描）：
-/// 与 scan_library 同一口径 —— realpath 判定库内、解码正文、解析书名/作者/标签/字数，
-/// 按 relative_path 直命中写库。文件不在库内、非 .txt 或不可读时返回 None（库外行为不变）。
+/// 单文件入库的锁外准备结果：realpath 判定 + 解码 + 解析的重活都在无锁侧完成，
+/// 锁内只做 [`write_ingest`] 的写库动作（AppState 主锁内禁止长 I/O）。
+pub struct PreparedIngest {
+    pub relative_path: String,
+    pub filename: String,
+    pub title: String,
+    pub size_bytes: i64,
+    fields: BookWriteFields,
+}
+
+/// 单文件入库准备段（另存为保存到书库根内后立即收录，不做全库扫描）：
+/// realpath 判定库内、读文件、解码正文、解析书名/作者/标签/字数。
+/// 文件不在库内、非 .txt 或不可读时返回 None（库外行为不变）。
+pub fn prepare_ingest(root: &Path, absolute_path: &Path) -> Option<PreparedIngest> {
+    let name = absolute_path.file_name().map(|n| n.to_string_lossy().to_string())?;
+    if root.as_os_str().is_empty() || !is_txt_file(&name) {
+        return None;
+    }
+    let real_root = fs::canonicalize(root).ok()?;
+    let resolved = fs::canonicalize(absolute_path).ok()?;
+    let rel = resolved.strip_prefix(&real_root).ok()?;
+    if rel.as_os_str().is_empty() {
+        return None;
+    }
+    let relative_path = rel.to_string_lossy().replace('\\', "/");
+    let data = fs::read(&resolved).ok()?;
+    let size_bytes = fs::metadata(&resolved).map(|m| m.len() as i64).unwrap_or(0);
+    let decoded = decode_bytes(&data);
+    let dir_name = resolved
+        .parent()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let meta = parse_metadata(&decoded.text, &name, &dir_name);
+    let fields = BookWriteFields {
+        relative_path: relative_path.clone(),
+        filename: name.clone(),
+        title: meta.title.clone(),
+        author: meta.author,
+        tags: meta.tags.join(" "),
+        word_count: meta.word_count,
+        size_bytes,
+        encoding: decoded.encoding,
+    };
+    Some(PreparedIngest {
+        relative_path,
+        filename: fields.filename.clone(),
+        title: meta.title,
+        size_bytes,
+        fields,
+    })
+}
+
+/// 单文件入库的锁内写库段：与 scan_library 同一 writers 管线，按 relative_path 直命中。
+pub fn write_ingest(db: &Connection, prepared: &PreparedIngest) -> Result<IngestedBook, String> {
+    let now = now_ms();
+    let mut writers = BookWriters::prepare(db)?;
+    let inserted = writers.write(&prepared.fields, None, now)?;
+    Ok(IngestedBook {
+        relative_path: prepared.relative_path.clone(),
+        filename: prepared.filename.clone(),
+        title: prepared.title.clone(),
+        word_count: prepared.fields.word_count,
+        size_bytes: prepared.size_bytes,
+        inserted,
+    })
+}
+
+/// 两段式便捷入口（测试用）：锁外准备 + 锁内写库一次完成。
 pub fn ingest_file(
     root: &Path,
     absolute_path: &Path,
     db: &Connection,
 ) -> Result<Option<IngestedBook>, String> {
-    let Some(name) = absolute_path.file_name().map(|n| n.to_string_lossy().to_string()) else {
-        return Ok(None);
-    };
-    if !root.as_os_str().is_empty() && is_txt_file(&name) {
-        let real_root = fs::canonicalize(root).ok();
-        let resolved = fs::canonicalize(absolute_path).ok();
-        if let (Some(real_root), Some(resolved)) = (real_root, resolved) {
-            if let Ok(rel) = resolved.strip_prefix(&real_root) {
-                if !rel.as_os_str().is_empty() {
-                    let relative_path = rel.to_string_lossy().replace('\\', "/");
-                    let data = fs::read(&resolved).map_err(|e| e.to_string())?;
-                    let size_bytes = fs::metadata(&resolved).map(|m| m.len() as i64).unwrap_or(0);
-                    let decoded = decode_bytes(&data);
-                    let dir_name = resolved
-                        .parent()
-                        .and_then(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().to_string())
-                        .unwrap_or_default();
-                    let meta = parse_metadata(&decoded.text, &name, &dir_name);
-                    let now = now_ms();
-                    let mut writers = BookWriters::prepare(db)?;
-                    let fields = BookWriteFields {
-                        relative_path: relative_path.clone(),
-                        filename: name.clone(),
-                        title: meta.title.clone(),
-                        author: meta.author,
-                        tags: meta.tags.join(" "),
-                        word_count: meta.word_count,
-                        size_bytes,
-                        encoding: decoded.encoding,
-                    };
-                    let inserted = writers.write(&fields, None, now)?;
-                    return Ok(Some(IngestedBook {
-                        relative_path,
-                        filename: fields.filename,
-                        title: meta.title,
-                        word_count: fields.word_count,
-                        size_bytes,
-                        inserted,
-                    }));
-                }
-            }
-        }
+    match prepare_ingest(root, absolute_path) {
+        Some(prepared) => write_ingest(db, &prepared).map(Some),
+        None => Ok(None),
     }
-    Ok(None)
 }
 
-pub(super) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::db::open_database;
 
-    fn numeric_order_cases() {
-        // 占位：具体断言见下方测试函数
-    }
-
     #[test]
     fn numeric_aware_name_ordering() {
-        numeric_order_cases();
         assert_eq!(compare_names("第2章", "第10章"), std::cmp::Ordering::Less);
         assert_eq!(compare_names("abc", "abd"), std::cmp::Ordering::Less);
         assert_eq!(compare_names("file2", "file10"), std::cmp::Ordering::Less);

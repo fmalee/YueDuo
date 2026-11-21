@@ -10,6 +10,7 @@ use std::path::Path;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::services::now_ms;
 use crate::types::*;
 
 /// 落盘位置：库内 = 相对路径（POSIX）+ book_id，库外 = 绝对路径 + NULL
@@ -70,7 +71,7 @@ pub fn stored_tab_location(db: &Connection, root: &str, absolute_path: &str) -> 
 }
 
 /// 占位行的默认位置用：表格已空时从 0 开始
-pub fn next_position(db: &Connection) -> i64 {
+fn next_position(db: &Connection) -> i64 {
     db.query_row(
         "SELECT COALESCE(MAX(position), -1) + 1 FROM session_tabs",
         [],
@@ -409,12 +410,6 @@ pub fn clear_draft(db: &Connection, tab_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 
 #[cfg(test)]
 mod tests {

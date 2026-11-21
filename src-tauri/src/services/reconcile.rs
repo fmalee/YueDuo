@@ -8,21 +8,16 @@ use std::collections::HashSet;
 
 use rusqlite::{params, Connection, OptionalExtension};
 
+use crate::services::now_ms;
 use crate::types::ScannedBook;
 
 const SIZE_TOLERANCE: f64 = 0.05;
 const WORD_TOLERANCE: f64 = 0.02;
 const DELETE_THRESHOLD: i64 = 2;
 
-pub struct MovedBook {
-    pub id: i64,
-    pub from: String,
-    pub to: String,
-    pub title: String,
-}
-
 pub struct ReconcileLog {
-    pub moved: Vec<MovedBook>,
+    /// 本轮识别为移动并合并的记录数
+    pub moved: usize,
     /// 本轮零匹配的疑似删除数（含已删除的）
     pub pending: i64,
     /// 本轮达到阈值并删除的记录数
@@ -64,7 +59,7 @@ struct BookRow {
 /// 空结果直接返回——扫描失败/根目录不可达时不能把全库当成「连续零匹配」删掉。
 pub fn reconcile_library(db: &Connection, scanned: &[ScannedBook]) -> Result<ReconcileLog, String> {
     let mut log = ReconcileLog {
-        moved: Vec::new(),
+        moved: 0,
         pending: 0,
         deleted: 0,
     };
@@ -154,12 +149,7 @@ pub fn reconcile_library(db: &Connection, scanned: &[ScannedBook]) -> Result<Rec
                     if let Some(pos) = unmatched_new.iter().position(|b| std::ptr::eq(*b, target)) {
                         unmatched_new.remove(pos);
                     }
-                    log.moved.push(MovedBook {
-                        id: row.id,
-                        from: row.relative_path.clone(),
-                        to: target.relative_path.clone(),
-                        title: target.title.clone(),
-                    });
+                    log.moved += 1;
                     continue;
                 }
             }
@@ -188,12 +178,6 @@ pub fn reconcile_library(db: &Connection, scanned: &[ScannedBook]) -> Result<Rec
     Ok(log)
 }
 
-pub(super) fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
 
 #[cfg(test)]
 mod tests {
@@ -278,9 +262,7 @@ mod tests {
             &[scanned("新/书.txt", "书名", 102, 1010, true)],
         )
         .unwrap();
-        assert_eq!(log.moved.len(), 1);
-        assert_eq!(log.moved[0].from, "旧/书.txt");
-        assert_eq!(log.moved[0].to, "新/书.txt");
+        assert_eq!(log.moved, 1);
         // 旧 id 接手新路径，评分/书签保留
         let (rating, bookmarks): (i64, i64) = db
             .query_row(

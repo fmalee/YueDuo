@@ -91,9 +91,8 @@ pub async fn library_fast_scan(
 ) -> Result<Vec<LibraryEntry>, String> {
     let root = require_root(&state)?;
     let rel = relative_dir.unwrap_or_default();
-    Ok(state
-        .with_active_db(|_, _| scanner::list_directory(std::path::Path::new(&root), &rel))?
-        .unwrap_or_default())
+    // 纯目录列举不碰数据库，锁外执行（with_active_db 持主锁，禁止长 I/O）
+    scanner::list_directory(std::path::Path::new(&root), &rel)
 }
 
 // ---------- enrich：独立线程扫描 + 对账 ----------
@@ -128,7 +127,7 @@ fn run_enrich(
     Ok(LibraryEnrichResult {
         total: result.total,
         skipped: result.skipped,
-        moved: log.moved.len() as i64,
+        moved: log.moved as i64,
         pending: log.pending,
         deleted: log.deleted,
     })
@@ -169,7 +168,7 @@ pub async fn library_enrich(
                     inner.enrich_job = None;
                 }
             });
-            let job = Arc::new(EnrichJob { generation, slot });
+            let job = Arc::new(EnrichJob { slot });
             inner.enrich_job = Some(job.clone());
             job
         }
@@ -274,16 +273,7 @@ pub async fn library_book_by_path(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<Option<LibraryBook>, String> {
-    let root = state.active_root();
-    if root.is_empty() || path.is_empty() {
-        return Ok(None);
-    }
-    let Some(relative) = books::relative_in_library(&root, &path) else {
-        return Ok(None);
-    };
-    Ok(state
-        .with_active_db(|db, _| books::find_book_by_relative_path(db, &root, &relative))?
-        .unwrap_or(None))
+    state.find_book_by_abs_path(&path)
 }
 
 /// library:setBookRating —— 书籍评分：库内评分一起写；
@@ -322,19 +312,19 @@ pub async fn library_sync_metadata(
         return Ok(skipped);
     }
     let root = require_root(&state)?;
-    let ingested = state
-        .with_active_db(|db, _| {
-            scanner::ingest_file(std::path::Path::new(&root), std::path::Path::new(&path), db)
-        })?
-        .unwrap_or(None);
-    let Some(ingested) = ingested else {
+    // 解码/解析重活在锁外（prepare），主锁内只做写库 + 回查一次拿锁
+    let Some(prepared) = scanner::prepare_ingest(std::path::Path::new(&root), std::path::Path::new(&path))
+    else {
         return Ok(skipped);
     };
-    let book = state
+    let outcome = state
         .with_active_db(|db, _| {
-            books::find_book_by_relative_path(db, &root, &ingested.relative_path)
+            let ingested = scanner::write_ingest(db, &prepared)?;
+            let book = books::find_book_by_relative_path(db, &root, &ingested.relative_path)?;
+            Ok((ingested, book))
         })?
-        .unwrap_or(None);
+        .ok_or_else(|| "尚未打开书库".to_string())?;
+    let (ingested, book) = outcome;
     Ok(LibrarySyncResult {
         updated: true,
         added: ingested.inserted,

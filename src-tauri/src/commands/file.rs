@@ -36,10 +36,10 @@ pub async fn file_read_text(path: String) -> Result<Response, String> {
 }
 
 /// file:readChunk —— 大文件并行分块读（性能专项）。WKWebView 自定义协议单响应编组
-/// 实测 ~13MB/s（串行），多请求走独立编组管线并行后 ~30MB/s；再叠 zstd L3 压缩
-/// （UTF-16 中文 ~25-30%），等效吞吐再乘 ~3。返回原始文件字节（zstd 压缩），
+/// 实测 ~13MB/s（串行），多请求走独立编组管线并行后 ~30MB/s；再叠 gzip L1 压缩
+/// （UTF-16 中文 ~52%），等效吞吐再乘 ~2。返回原始文件字节（gzip 压缩），
 /// 解码在前端 TextDecoder 完成（与主进程同款探测链选编码）。
-/// 帧格式：[u32 LE headerLen][header JSON][zstd(原始字节)]；chunk 0 的 header 含
+/// 帧格式：[u32 LE headerLen][header JSON][gzip(原始字节)]；chunk 0 的 header 含
 /// encoding/size/compressed。
 #[tauri::command]
 pub async fn file_read_chunk(path: String, offset: u64, len: u32) -> Result<Response, String> {
@@ -106,6 +106,39 @@ pub async fn file_write_text(path: String, text: String) -> Result<FileWriteResu
 
 // ---------- 改名 / 删除 / 定位（方案 §3.5） ----------
 
+/// rename/move 公共收尾：磁盘移动后同步 books 身份（id 不变，评分/进度/书签全保留）。
+/// 旧路径的库内相对路径必须在移动前取（移动后旧路径不复存在）；
+/// 库身份同步失败只记日志交给对账，不反报本次操作失败。
+fn relocate_file(
+    state: &AppState,
+    source: &Path,
+    new_path: &Path,
+    title: String,
+    label: &str,
+) -> Result<FileRenameResult, String> {
+    let root = state.active_root();
+    let source_str = source.to_string_lossy().to_string();
+    let old_relative = books::relative_in_library(&root, &source_str);
+    std::fs::rename(source, new_path).map_err(|e| format!("{label}失败: {e}"))?;
+    let stat = files::stat_of(new_path)?;
+    let new_path_str = new_path.to_string_lossy().to_string();
+    if let Some(old_relative) = old_relative {
+        if let Some(new_relative) = books::relative_in_library(&root, &new_path_str) {
+            state.with_active_db(|db, _| {
+                if let Err(e) = books::rename_book_record(db, &old_relative, &new_relative, &title) {
+                    eprintln!("[file] {label}后同步库身份失败: {e}");
+                }
+                Ok::<(), String>(())
+            })?;
+        }
+    }
+    Ok(FileRenameResult {
+        path: new_path_str,
+        title,
+        stat,
+    })
+}
+
 /// file:rename —— 重命名当前标签的文件：
 /// 只在原目录改名、自动补 .txt；改名成功后同步 books 身份（relative_path/filename），
 /// id 不变，书签/评分/进度全保留；库身份同步失败只记日志交给对账，不反报改名失败。
@@ -146,30 +179,7 @@ pub async fn file_rename(
     if new_path.exists() {
         return Err(format!("「{name}」已存在"));
     }
-
-    // 改名后旧路径不复存在，库内相对路径必须在 rename 前取
-    let root = state.active_root();
-    let old_relative = books::relative_in_library(&root, &path);
-
-    std::fs::rename(source, &new_path).map_err(|e| format!("改名失败: {e}"))?;
-    let stat = files::stat_of(&new_path)?;
-
-    if let Some(old_relative) = old_relative {
-        if let Some(new_relative) = books::relative_in_library(&root, &new_path_str) {
-            // 文件已改名成功；库身份同步失败交给下次扫描对账修复，不能反过来报改名失败
-            state.with_active_db(|db, _| {
-                if let Err(e) = books::rename_book_record(db, &old_relative, &new_relative, &name) {
-                    eprintln!("[file] 重命名后同步库身份失败: {e}");
-                }
-                Ok::<(), String>(())
-            })?;
-        }
-    }
-    Ok(FileRenameResult {
-        path: new_path_str,
-        title: name,
-        stat,
-    })
+    relocate_file(&state, source, &new_path, name, "重命名")
 }
 
 /// file:move —— 移动标签文件到书库内其它目录（含库根，文件名不变）：
@@ -218,29 +228,7 @@ pub async fn file_move(
     if !canonical_dest.starts_with(&canonical_root) {
         return Err("目标目录必须在书库内".into());
     }
-
-    // 移动后旧路径不复存在，库内相对路径必须在 move 前取
-    let old_relative = books::relative_in_library(&root, &path);
-
-    std::fs::rename(source, &new_path).map_err(|e| format!("移动失败: {e}"))?;
-    let stat = files::stat_of(&new_path)?;
-
-    if let Some(old_relative) = old_relative {
-        if let Some(new_relative) = books::relative_in_library(&root, &new_path_str) {
-            // 文件已移动成功；库身份同步失败交给下次扫描对账修复，不能反过来报移动失败
-            state.with_active_db(|db, _| {
-                if let Err(e) = books::rename_book_record(db, &old_relative, &new_relative, &name) {
-                    eprintln!("[file] 移动后同步库身份失败: {e}");
-                }
-                Ok::<(), String>(())
-            })?;
-        }
-    }
-    Ok(FileRenameResult {
-        path: new_path_str,
-        title: name,
-        stat,
-    })
+    relocate_file(&state, source, &new_path, name, "移动")
 }
 
 /// file:trash —— 移到废纸篓：先取库内相对路径再 trash；成功后删 books 行（书签随 CASCADE）。

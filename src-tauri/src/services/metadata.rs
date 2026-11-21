@@ -32,8 +32,7 @@ fn find_value(lines: &[&str], pattern: &Regex) -> Option<String> {
 
 /// 取正文前十行「主题：」后的原文，供同步 Finder 注释等需要原样的场景使用（对齐 Python find_topic）
 pub fn find_topic(text: &str) -> Option<String> {
-    let pattern = Regex::new(r"^\s*主题\s*[：:]\s*(.+?)\s*$").unwrap();
-    find_value(&first_lines(text), &pattern)
+    find_value(&first_lines(text), topic_pattern())
 }
 
 fn first_lines(text: &str) -> Vec<&str> {
@@ -41,6 +40,22 @@ fn first_lines(text: &str) -> Vec<&str> {
     let mut lines: Vec<&str> = text.split('\n').take(10).collect();
     lines.truncate(10);
     lines
+}
+
+// 头部字段正则编译一次复用（扫描循环与保存链路逐文件调用）
+fn topic_pattern() -> &'static Regex {
+    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(r"^\s*主题\s*[：:]\s*(.+?)\s*$").unwrap())
+}
+
+fn title_pattern() -> &'static Regex {
+    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new("《([^》]+)》").unwrap())
+}
+
+fn author_pattern() -> &'static Regex {
+    static PATTERN: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| Regex::new(r"^\s*作者\s*[：:]\s*(.+?)\s*$").unwrap())
 }
 
 /// Python Path.stem 口径：只去最后一个后缀，'.txt' 这类无主名的点文件保留原名
@@ -55,9 +70,9 @@ fn stem(filename: &str) -> &str {
 /// filename 只用于书名兜底（去最后一个后缀），directory_name 只用于标签兜底。
 pub fn parse_metadata(text: &str, filename: &str, directory_name: &str) -> ParsedMetadata {
     let lines = first_lines(text);
-    let title_pattern = Regex::new("《([^》]+)》").unwrap();
-    let author_pattern = Regex::new(r"^\s*作者\s*[：:]\s*(.+?)\s*$").unwrap();
-    let tags_pattern = Regex::new(r"^\s*主题\s*[：:]\s*(.+?)\s*$").unwrap();
+    let title_pattern = title_pattern();
+    let author_pattern = author_pattern();
+    let tags_pattern = topic_pattern();
 
     let mut title: Option<String> = None;
     for line in lines.iter().take(2) {

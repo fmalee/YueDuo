@@ -36,7 +36,6 @@ pub struct LibraryRuntime {
 
 /// enrich 扫描作业：单飞去重用（同代际的并发调用共享同一个结果槽）
 pub struct EnrichJob {
-    pub generation: u64,
     pub slot: Arc<EnrichResultSlot>,
 }
 
@@ -226,6 +225,20 @@ impl AppState {
             Some(runtime) => f(&runtime.db, &runtime.root).map(Some),
             None => Ok(None),
         }
+    }
+
+    /// 按绝对路径查库内书目：realpath 换算相对路径 + 单次拿锁查询。
+    /// 未打开书库或路径不在库内返回 None；打开着书库但查询失败才报错。
+    pub fn find_book_by_abs_path(&self, path: &str) -> Result<Option<LibraryBook>, String> {
+        let root = self.active_root();
+        if root.is_empty() || path.is_empty() {
+            return Ok(None);
+        }
+        let Some(relative) = books::relative_in_library(&root, path) else {
+            return Ok(None);
+        };
+        self.with_active_db(|db, root| books::find_book_by_relative_path(db, root, &relative))?
+            .ok_or_else(|| "尚未打开书库".to_string())
     }
 
     /// 退出前收尾：置位扫描取消 + 显式关闭全部库连接。
