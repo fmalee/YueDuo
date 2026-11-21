@@ -195,6 +195,9 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     view_menu.append(&size_menu)?;
     view_menu.append(&PredefinedMenuItem::separator(app)?)?;
     add_item(&view_menu, app, "cmd:reload", "重新加载", None)?;
+    // 切换开发者工具仅在 debug 构建（或显式开 devtools 特性）时存在：
+    // open_devtools 系列方法带 cfg 门控，release 不编译此项（右键菜单不再出现 Inspect Element）
+    #[cfg(any(debug_assertions, feature = "devtools"))]
     add_item(&view_menu, app, "cmd:devtools", "切换开发者工具", None)?;
     view_menu.append(&PredefinedMenuItem::separator(app)?)?;
     add_item(&view_menu, app, "cmd:zoomReset", "实际大小", Some("CmdOrCtrl+0"))?;
@@ -318,6 +321,7 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.eval("location.reload()");
                 }
             }
+            #[cfg(any(debug_assertions, feature = "devtools"))]
             "cmd:devtools" => {
                 if let Some(window) = app.get_webview_window("main") {
                     if window.is_devtools_open() {

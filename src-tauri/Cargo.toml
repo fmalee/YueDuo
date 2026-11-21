@@ -9,10 +9,15 @@ rust-version = "1.90"
 name = "yueduo_lib"
 path = "src/lib.rs"
 
+# devtools 透传开关：默认关闭（release 右键菜单不再被 WebKit 注入 Reload/Inspect Element）。
+# 需要调试 release 包时 `cargo build --features devtools` 一键恢复；debug 构建自动启用不受影响。
+[features]
+devtools = ["tauri/devtools"]
+
 # 权威依赖优先；SQLite 官方绑定 rusqlite 为成熟件（bundled 自带源码，同步 API + 完整事务）。
 [dependencies]
-# Tauri 运行时（devtools：release 下保留「切换开发者工具」菜单项）
-tauri = { version = "2", features = ["devtools"] }
+# Tauri 运行时（devtools 见 [features]：默认不给 release，WebKit 注入右键菜单的根因）
+tauri = { version = "2", features = [] }
 # 编码探测与解码（Mozilla/Firefox 栈）
 encoding_rs = "0.8"
 chardetng = "0.1"
