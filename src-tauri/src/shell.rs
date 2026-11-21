@@ -344,22 +344,20 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = window.set_zoom(*level);
                 }
             }
+            // 勾选项（sidebar/rightPanel/closeButton）：muda 在点击时已自动翻转勾选态
+            // （macOS impl: state.checked = !state.checked + set_checked），这里只读取
+            // 翻转后的新状态下发；再手动取反 = 双重翻转，配合 sync_menu_state 回写会
+            // 永远原地踏步（潜伏 bug：迁移以来三个勾选项从菜单点击都切不开）。
             "menu:sidebar" => {
-                let current = menu_state.sidebar.is_checked().unwrap_or(true);
-                let next = !current;
-                let _ = menu_state.sidebar.set_checked(next);
+                let next = menu_state.sidebar.is_checked().unwrap_or(true);
                 send_command(app, "toggleSidebar", Some(json!(next)));
             }
             "menu:rightPanel" => {
-                let current = menu_state.right_panel.is_checked().unwrap_or(true);
-                let next = !current;
-                let _ = menu_state.right_panel.set_checked(next);
+                let next = menu_state.right_panel.is_checked().unwrap_or(true);
                 send_command(app, "toggleRightPanel", Some(json!(next)));
             }
             "menu:closeButton" => {
-                let current = menu_state.close_button.is_checked().unwrap_or(true);
-                let next = !current;
-                let _ = menu_state.close_button.set_checked(next);
+                let next = menu_state.close_button.is_checked().unwrap_or(true);
                 send_command(app, "toggleCloseButton", Some(json!(next)));
             }
             _ => {
