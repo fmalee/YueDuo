@@ -17,6 +17,19 @@ body {
   font-size: 18px;
   color: var(--yd-text-1);
   background: var(--yd-bg-1);
+  /* WKWebView 右键会触发 macOS 智能选词（光标下的词先被选中再弹菜单，Electron/Chromium 无此行为），
+     界面层整体禁选：标签/侧栏/状态栏等右键不再出现选区底色。输入控件与编辑器单独放行。 */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 可编辑区域恢复正常选择：Monaco 内部自管选区（view-lines 有更高优先级的禁选规则不受影响） */
+input,
+textarea,
+[contenteditable='true'],
+.monaco-editor {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 button {
