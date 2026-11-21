@@ -48,3 +48,10 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# 发布构建：剥符号 + ThinLTO + 单编译单元（体积与运行速度双收益；
+# 实测未配置时二进制 21MB，含 3.8 万个未剥离符号）
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
