@@ -190,10 +190,13 @@ export function useEditorCommands(): {
     const position = editor.getPosition()
     editor.pushUndoStop()
     // 按行精确替换（Rust patience diff 只下发变更行）：Monaco 只重算被改行，撤销栈只存增量。
-    // 范围 (line,1)-(endLine,maxColumn) 覆盖整行、不含行尾换行符，与 Rust diff 口径一致。
+    // 范围 (line,1)-(endLine+1,1) 覆盖 [start..end] 行**含 end 行行尾换行**，与 Rust diff 口径一致——
+    // 删除空行必须连换行一起删，否则零宽替换等于无操作（空行永远剩一行）。
+    // 文档最后一行没有行尾换行可吃，退化为内容替换 (endLine,maxColumn)。
     // 不传 forceMoveMarkers（装饰走 delta 平移的廉价路径）；分批应用 + 每批让出主线程，
     // 大编辑列表不再冻结 UI，批次耗时各自打点定位。
     const CHUNK = 400
+    const lastLine = model.getLineCount() // 以应用前的原始行数判定末行编辑
     // 关键：按行号【降序】分批——每批独立 executeEdits，从文档尾部往前打，
     // 前面批次（更高行号）即使改变了行数也不影响后续批次（更低行号）的目标位置
     const sorted = [...result.edits].sort((x, y) => y.startLine - x.startLine)
@@ -202,12 +205,20 @@ export function useEditorCommands(): {
       editor.executeEdits(
         'tidy',
         batch.map((e) => ({
-          range: {
-            startLineNumber: e.startLine,
-            startColumn: 1,
-            endLineNumber: e.endLine,
-            endColumn: model.getLineMaxColumn(e.endLine)
-          },
+          range:
+            e.endLine >= lastLine
+              ? {
+                  startLineNumber: e.startLine,
+                  startColumn: 1,
+                  endLineNumber: e.endLine,
+                  endColumn: model.getLineMaxColumn(e.endLine)
+                }
+              : {
+                  startLineNumber: e.startLine,
+                  startColumn: 1,
+                  endLineNumber: e.endLine + 1,
+                  endColumn: 1
+                },
           text: e.text
         }))
       )

@@ -345,8 +345,10 @@ pub struct ConvertResult {
     pub kept_words: i64,
 }
 
-/// 行级编辑：原文 [start_line, end_line]（1 起、含两端）整块替换为 text（块内换行自带）。
-/// 范围不含 end_line 的换行符；行号对齐 Monaco 的行号口径（getValue 的 \n 切分行）。
+/// 行级编辑：替换原文 [start_line, end_line]（1 起、含两端）**含 end_line 的行尾换行符**。
+/// text 以 "\n" 结尾（保持段后内容仍在新行）；纯删除（整块行消失）text 为空串；
+/// end_line 是文档最后一行时无换行可吃，退化为内容替换（text 不带 \n）。
+/// 行号对齐 Monaco 的行号口径（getValue 的 \n 切分行）；前端范围取 (end_line+1, 1)。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TidyEdit {

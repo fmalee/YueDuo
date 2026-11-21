@@ -368,7 +368,7 @@ fn diff_line_edits(original: &str, result: &str) -> Vec<TidyEdit> {
         .into_iter()
         .chain(std::iter::once((am.len(), bm.len())))
     {
-        push_segment_edits(&mut edits, pre, am, bm, ai, ax, bi, bx);
+        push_segment_edits(&mut edits, pre, a.len(), am, bm, ai, ax, bi, bx);
         ai = ax + 1;
         bi = bx + 1;
     }
@@ -426,9 +426,13 @@ fn patience_anchors(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
 }
 
 /// 两锚点之间（或首尾哨兵之间）的段：相等跳过；行数一致只下差异行；否则整段替换。
+/// 编辑语义：替换 [start..end] 行**含 end 行的行尾换行符**，text 以 "\n" 结尾（纯删除为空串）。
+/// 关键依据：删除空行必须连行尾换行一起删——范围不含换行时，删空行是零宽替换（无操作），
+/// Monaco/任何范围模型里空行都永远剩一行；end 行是文档最后一行时退化为内容替换。
 fn push_segment_edits(
     edits: &mut Vec<TidyEdit>,
     pre: usize,
+    total_lines: usize,
     a: &[&str],
     b: &[&str],
     ai: usize,
@@ -441,22 +445,36 @@ fn push_segment_edits(
     if a_seg == b_seg {
         return;
     }
+    let end = pre + ai + a_seg.len(); // 段尾行号（1 起、含）
     if a_seg.len() == b_seg.len() {
         for k in 0..a_seg.len() {
             if a_seg[k] != b_seg[k] {
+                let line = pre + ai + k + 1;
+                let text = if line == total_lines {
+                    b_seg[k].to_string()
+                } else {
+                    format!("{}\n", b_seg[k])
+                };
                 edits.push(TidyEdit {
-                    start_line: pre + ai + k + 1,
-                    end_line: pre + ai + k + 1,
-                    text: b_seg[k].to_string(),
+                    start_line: line,
+                    end_line: line,
+                    text,
                 });
             }
         }
         return;
     }
+    let text = if b_seg.is_empty() {
+        String::new() // 纯删除：范围含 end 行换行，删空即整块消失
+    } else if end == total_lines {
+        b_seg.join("\n")
+    } else {
+        format!("{}\n", b_seg.join("\n"))
+    };
     edits.push(TidyEdit {
         start_line: pre + ai + 1,
-        end_line: pre + ai + a_seg.len(),
-        text: b_seg.join("\n"),
+        end_line: end,
+        text,
     });
 }
 
@@ -577,39 +595,57 @@ mod tests {
         assert_eq!((out.kept, out.kept_words), (0, 0));
     }
 
-    /// 按编辑列表重建结果（与前端 executeEdits 同语义：替换 [start,end] 行、不含行尾换行符；
-    /// text 为空 = 删除该行块）
+    /// 按编辑列表重建结果（与前端 executeEdits 同语义：替换 [start,end] 行**含 end 行行尾换行**；
+    /// text 以 \n 结尾，空串 = 整块删除；文档最后一行退化为内容替换）。按行号升序拼接。
     fn apply_edits(text: &str, edits: &[TidyEdit]) -> String {
-        let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
-        for e in edits.iter().rev() {
-            let s = e.start_line - 1;
-            let len = e.end_line - e.start_line + 1;
-            let new: Vec<String> = if e.text.is_empty() {
-                Vec::new()
-            } else {
-                e.text.split('\n').map(str::to_string).collect()
-            };
-            lines.splice(s..s + len, new);
+        let lines: Vec<&str> = text.split('\n').collect();
+        let mut sorted: Vec<&TidyEdit> = edits.iter().collect();
+        sorted.sort_by_key(|e| e.start_line);
+        let mut out = String::new();
+        let mut cursor = 1usize; // 下一个待消费的原始行号（1 起）
+        for e in sorted {
+            for line in &lines[cursor - 1..e.start_line - 1] {
+                out.push_str(line);
+                out.push('\n');
+            }
+            out.push_str(&e.text);
+            cursor = e.end_line + 1;
         }
-        lines.join("\n")
+        if cursor <= lines.len() {
+            out.push_str(&lines[cursor - 1..].join("\n"));
+        }
+        out
     }
 
     #[test]
     fn line_diff_edits_reconstruct_result() {
         // 相同 → 无编辑
         assert!(diff_line_edits("a\nb\nc", "a\nb\nc").is_empty());
-        // 零散差异行：只下发差异行
+        // 零散差异行：只下发差异行（文本含行尾 \n；末行无换行可吃，内容替换）
         let edits = diff_line_edits("甲\n乙\n丙\n丁", "甲\n乙二\n丙\n丁二");
         assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0].text, "乙二\n");
+        assert_eq!(edits[1].text, "丁二");
         assert_eq!(apply_edits("甲\n乙\n丙\n丁", &edits), "甲\n乙二\n丙\n丁二");
         // 行数变化（空行折叠）：落在锚点之间的小段（后缀裁剪会把对称空行吃进去，
-        // 编辑区是「多余空行」本段：第 3~4 行清空）
+        // 编辑区是「多余空行」本段：第 3~4 行整块删除）
         let edits = diff_line_edits("甲\n\n\n\n乙\n丙", "甲\n\n乙\n丙");
         assert_eq!(edits.len(), 1);
         assert_eq!(edits[0].start_line, 3);
         assert_eq!(edits[0].end_line, 4);
         assert_eq!(edits[0].text, "");
         assert_eq!(apply_edits("甲\n\n\n\n乙\n丙", &edits), "甲\n\n乙\n丙");
+        // 孤立空行删除（章节标题前后同款）：单空行也必须真删，不能零宽替换
+        let edits = diff_line_edits("甲\n\n乙", "甲\n乙");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].start_line, 2);
+        assert_eq!(edits[0].end_line, 2);
+        assert_eq!(edits[0].text, "");
+        assert_eq!(apply_edits("甲\n\n乙", &edits), "甲\n乙");
+        // 两个孤立空行（章节前后各一个）
+        let edits = diff_line_edits("甲\n\n乙\n\n丙", "甲\n乙\n丙");
+        assert_eq!(edits.len(), 2);
+        assert_eq!(apply_edits("甲\n\n乙\n\n丙", &edits), "甲\n乙\n丙");
         // 尾部行数变化（块编辑兜底）
         let edits = diff_line_edits("a\nx\ny", "a\nb\nc\nd");
         assert_eq!(apply_edits("a\nx\ny", &edits), "a\nb\nc\nd");
