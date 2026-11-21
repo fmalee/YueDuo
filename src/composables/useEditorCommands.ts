@@ -1,5 +1,6 @@
 import type * as Monaco from 'monaco-editor/editor/editor.api'
 import {
+  appPerfLog,
   convertTidy,
   convertToHalfwidth,
   convertToSimplified,
@@ -149,11 +150,17 @@ export function useEditorCommands(): {
     showStatusMessage(`已转换为${mode === 'lower' ? '小写' : '大写'}，可用撤销恢复`, 5000)
   }
 
-  /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，整篇一次替换、可撤销 */
+  /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，按行精确替换、可撤销。
+   *  各阶段耗时经 appPerfLog 打到终端（[perf:fe] 前缀），用于大书性能定位 */
   async function tidyDocument(editor: Editor): Promise<void> {
     const model = editor.getModel()
     if (!model) return
+    const t0 = performance.now()
+    const mark = (label: string): void => {
+      void appPerfLog(`tidy[${label}]: +${(performance.now() - t0).toFixed(0)}ms`)
+    }
     const original = model.getValue()
+    mark('getValue')
     if (!original.trim()) {
       showStatusMessage('当前文档为空，无需整理')
       return
@@ -162,6 +169,7 @@ export function useEditorCommands(): {
     let result: TidyResult
     try {
       result = await convertTidy(original)
+      mark('ipc+convert')
     } catch (e) {
       showStatusMessage(`整理失败：${e instanceof Error ? e.message : String(e)}`, 5000)
       return
@@ -174,6 +182,7 @@ export function useEditorCommands(): {
       showStatusMessage('整理期间文本已修改，结果未应用', 5000)
       return
     }
+    mark('guard getValue')
     if (result.edits.length === 0) {
       showStatusMessage('文本无需整理')
       return
@@ -196,6 +205,7 @@ export function useEditorCommands(): {
       }))
     )
     editor.pushUndoStop()
+    mark(`executeEdits(${result.edits.length} edits)`)
     if (position) editor.setPosition(position)
     showStatusMessage('已整理完成，可用撤销恢复', 5000)
   }

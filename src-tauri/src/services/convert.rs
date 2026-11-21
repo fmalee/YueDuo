@@ -461,10 +461,14 @@ fn push_segment_edits(
 }
 
 pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
+    use std::time::Instant;
+    let t0 = Instant::now();
     let mut result = text.replace("\r\n", "\n").replace('\r', "\n");
     let converted = to_simplified(&result, dict_dir)?;
     result = converted.text;
+    let t_simplified = t0.elapsed();
     result = to_halfwidth(&result)?.text;
+    let t_halfwidth = t0.elapsed();
     // 预编译 tidy 规则（转义展开一次完成；分组展开依赖每个匹配，替换时进行）
     let mut steps: Vec<(regex::Regex, String)> = Vec::new();
     for rule in find_rules::rules().iter().filter(|r| r.tidy_enabled) {
@@ -475,6 +479,7 @@ pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
         let re = find_rules::compile_pattern(&rule.pattern, true)?;
         steps.push((re, unescape_template(replacement)));
     }
+    let t_compile = t0.elapsed();
     for (re, template) in steps {
         result = re
             .replace_all(&result, |caps: &regex::Captures| {
@@ -485,7 +490,19 @@ pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
             })
             .into_owned();
     }
+    let t_rules = t0.elapsed();
     let edits = diff_line_edits(text, &result);
+    eprintln!(
+        "[tidy] in {} chars/{} lines | simplified {}ms | halfwidth {}ms | compile {}ms | rules {}ms | diff {}ms | {} edits",
+        text.chars().count(),
+        text.split('\n').count(),
+        t_simplified.as_millis(),
+        (t_halfwidth - t_simplified).as_millis(),
+        (t_compile - t_halfwidth).as_millis(),
+        (t_rules - t_compile).as_millis(),
+        t0.elapsed().as_millis(),
+        edits.len()
+    );
     Ok(TidyResult {
         edits,
         convert_kept: converted.kept,
@@ -619,5 +636,44 @@ mod tests {
         let input = "前--后\n\n\n\n续";
         let out = tidy(input, &dict_dir()).unwrap();
         assert_eq!(apply_edits(input, &out.edits), "　　前——后\n　　续");
+    }
+
+    /// 大书规模基准（真实 6.5M 字量级）：验证管线在大输入下完整走完（空行折叠生效）、
+    /// diff 不丢编辑、各阶段耗时。`cargo test -- --ignored --nocapture tidy_big_book`
+    #[test]
+    #[ignore]
+    fn tidy_big_book_benchmark() {
+        use std::time::Instant;
+        let dir = dict_dir();
+
+        // 合成 ~6.5M 字：6 万段，每段 = 传统字正文行 + 破折号行 + 3 连空行（触发空行折叠）
+        let mut text = String::with_capacity(7_000_000);
+        let chunk = "　　這是一段測試用的正體中文內容，開級幹部專業們。——\n\n\n\n";
+        for _ in 0..60_000 {
+            text.push_str(chunk);
+        }
+        eprintln!("输入大小: {} chars / {} bytes", text.chars().count(), text.len());
+
+        let t0 = Instant::now();
+        let out = tidy(&text, &dir).unwrap();
+        let elapsed = t0.elapsed();
+        eprintln!(
+            "tidy 总耗时: {:.1?}ms | 编辑数: {} | convert_kept: {} / kept_words: {}",
+            elapsed.as_millis(),
+            out.edits.len(),
+            out.convert_kept,
+            out.convert_kept_words
+        );
+
+        // 重建结果并验证：空行折叠生效（折叠后不再有 3 连换行）、破折号转义生效
+        let rebuilt = apply_edits(&text, &out.edits);
+        assert!(
+            !rebuilt.contains("\n\n\n"),
+            "空行折叠规则未生效：结果中仍有 3 连换行"
+        );
+        assert!(!rebuilt.contains(".——"), "破折号规则未生效");
+        assert!(!rebuilt.contains('這'), "繁转简未生效");
+        let (before, after) = (text.matches('\n').count(), rebuilt.matches('\n').count());
+        eprintln!("行数: {} -> {}（空行折叠生效）", before, after);
     }
 }
