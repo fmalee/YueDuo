@@ -80,13 +80,10 @@ export const METRICS = {
   tabCloseInset: 4,
   // 空白标签标题取自正文首行，可能很长：按实际宽度省略（文件标签仍完整展示）
   tabTitleMaxWidth: 260,
-  // 编辑器标签栏高度：左右侧栏页签行不再强制同高，只按此高度对齐文字基线与列表起点
+  // 编辑器标签栏高度：三栏头部行共同的最小高度（border-box），基准线在同一高度连成一条
   tabBarHeight: 34,
   // 三栏共用基准线宽度：画在标签栏底边、与左右侧栏头部线同高连成一条，活动标签覆盖出断口
   tabBorderWidth: 1,
-  // 侧栏页签行：自身只包住文字（上下 2.5px 呼吸），整体下移 5.5px 使文字基线与标签栏一致，列表首行落在 34px
-  tabRowPaddingY: 2.5,
-  tabRowOffsetTop: 5.5,
   // 元数据栏（方案 §2.9）：编辑器下方、状态栏上方的单行编辑条
   metadataBarHeight: 30,
   metadataPaddingX: 10,
@@ -216,8 +213,6 @@ export function applyTheme(dark: boolean): void {
   root.style.setProperty('--yd-tab-title-max-width', `${METRICS.tabTitleMaxWidth}px`)
   root.style.setProperty('--yd-tab-bar-height', `${METRICS.tabBarHeight}px`)
   root.style.setProperty('--yd-tab-border-width', `${METRICS.tabBorderWidth}px`)
-  root.style.setProperty('--yd-tab-row-padding-y', `${METRICS.tabRowPaddingY}px`)
-  root.style.setProperty('--yd-tab-row-offset-top', `${METRICS.tabRowOffsetTop}px`)
   root.style.setProperty('--yd-metadata-bar-height', `${METRICS.metadataBarHeight}px`)
   root.style.setProperty('--yd-metadata-padding-x', `${METRICS.metadataPaddingX}px`)
   root.style.setProperty('--yd-metadata-gap', `${METRICS.metadataGap}px`)

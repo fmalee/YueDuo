@@ -166,9 +166,11 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   align-items: center;
   gap: 2px;
-  /* 对齐文字而非容器：页签行只按内容撑高（上下 3px 呼吸），整体下移让文字基线与标签栏齐平 */
-  margin-top: var(--yd-tab-row-offset-top);
-  padding: var(--yd-tab-row-padding-y) var(--yd-panel-padding);
+  box-sizing: border-box;
+  /* 与标签栏基准线严格同高：34px 行 + 1px 底边，线落在 [33,34)，与 tabs-scroll inset 线像素级重合；
+     padding-top 4px 让文字中心落在 18.5px，与标签栏文字垂直对齐；窄栏换行时行高增长、线下移 */
+  min-height: var(--yd-tab-bar-height);
+  padding: 4px var(--yd-panel-padding) 0;
   border-bottom: 1px solid var(--yd-border-1);
 }
 .panel-tab {
