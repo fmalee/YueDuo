@@ -5,33 +5,26 @@ import type { Plugin } from 'vite'
 import { fileURLToPath } from 'url'
 
 const configDir = dirname(fileURLToPath(import.meta.url))
-const monacoStringsJsPath = resolve(
-  configDir,
-  'node_modules/monaco-editor/esm/vs/base/common/strings.js'
-)
 const cjkWrapStringsPath = resolve(configDir, 'src/monaco/cjkWrapStrings.ts')
 
-/** 拦截 Monaco strings.js，注入中文全角标点判断（仅 renderer，与原 electron.vite.config 同款） */
+/**
+ * 拦截 Monaco strings.js，注入中文全角标点判断（仅 renderer，与原 electron.vite.config 同款）。
+ * 匹配只用「绝对路径以后缀结尾」：等值判断被其后缀覆盖，无需另存原版路径常量；
+ * importer 是补丁自身时放行（补丁文件还要引用原版 strings.js），避免循环重定向。
+ */
 function monacoCjkWrapStringsPlugin(): Plugin {
-  const normalizedStringsPath = monacoStringsJsPath.replace(/\\/g, '/')
-  const normalizedWrapPath = cjkWrapStringsPath.replace(/\\/g, '/')
   return {
     name: 'monaco-cjk-wrap-strings',
-    enforce: 'pre' as const,
+    enforce: 'pre',
     resolveId(id: string, importer: string | undefined) {
       const bareId = id.split('?')[0] ?? ''
+      // 相对导入按 importer 解析成绝对路径再比对；Windows 反斜杠归一，macOS 上无损
       let candidate = bareId.replace(/\\/g, '/')
-      if ((bareId.startsWith('.') || bareId.startsWith('/')) && importer) {
+      if (bareId.startsWith('.') && importer) {
         candidate = resolve(dirname(importer), bareId).replace(/\\/g, '/')
       }
-      const isMonacoStrings =
-        candidate === normalizedStringsPath ||
-        candidate.endsWith('/monaco-editor/esm/vs/base/common/strings.js')
-      if (!isMonacoStrings) return null
-      const importerNorm = (importer ?? '').replace(/\\/g, '/')
-      if (importerNorm.includes('/monaco/cjkWrapStrings') || importerNorm === normalizedWrapPath) {
-        return null
-      }
+      if (!candidate.endsWith('/monaco-editor/esm/vs/base/common/strings.js')) return null
+      if ((importer ?? '').replace(/\\/g, '/').includes('/monaco/cjkWrapStrings')) return null
       return cjkWrapStringsPath
     }
   }

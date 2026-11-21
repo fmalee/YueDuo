@@ -22,7 +22,7 @@ export function isFullWidthCharacter(charCode: number): boolean {
  * ASCII 运算/标记符、箭头、General Punctuation、拉丁文 ·×、几何/杂项符号（♡♥☆※ 等）。
  * 中文字体里这些常占约 1em，半角估算会让简单换行右侧溢出。
  */
-export function isCjkWrapOptimizeFullWidthCodePoint(charCode: number): boolean {
+function isCjkWrapOptimizeFullWidthCodePoint(charCode: number): boolean {
   // # % + - / \ <=> @ | ~
   if (charCode < 0x80) {
     return (
