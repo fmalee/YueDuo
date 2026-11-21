@@ -191,21 +191,40 @@ export function useEditorCommands(): {
     editor.pushUndoStop()
     // 按行精确替换（Rust patience diff 只下发变更行）：Monaco 只重算被改行，撤销栈只存增量。
     // 范围 (line,1)-(endLine,maxColumn) 覆盖整行、不含行尾换行符，与 Rust diff 口径一致。
-    editor.executeEdits(
-      'tidy',
-      result.edits.map((e) => ({
-        range: {
-          startLineNumber: e.startLine,
-          startColumn: 1,
-          endLineNumber: e.endLine,
-          endColumn: model.getLineMaxColumn(e.endLine)
-        },
-        text: e.text,
-        forceMoveMarkers: true
-      }))
-    )
+    // 不传 forceMoveMarkers（装饰走 delta 平移的廉价路径）；分批应用 + 每批让出主线程，
+    // 大编辑列表不再冻结 UI，批次耗时各自打点定位。
+    const CHUNK = 400
+    // 关键：按行号【降序】分批——每批独立 executeEdits，从文档尾部往前打，
+    // 前面批次（更高行号）即使改变了行数也不影响后续批次（更低行号）的目标位置
+    const sorted = [...result.edits].sort((x, y) => y.startLine - x.startLine)
+    let applied = 0
+    const applyChunk = (batch: typeof result.edits): void => {
+      editor.executeEdits(
+        'tidy',
+        batch.map((e) => ({
+          range: {
+            startLineNumber: e.startLine,
+            startColumn: 1,
+            endLineNumber: e.endLine,
+            endColumn: model.getLineMaxColumn(e.endLine)
+          },
+          text: e.text
+        }))
+      )
+      applied += batch.length
+      mark(`executeEdits(${applied}/${result.edits.length})`)
+    }
+    for (let i = 0; i < sorted.length; i += CHUNK) {
+      const batch = sorted.slice(i, i + CHUNK)
+      if (i === 0) {
+        applyChunk(batch)
+      } else {
+        // 后续批次延后一帧：让出主线程渲染，避免长冻结
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        applyChunk(batch)
+      }
+    }
     editor.pushUndoStop()
-    mark(`executeEdits(${result.edits.length} edits)`)
     if (position) editor.setPosition(position)
     showStatusMessage('已整理完成，可用撤销恢复', 5000)
   }
