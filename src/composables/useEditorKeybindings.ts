@@ -6,6 +6,7 @@ import { useTabs } from './useTabs'
 import { getActiveEditor } from './useSession'
 import { deleteToLineStart, insertLineBelow, insertNewline, pageBy } from './useLineCommands'
 import { showStatusMessage } from './useStatusMessage'
+import { formatError } from '../utils/format'
 
 type Editor = Monaco.editor.IStandaloneCodeEditor
 
@@ -100,7 +101,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
         const id = store.activeTabId
         if (!id) return
         void saveTab(id).catch((e) =>
-          showStatusMessage(`保存失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+          showStatusMessage(`保存失败：${formatError(e)}`, 5000)
         )
       }
     },

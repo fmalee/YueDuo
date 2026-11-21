@@ -10,7 +10,7 @@ import { focusEditor, schedulePersist } from '@/composables/useSession'
  * 条目可纵向拖动排序，与标签栏共用 moveTab，拖动过程不激活标签。
  */
 const store = useTabsStore()
-const { activateTab, closeTab } = useTabs()
+const { activateTab, closeTab, closeOtherTabs } = useTabs()
 
 const scrollRef = ref<HTMLDivElement>()
 /** 目标项进入可视区时留的上下边距 */
@@ -194,8 +194,7 @@ async function closeOthers(): Promise<void> {
   const id = menu.value?.tabId
   dismiss()
   if (!id) return
-  const others = store.tabs.filter((t) => t.id !== id).map((t) => t.id)
-  for (const other of others) await closeTab(other)
+  await closeOtherTabs(id)
 }
 
 function onWindowPointerDown(e: PointerEvent): void {
@@ -343,7 +342,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--yd-border-1);
   border-radius: 6px;
   background: var(--yd-bg-2);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 18%);
+  box-shadow: 0 6px 18px var(--yd-shadow);
 }
 .menu-item {
   padding: 5px 14px;

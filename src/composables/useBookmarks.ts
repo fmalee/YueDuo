@@ -3,6 +3,7 @@ import { libraryAddBookmark, libraryBookmarks, libraryRemoveBookmark } from '@/i
 import { getTabModel } from '@/composables/useTabLifecycle'
 import { caretSnapshot } from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
+import { INDENT_RE } from './useLineCommands'
 import {
   localBookmarkLines,
   noteBookmarkAdded,
@@ -18,28 +19,19 @@ import type { BookmarkInfo } from '../../shared/types'
  * 有未落库的行号漂移时以内存列表为准，等防抖回写后再与库对齐。
  */
 const NOTE_MAX_CHARS = 40
-const INDENT = /^[ \t\u3000]+/
+const INDENT = INDENT_RE
 
 const bookmarks = ref<BookmarkInfo[]>([])
-const loading = ref(false)
-const error = ref('')
 let currentPath = ''
 let generation = 0
-
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
 
 async function loadBookmarks(path: string): Promise<void> {
   const gen = ++generation
   currentPath = path
-  error.value = ''
   if (!path) {
     bookmarks.value = []
-    loading.value = false
     return
   }
-  loading.value = true
   try {
     const list = await libraryBookmarks(path)
     if (gen !== generation) return
@@ -48,9 +40,7 @@ async function loadBookmarks(path: string): Promise<void> {
   } catch (e) {
     if (gen !== generation) return
     bookmarks.value = []
-    error.value = message(e)
-  } finally {
-    if (gen === generation) loading.value = false
+    console.error('[bookmarks] 读取书签失败', e)
   }
 }
 
@@ -96,8 +86,6 @@ async function addBookmarkAtCaret(): Promise<string> {
 
 export function useBookmarks(): {
   bookmarks: typeof bookmarks
-  loading: typeof loading
-  error: typeof error
   loadBookmarks: typeof loadBookmarks
   addBookmark: typeof addBookmark
   removeBookmark: typeof removeBookmark
@@ -105,8 +93,6 @@ export function useBookmarks(): {
 } {
   return {
     bookmarks,
-    loading,
-    error,
     loadBookmarks,
     addBookmark,
     removeBookmark,

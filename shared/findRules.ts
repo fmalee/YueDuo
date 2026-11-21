@@ -18,9 +18,6 @@ export interface FindRule {
   tidyEnabled: boolean
 }
 
-/** 下拉首项占位文本：默认选中即它，不套用任何规则（对齐 Python `addItem("常用正则…", None)`） */
-export const FIND_RULE_PLACEHOLDER = '常用正则…'
-
 /**
  * 顺序即整理顺序：删除段末不可见字符 → 多个空格转全角 → 半角空格与制表符转全角
  * → 删除多余空行 → 非法字符 → 提取章节目录 → 查找对话 → 全角转半角 → …

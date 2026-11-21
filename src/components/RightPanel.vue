@@ -2,12 +2,11 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
-import { useSettingsStore } from '@/stores/settings'
 import { useChapters } from '@/composables/useChapters'
 import { useBookmarks } from '@/composables/useBookmarks'
 import { useLibraryBookmarks } from '@/composables/useLibraryBookmarks'
 import { onBookmarksFlushed } from '@/composables/useBookmarkDrift'
-import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../../shared/types'
+import { usePanelResize } from '@/composables/usePanelResize'
 import ChapterPage from './right/ChapterPage.vue'
 import LibraryBookmarkPage from './right/LibraryBookmarkPage.vue'
 import SidebarBookList from './sidebar/SidebarBookList.vue'
@@ -21,7 +20,6 @@ type PageId = 'history' | 'bookmarks' | 'chapters'
 
 const store = useTabsStore()
 const library = useLibraryStore()
-const settings = useSettingsStore()
 const { chapters, loadChapters } = useChapters()
 const { bookmarks, loadBookmarks } = useBookmarks()
 const { total: libraryBookmarkTotal, loadLibraryBookmarks } = useLibraryBookmarks()
@@ -53,42 +51,7 @@ const unsubscribeFlush = onBookmarksFlushed((path) => {
   void loadLibraryBookmarks()
 })
 
-const width = ref(settings.sidebarWidth)
-watch(
-  () => settings.sidebarWidth,
-  (value) => {
-    if (!dragging.value) width.value = value
-  }
-)
-
-const dragging = ref(false)
-let dragStartX = 0
-let dragStartWidth = 0
-
-function onResizeStart(e: PointerEvent): void {
-  e.preventDefault()
-  dragging.value = true
-  dragStartX = e.clientX
-  dragStartWidth = width.value
-  window.addEventListener('pointermove', onResizeMove)
-  window.addEventListener('pointerup', onResizeEnd)
-  window.addEventListener('pointercancel', onResizeEnd)
-}
-
-function onResizeMove(e: PointerEvent): void {
-  if (!dragging.value) return
-  const next = Math.round(dragStartWidth - (e.clientX - dragStartX))
-  width.value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next))
-}
-
-function onResizeEnd(): void {
-  if (!dragging.value) return
-  dragging.value = false
-  window.removeEventListener('pointermove', onResizeMove)
-  window.removeEventListener('pointerup', onResizeEnd)
-  window.removeEventListener('pointercancel', onResizeEnd)
-  void settings.setSidebarWidth(width.value)
-}
+const { width, dragging, onResizeStart } = usePanelResize(-1)
 
 function refreshHistory(): void {
   void library.loadHistory()
@@ -96,9 +59,6 @@ function refreshHistory(): void {
 
 onBeforeUnmount(() => {
   unsubscribeFlush()
-  window.removeEventListener('pointermove', onResizeMove)
-  window.removeEventListener('pointerup', onResizeEnd)
-  window.removeEventListener('pointercancel', onResizeEnd)
 })
 </script>
 

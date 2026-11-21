@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { libraryAllBookmarks } from '@/ipc/bridge'
 import type { LibraryBookmarkGroup } from '../../shared/types'
+import { formatError } from '../utils/format'
 
 /**
  * 全库书签分组状态（方案 §2.7）：按书合并，组内按行号升序。
@@ -26,7 +27,7 @@ async function loadLibraryBookmarks(): Promise<void> {
   } catch (e) {
     if (gen !== generation) return
     groups.value = []
-    error.value = e instanceof Error ? e.message : String(e)
+    error.value = formatError(e)
   } finally {
     if (gen === generation) loading.value = false
   }

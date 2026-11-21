@@ -1057,7 +1057,7 @@ function stopResize(): void {
   white-space: nowrap;
 }
 .counter.error {
-  color: var(--yd-accent);
+  color: var(--yd-danger);
 }
 .icon-button {
   flex: none;

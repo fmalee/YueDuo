@@ -4,8 +4,8 @@
  * - 作者：正文前十行「作者：」；否则「佚名」
  * - 标签：正文前十行「主题：」（逗号/空白分隔）；否则所在目录名
  * - 字数：非空白字符数（不扫全文，只切前 10 行做字段提取）
- * 放在 shared 供主进程与渲染层共用同一份正则：渲染层按编辑器前 10 行本地预览，
- * 主进程扫描/保存/写回时按同一口径解析（避免两套解析漂移）。
+ * 渲染层按编辑器前 10 行本地预览；Rust 侧 services/metadata.rs 按同一口径镜像
+ * （扫描/保存/写回），两侧规则改动需同步，避免解析漂移。
  */
 import type { ParsedMetadata } from './types'
 
@@ -15,7 +15,7 @@ const TAGS_PATTERN = /^\s*主题\s*[：:]\s*(.+?)\s*$/
 const TAG_SPLITTER = /[,，\s]+/
 
 /** 标签在库内以空格分隔；正文里逗号和空白都算分隔符（对齐 Python split_tags） */
-export function splitTags(value: string): string[] {
+function splitTags(value: string): string[] {
   return value.split(TAG_SPLITTER).filter(Boolean)
 }
 
@@ -28,11 +28,6 @@ function findValue(lines: string[], pattern: RegExp): string | null {
     }
   }
   return null
-}
-
-/** 取正文前十行「主题：」后的原文，供同步 Finder 注释等需要原样的场景使用（对齐 Python find_topic） */
-export function findTopic(text: string): string | null {
-  return findValue(text.split('\n', 10).slice(0, 10), TAGS_PATTERN)
 }
 
 /** Python Path.stem 口径：只去最后一个后缀，'.txt' 这类无主名的点文件保留原名 */

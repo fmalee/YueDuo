@@ -175,5 +175,3 @@ function restoreEditorFocus(): void {
   if (tag === 'TEXTAREA' && active?.closest('.monaco-editor')) return
   focusEditor()
 }
-
-/** 书签行号漂移跟随的标签登记（方案 §2.7） */

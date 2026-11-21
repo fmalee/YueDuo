@@ -3,6 +3,7 @@ import { useLibraryStore } from '@/stores/library'
 import { useSettingsStore } from '@/stores/settings'
 import { archiveSessionForSwitch, applyRestoredSession } from './useSession'
 import { refreshLibraryBookmarks } from './useLibraryBookmarks'
+import { formatError } from '../utils/format'
 
 /**
  * 换库编排（方案 §2.13，渲染层负责存档与恢复，主进程负责库连接）：
@@ -12,9 +13,7 @@ import { refreshLibraryBookmarks } from './useLibraryBookmarks'
  * 4. applyRestoredSession —— 清空当前 model/标签，灌入新库会话
  * 任一步失败都中止在旧库；已准备的新库用 library:abort 关掉，绝不留两个半库。
  */
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
+const message = formatError
 
 export async function switchLibrary(root: string): Promise<boolean> {
   const library = useLibraryStore()

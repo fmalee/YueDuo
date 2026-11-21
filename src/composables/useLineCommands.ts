@@ -9,6 +9,8 @@ import { showStatusMessage } from './useStatusMessage'
 
 /** 缩进字符与 Python `_INDENT_CHARS` 一致：半角空格 / 制表符 / 全角空格；没有缩进时补两个全角空格 */
 const INDENT_CHARS = /^[ \t\u3000]*/
+/** 缩进剥离（书签摘要等场景共用同一字符集） */
+export const INDENT_RE = /^[ \t\u3000]+/
 const FALLBACK_INDENT = '\u3000\u3000'
 
 function lineIndent(line: string): string {

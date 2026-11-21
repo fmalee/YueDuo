@@ -30,10 +30,6 @@ export function setPreloadCount(value: number): void {
   preloadCount = Math.min(PRELOAD_MAX_COUNT, Math.max(PRELOAD_MIN_COUNT, Math.round(value)))
 }
 
-export function getPreloadCount(): number {
-  return preloadCount
-}
-
 /** 卸载在途标记（竞态防护）：重载/关闭/切回需等卸载完成，draft 读写才有确定顺序 */
 const unloadInFlight = new Map<string, Promise<void>>()
 

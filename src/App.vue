@@ -219,7 +219,7 @@ async function pickLibrary(): Promise<void> {
   }
 }
 
-// 自动化验收通道（auto=1 时暴露；CDP 调用，非产品路径）
+// 自动化验收通道（仅 auto=1 时随 __yueTest 一起暴露；CDP 调用，非产品路径）
 async function editAndSave(): Promise<Record<string, unknown>> {
   const testPath = '/tmp/yue-save-test.txt'
   if (!store.tabs.some((t) => t.path === testPath)) {
@@ -246,7 +246,6 @@ async function editAndSave(): Promise<Record<string, unknown>> {
 }
 
 // 自动化验收通道（CDP 调用）
-Object.assign(globalThis, { __yueEditAndSave: editAndSave })
 
 onMounted(async () => {
   // 捕获阶段统一分发快捷键：Monaco 的编辑器会先收到按键，冒泡阶段拦截不稳
@@ -268,6 +267,9 @@ onMounted(async () => {
   // 恢复出来的 active 标签不会经过 openFile/activateTab，这里补一次最近阅读时间
   if (store.activeTab?.path) void library.markRead(store.activeTab.path)
   if (new URLSearchParams(location.search).get('auto') === '1') {
+    // 验收样本路径可用 ?book1=/path&book2=/path 覆盖（默认是老李本机的两本书）
+    const autoParam = (key: string, fallback: string): string =>
+      new URLSearchParams(location.search).get(key) ?? fallback
     Object.assign(globalThis, {
       __yueTest: {
         openFile,
@@ -360,8 +362,8 @@ onMounted(async () => {
         }
       }
     })
-    openFile('/Users/Joey/Sites/Projects/小说/重生之心动.txt')
-      .then(() => openFile('/Users/Joey/Sites/Projects/小说/风流小保安.txt'))
+    openFile(autoParam('book1', '/Users/Joey/Sites/Projects/小说/重生之心动.txt'))
+      .then(() => openFile(autoParam('book2', '/Users/Joey/Sites/Projects/小说/风流小保安.txt')))
       .then(() => {
         document.title = 'YUE_TABS_OK'
       })

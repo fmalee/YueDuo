@@ -11,6 +11,7 @@ import { monaco } from '@/monaco'
 import { parseMetadata } from '../../shared/metadataParser'
 import StarRating from './sidebar/StarRating.vue'
 import type { MetadataField, ParsedMetadata } from '../../shared/types'
+import { fileNameOf, dirNameOf, modelHeadText } from '@/utils/format'
 
 /**
  * 元数据栏（方案 §2.9）：编辑器下方、状态栏上方，编辑名称/作者/标签/评分四项。
@@ -70,30 +71,18 @@ function clear(): void {
   rating.value = 0
 }
 
-function fileName(path: string): string {
-  return path.slice(path.lastIndexOf('/') + 1)
-}
-
-function dirName(path: string): string {
-  const parent = path.slice(0, path.lastIndexOf('/'))
-  return parent.slice(parent.lastIndexOf('/') + 1)
-}
-
 /** 正文前 10 行 → 本地解析；正在编辑的那一项保留栏内草稿（以栏内为准） */
 function applyTextMetadata(head: string): void {
   const path = store.activeTab?.path
   if (!path) return
-  const meta = parseMetadata(head, fileName(path), dirName(path))
+  const meta = parseMetadata(head, fileNameOf(path), dirNameOf(path))
   if (editing.value !== 'title') title.value = meta.title
   if (editing.value !== 'author') author.value = meta.author
   if (editing.value !== 'tags') tags.value = meta.tags.join(' ')
 }
 
 function headText(model: monaco.editor.ITextModel): string {
-  const count = Math.min(HEAD_LINES, model.getLineCount())
-  const lines: string[] = []
-  for (let i = 1; i <= count; i++) lines.push(model.getLineContent(i))
-  return lines.join('\n')
+  return modelHeadText(model, HEAD_LINES)
 }
 
 /**

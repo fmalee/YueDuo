@@ -299,24 +299,24 @@ function onTabClick(id: string): void {
 }
 
 // —— 标签右键菜单与重命名浮层（方案 §3.5）——
-/** 菜单实际高度约 200px；用于贴近窗口底边时向上收，避免被裁掉 */
-const MENU_WIDTH = 168
-const MENU_HEIGHT = 236
 const menu = ref<{ x: number; y: number; tabId: string } | null>(null)
+const menuEl = ref<HTMLElement>()
 const menuTab = computed(() =>
   menu.value ? (store.tabs.find((t) => t.id === menu.value?.tabId) ?? null) : null
 )
 const rename = ref<{ tabId: string; value: string; error: string } | null>(null)
 const renameInput = ref<HTMLInputElement>()
 
-function openTabMenu(e: MouseEvent, tabId: string): void {
+/** 右键弹菜单：先在指针处渲染，再按实际尺寸收进视口（菜单项增删不产生漂移） */
+async function openTabMenu(e: MouseEvent, tabId: string): Promise<void> {
   e.preventDefault()
   // 右键只弹菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
-  menu.value = {
-    x: Math.max(4, Math.min(e.clientX, window.innerWidth - MENU_WIDTH - 4)),
-    y: Math.max(4, Math.min(e.clientY, window.innerHeight - MENU_HEIGHT - 4)),
-    tabId
-  }
+  menu.value = { x: e.clientX, y: e.clientY, tabId }
+  await nextTick()
+  const rect = menuEl.value?.getBoundingClientRect()
+  if (!rect || !menu.value) return
+  menu.value.x = Math.max(4, Math.min(menu.value.x, window.innerWidth - rect.width - 4))
+  menu.value.y = Math.max(4, Math.min(menu.value.y, window.innerHeight - rect.height - 4))
 }
 
 function dismissMenu(): void {
@@ -549,6 +549,7 @@ onBeforeUnmount(() => {
   <Teleport to="body">
     <div
       v-if="menu"
+      ref="menuEl"
       class="tab-context-menu"
       :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
       @contextmenu.prevent
@@ -569,7 +570,7 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 
-  <!-- 重命名浮层：Electron 无原生文本输入框，自绘轻量对话框 -->
+  <!-- 重命名浮层：自绘轻量对话框（与整体视觉一致，且不依赖原生输入框） -->
   <Teleport to="body">
     <div v-if="rename" class="rename-overlay" @mousedown.self="cancelRename">
       <div class="rename-panel" role="dialog" aria-label="重命名">

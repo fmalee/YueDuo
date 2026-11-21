@@ -1,23 +1,3 @@
-/** IPC 统一返回契约：全部 invoke 通道都返回这个形状（方案 §三） */
-export interface IpcOk<T = unknown> {
-  ok: true
-  data: T
-}
-
-export interface IpcErr {
-  ok: false
-  error: string
-}
-
-export type IpcResult<T = unknown> = IpcOk<T> | IpcErr
-
-/** native:sanity 返回 */
-export interface NativeSanity {
-  betterSqlite3: string
-  electron: string
-  nodeAbi: string
-}
-
 /** 文件身份（同文件去重依据：dev+ino 优先，realPath 兜底，方案 §1.6） */
 export interface FileStat {
   dev: number
@@ -185,27 +165,6 @@ export interface LibraryScanProgress {
   path: string
 }
 
-/** 一次扫描命中的书目（对账用，方案 §2.3：移动识别与删除清理的判断依据） */
-export interface ScannedBook {
-  relativePath: string
-  filename: string
-  title: string
-  wordCount: number
-  sizeBytes: number
-  /** true = 本次扫描新插入的行（移动识别的候选）；false = 命中了已有记录 */
-  inserted: boolean
-}
-
-/** library:enrich 结果 */
-export interface LibraryScanResult {
-  /** 本次成功解析入库的书数 */
-  total: number
-  /** 不可读或重复而跳过的文件数 */
-  skipped: number
-  /** 本次命中的书目（对账输入；不经 IPC 暴露给渲染层） */
-  books: ScannedBook[]
-}
-
 /**
  * library:open 返回（方案 §2.13）：打开/准备切换书库。
  * switched=false 表示该根已是活动书库（启动时按设置打开，无需再切）；
@@ -370,18 +329,6 @@ export type ThemeMode = 'light' | 'dark' | 'system'
  */
 export type ReaderFont = 'pingfang' | 'songti' | 'kaiti' | 'yuanti' | 'hiragino'
 
-/** 「显示 → 字体」单选组（顺序即菜单顺序） */
-export const READER_FONTS: { key: ReaderFont; label: string }[] = [
-  { key: 'pingfang', label: '苹方 PingFang SC' },
-  { key: 'songti', label: '宋体 Songti SC' },
-  { key: 'kaiti', label: '楷体 Kaiti SC' },
-  { key: 'yuanti', label: '圆体 Yuanti SC' },
-  { key: 'hiragino', label: '冬青黑 Hiragino Sans GB' }
-]
-
-/** 「显示 → 字号」离散档位（行高由 READING.lineHeightRatio 等比换算） */
-export const READER_FONT_SIZES = [13, 14, 15, 16, 17, 18, 20, 22, 24] as const
-
 /** 设置文件（userData/settings.json，方案 §1.9） */
 export interface AppSettings {
   /** 外观三态（§1.10） */
@@ -396,7 +343,7 @@ export interface AppSettings {
   closeButtonAlwaysVisible: boolean
   /** 正文字体（「显示 → 字体」） */
   readerFont: ReaderFont
-  /** 正文字号（READER_FONT_SIZES 之一） */
+  /** 正文字号（Rust 侧 types.rs READER_FONT_SIZES 白名单之一） */
   readerFontSize: number
 }
 
@@ -419,18 +366,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   readerFontSize: 15
 }
 
-/** 当前生效主题（主进程 nativeTheme 判定后推给渲染层，方案 §1.10） */
+/** 当前生效主题（主进程判定后推给渲染层，方案 §1.10） */
 export interface ThemeChanged {
   dark: boolean
-}
-
-/** preload 注入到 window.yue 的形状 */
-export interface YueBridge {
-  invoke<T = unknown>(channel: string, ...args: unknown[]): Promise<IpcResult<T>>
-  /** 订阅 nativeTheme 'updated'（返回取消订阅）；外观=跟随系统时靠它切主题 */
-  onThemeUpdated(callback: (payload: ThemeChanged) => void): () => void
-  /** 订阅退出/关窗前的会话落盘请求（返回取消订阅）；渲染层保存完成后回 session:flushDone */
-  onSessionFlush(callback: () => void): () => void
-  /** 订阅书库扫描进度（方案 §2.5：enrich 每 10 个文件推送一次，返回取消订阅） */
-  onLibraryScanProgress(callback: (payload: LibraryScanProgress) => void): () => void
 }

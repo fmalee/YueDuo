@@ -19,6 +19,7 @@ import { flushBookmarkDrift, resetBookmarkDrift } from './useBookmarkDrift'
 import { monaco } from '@/monaco'
 import { parseMetadata } from '../../shared/metadataParser'
 import type { SessionRestore, SessionSnapshot } from '../../shared/types'
+import { fileNameOf } from '../utils/format'
 
 /**
  * 会话持久化（方案 §1.8 / §1.12）
@@ -227,7 +228,7 @@ function resetSessionForSwitch(): void {
  * 与当前文件名一致时按书名口径去后缀；正文书名标题原样保留。
  */
 function restoredTitle(path: string, title: string): string {
-  const fileName = path.slice(path.lastIndexOf('/') + 1)
+  const fileName = fileNameOf(path)
   return title === fileName ? parseMetadata('', fileName, '').title : title
 }
 

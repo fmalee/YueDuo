@@ -14,6 +14,7 @@ import { refreshChaptersForPath } from './useChapters'
 import { persistSessionNow } from './useSession'
 import { showStatusMessage } from './useStatusMessage'
 import type { ConvertResult, TidyResult } from '../../shared/types'
+import { formatError } from '../utils/format'
 
 type Editor = Monaco.editor.IStandaloneCodeEditor
 
@@ -96,7 +97,7 @@ export function useEditorCommands(): {
     try {
       result = await convert(original)
     } catch (e) {
-      showStatusMessage(`转换失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+      showStatusMessage(`转换失败：${formatError(e)}`, 5000)
       return
     }
     if (model.isDisposed() || editor.getModel() !== model) return
@@ -163,7 +164,7 @@ export function useEditorCommands(): {
     try {
       result = await convertTidy(original)
     } catch (e) {
-      showStatusMessage(`整理失败：${e instanceof Error ? e.message : String(e)}`, 5000)
+      showStatusMessage(`整理失败：${formatError(e)}`, 5000)
       return
     }
     if (model.isDisposed() || editor.getModel() !== model) {

@@ -5,6 +5,7 @@ import { useLibraryStore } from '@/stores/library'
 import { useTabs } from '@/composables/useTabs'
 import { chooseAndSwitchLibrary } from '@/composables/useLibrarySwitch'
 import type { LibraryEntry } from '../../../shared/types'
+import { formatError } from '../../utils/format'
 
 /**
  * 书架页（方案 §2.5）：资源管理器式惰性树。
@@ -53,7 +54,7 @@ async function loadDir(relativeDir: string): Promise<void> {
   try {
     entries.set(relativeDir, await libraryFastScan(relativeDir))
   } catch (e) {
-    openError.value = e instanceof Error ? e.message : String(e)
+    openError.value = formatError(e)
   } finally {
     loading.delete(relativeDir)
   }
@@ -105,7 +106,7 @@ async function activate(entry: LibraryEntry): Promise<void> {
     const id = await openFile(`${library.root}/${entry.relativePath}`)
     activateTab(id)
   } catch (e) {
-    openError.value = `打开失败：${e instanceof Error ? e.message : String(e)}`
+    openError.value = `打开失败：${formatError(e)}`
   }
 }
 

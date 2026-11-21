@@ -232,7 +232,7 @@ export function fileReveal(path: string): Promise<null> {
 
 // ---------- dialog 域 ----------
 
-/** dialog:confirmClose —— 关闭未保存标签三选一（save/discard/cancel；P3 起由前端自绘浮层接管） */
+/** dialog:confirmClose —— 关闭未保存标签三选一（save/discard/cancel，原生对话框；closeTab 与关闭全部共用） */
 export function confirmClose(title: string): Promise<'save' | 'discard' | 'cancel'> {
   return ipcInvoke<'save' | 'discard' | 'cancel'>('dialog_confirm_close', { title })
 }

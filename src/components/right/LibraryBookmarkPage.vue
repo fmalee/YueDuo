@@ -4,6 +4,7 @@ import { useLibraryBookmarks } from '@/composables/useLibraryBookmarks'
 import { useTabs } from '@/composables/useTabs'
 import { requestLineJump } from '@/composables/useSession'
 import type { LibraryBookmarkGroup } from '../../../shared/types'
+import { formatError } from '../../utils/format'
 
 /**
  * 右栏「书签」页（方案 §2.7，照 Python LibraryBookmarkPanel）：
@@ -38,7 +39,7 @@ async function openAt(group: LibraryBookmarkGroup, line: number): Promise<void> 
     activateTab(id)
     requestLineJump(id, line)
   } catch (e) {
-    status.value = `打开失败：${e instanceof Error ? e.message : String(e)}`
+    status.value = `打开失败：${formatError(e)}`
   }
 }
 </script>

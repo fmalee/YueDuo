@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useCommandPalette } from '@/composables/useCommandPalette'
+import { formatDateTime } from '@/utils/format'
 
 /**
  * Cmd+P 命令面板（方案 §2.12）：只负责浮层展示与键位，过滤与打开由
@@ -20,13 +21,6 @@ watch(visible, (value) => {
 
 function formatWordCount(count: number): string {
   return count.toLocaleString()
-}
-
-/** 最近阅读时间展示到分钟（与 Python 面板 last_read_at[:16] 同口径） */
-function formatLastRead(timestamp: number): string {
-  const date = new Date(timestamp)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 </script>
 
@@ -63,7 +57,7 @@ function formatLastRead(timestamp: number): string {
                 · {{ formatWordCount(entry.wordCount) }} 字</template
               >
               <template v-if="entry.lastReadAt">
-                · 最近 {{ formatLastRead(entry.lastReadAt) }}
+                · 最近 {{ formatDateTime(entry.lastReadAt) }}
               </template>
             </span>
           </li>

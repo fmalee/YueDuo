@@ -4,6 +4,7 @@ import { buildPaletteEntries, queryEntries, type PaletteEntry } from '../../shar
 import { useTabs } from './useTabs'
 import { focusEditor } from './useSession'
 import { showStatusMessage } from './useStatusMessage'
+import { formatError } from '../utils/format'
 
 /**
  * Cmd+P 快速检索（方案 §2.12）：唤出时读一遍书库快照，输入只在内存里过滤。
@@ -55,7 +56,7 @@ async function open(): Promise<void> {
     entries = buildPaletteEntries(await libraryAllBooks())
   } catch (e) {
     entries = []
-    showStatusMessage(`读取书库失败：${e instanceof Error ? e.message : String(e)}`)
+    showStatusMessage(`读取书库失败：${formatError(e)}`)
   }
   if (gen !== generation) return
   loading = false
@@ -90,7 +91,7 @@ async function activate(index = selectedIndex.value): Promise<void> {
   try {
     await useTabs().openFile(entry.path)
   } catch (e) {
-    showStatusMessage(`打开失败：${e instanceof Error ? e.message : String(e)}`)
+    showStatusMessage(`打开失败：${formatError(e)}`)
   }
 }
 

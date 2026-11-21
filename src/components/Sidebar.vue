@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
-import { useSettingsStore } from '@/stores/settings'
+import { ref, watch } from 'vue'
 import { useLibraryStore } from '@/stores/library'
-import { SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '../../shared/types'
+import { usePanelResize } from '@/composables/usePanelResize'
 import SidebarEdit from './sidebar/SidebarEdit.vue'
 import SidebarShelf from './sidebar/SidebarShelf.vue'
 import SidebarBookList from './sidebar/SidebarBookList.vue'
@@ -25,48 +24,10 @@ const pages: { id: PageId; label: string }[] = [
   { id: 'rating', label: '评分' }
 ]
 
-const settings = useSettingsStore()
 const library = useLibraryStore()
 const activePage = ref<PageId>('edit')
 
-const width = ref(settings.sidebarWidth)
-watch(
-  () => settings.sidebarWidth,
-  (value) => {
-    if (!dragging.value) width.value = value
-  }
-)
-
-const dragging = ref(false)
-let dragStartX = 0
-let dragStartWidth = 0
-
-function onResizeStart(e: PointerEvent): void {
-  e.preventDefault()
-  dragging.value = true
-  dragStartX = e.clientX
-  dragStartWidth = width.value
-  // 监听挂 window：指针移出 5px 拖拽条也不会断，卸载时统一清理
-  window.addEventListener('pointermove', onResizeMove)
-  window.addEventListener('pointerup', onResizeEnd)
-  window.addEventListener('pointercancel', onResizeEnd)
-}
-
-function onResizeMove(e: PointerEvent): void {
-  if (!dragging.value) return
-  const next = Math.round(dragStartWidth + e.clientX - dragStartX)
-  width.value = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, next))
-}
-
-function onResizeEnd(): void {
-  if (!dragging.value) return
-  dragging.value = false
-  window.removeEventListener('pointermove', onResizeMove)
-  window.removeEventListener('pointerup', onResizeEnd)
-  window.removeEventListener('pointercancel', onResizeEnd)
-  // 拖拽结束才落盘，避免每帧写文件
-  void settings.setSidebarWidth(width.value)
-}
+const { width, dragging, onResizeStart } = usePanelResize(1)
 
 /** 追更空态：查询语义不变，只把「怎么让书出现在这里」讲清楚 */
 const followingEmpty =
@@ -84,12 +45,6 @@ watch(activePage, (page) => {
 function refreshFollowing(): void {
   void library.loadFollowing()
 }
-
-onBeforeUnmount(() => {
-  window.removeEventListener('pointermove', onResizeMove)
-  window.removeEventListener('pointerup', onResizeEnd)
-  window.removeEventListener('pointercancel', onResizeEnd)
-})
 </script>
 
 <template>

@@ -20,6 +20,7 @@ import type {
   LibrarySyncResult,
   LibraryTagSummary
 } from '../../shared/types'
+import { formatError } from '../utils/format'
 
 /** 订阅只挂一次（HMR 重挂载不重复注册） */
 let progressSubscribed = false
@@ -39,9 +40,7 @@ const READ_STAMP_DELAY_MS = 60_000
 const pendingStamps = new Set<string>()
 let stampTimer: ReturnType<typeof setTimeout> | null = null
 
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
+const message = formatError
 
 /**
  * 左栏书库状态（方案 §2.5）：活动书库根 + 四类列表 + 标签下钻 + 评分筛选。

@@ -152,7 +152,7 @@ export const METRICS = {
 
 /**
  * 阅读排版 token（monaco.ts 的正文 options 引用）
- * fontFamilies 是字体栈唯一来源（shared/types.ts 的 READER_FONTS 只给菜单 key 与中文名）；
+ * fontFamilies 是字体栈唯一来源（Rust 侧 types.rs READER_FONTS 是菜单与校验白名单）；
  * 行高固定按 22/15 的比例随字号换算，保证中文行距不被挤
  */
 export const READING = {

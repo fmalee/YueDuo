@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { libraryChapters } from '@/ipc/bridge'
 import type { ChapterInfo } from '../../shared/types'
+import { formatError } from '../utils/format'
 
 /**
  * 右栏章节状态（方案 §2.6）：按当前标签的 path 提取，切换标签只保留最新一轮结果。
@@ -13,9 +14,7 @@ let currentTabId = ''
 let currentPath = ''
 let generation = 0
 
-function message(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
+const message = formatError
 
 async function loadChapters(tabId: string, path: string): Promise<void> {
   const gen = ++generation

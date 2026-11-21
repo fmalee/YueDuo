@@ -28,7 +28,7 @@ import {
 import { useEditorCommands } from './useEditorCommands'
 import { focusEditor, persistSessionNow, schedulePersist } from './useSession'
 import { flushBookmarkDrift } from './useBookmarkDrift'
-import { parseMetadata } from '../../shared/metadataParser'
+import { titleFromMetadata, formatError } from '../utils/format'
 import type { ConfirmChoice, FileStat } from '../../shared/types'
 
 let seq = 0
@@ -43,8 +43,7 @@ const pendingOpens = new Map<string, Promise<string>>()
 
 /** IPC 错误带 `[file:rename] ` 前缀：UI 只展示给用户看的部分 */
 function cleanError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error)
-  return message.replace(/^\[[^\]]+\]\s*/, '')
+  return formatError(error).replace(/^\[[^\]]+\]\s*/, '')
 }
 
 /**
@@ -52,9 +51,7 @@ function cleanError(error: unknown): string {
  * 否则文件名去后缀；标签标题不再显示 `.txt`。
  */
 function bookTitle(text: string, path: string): string {
-  const fileName = path.slice(path.lastIndexOf('/') + 1)
-  const parent = path.slice(0, path.lastIndexOf('/'))
-  return parseMetadata(text, fileName, parent.slice(parent.lastIndexOf('/') + 1)).title
+  return titleFromMetadata(text, path)
 }
 
 /** 标签打开/切换/关闭/新建业务（渲染层编排，全文经 IPC 后直接进 model） */
@@ -359,5 +356,3 @@ async function saveTab(id: string): Promise<boolean> {
     revealTabFile
   }
 }
-
-export { getTabModel, isDirty }

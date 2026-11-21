@@ -24,7 +24,8 @@ import { useBookmarks } from '@/composables/useBookmarks'
 import { flushBookmarkDrift, handleBookmarkDrift } from '@/composables/useBookmarkDrift'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import FindReplaceBar from './FindReplaceBar.vue'
-import { parseMetadata } from '../../shared/metadataParser'
+import { formatError } from '../utils/format'
+import { titleFromMetadata, modelHeadText } from '@/utils/format'
 
 const container = ref<HTMLDivElement>()
 // 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
@@ -67,12 +68,7 @@ const METADATA_HEAD_LINES = 10
 
 /** 正文前 10 行 → 书名：标签标题随正文变更跟随，不读全文 */
 function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): string {
-  const count = Math.min(METADATA_HEAD_LINES, model.getLineCount())
-  const lines: string[] = []
-  for (let i = 1; i <= count; i++) lines.push(model.getLineContent(i))
-  const fileName = path.slice(path.lastIndexOf('/') + 1)
-  const parent = path.slice(0, path.lastIndexOf('/'))
-  return parseMetadata(lines.join('\n'), fileName, parent.slice(parent.lastIndexOf('/') + 1)).title
+  return titleFromMetadata(modelHeadText(model, METADATA_HEAD_LINES), path)
 }
 
 /** 空白标签标题跟随正文首行（方案 §1.5）：节流回写，避免每个按键都触发标签重排 */
@@ -158,7 +154,7 @@ onMounted(() => {
     addBookmark: () => {
       void addBookmarkAtCaret()
         .then((message) => showStatusMessage(message))
-        .catch((e) => showStatusMessage(e instanceof Error ? e.message : String(e)))
+        .catch((e) => showStatusMessage(formatError(e)))
     },
     convert: (command) => void convertSelection(instance, convertInvoker(command)),
     transformCase: (mode) => transformCaseSelection(instance, mode),
@@ -260,7 +256,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   background: var(--yd-bg-3);
   color: var(--yd-text-3);
-  font-size: 13px;
+  font-size: var(--yd-sidebar-font-size);
   letter-spacing: 3px;
 }
 </style>

@@ -2,9 +2,11 @@
 import { computed, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { getTabModel } from '@/composables/useTabLifecycle'
+import { INDENT_RE } from '@/composables/useLineCommands'
 import { useBookmarks } from '@/composables/useBookmarks'
 import { focusEditor, jumpToLine } from '@/composables/useSession'
 import type { BookmarkInfo } from '../../../shared/types'
+import { formatError } from '../../utils/format'
 
 /**
  * 当前书的书签列表（方案 §2.6）：两行条目（行号 + 摘要），摘要最多 15 字。
@@ -21,7 +23,7 @@ const props = withDefaults(
 )
 
 const SUMMARY_MAX_CHARS = 15
-const INDENT = /^[ \t\u3000]+/
+const INDENT = INDENT_RE
 
 const store = useTabsStore()
 const { addBookmarkAtCaret, removeBookmark } = useBookmarks()
@@ -62,7 +64,7 @@ async function add(): Promise<void> {
     status.value = await addBookmarkAtCaret()
     focusEditor()
   } catch (e) {
-    status.value = e instanceof Error ? e.message : String(e)
+    status.value = formatError(e)
   }
 }
 
@@ -71,7 +73,7 @@ async function remove(bookmark: BookmarkInfo): Promise<void> {
     await removeBookmark(props.path, bookmark.line)
     status.value = `已删除第 ${bookmark.line} 行书签`
   } catch (e) {
-    status.value = e instanceof Error ? e.message : String(e)
+    status.value = formatError(e)
   }
 }
 

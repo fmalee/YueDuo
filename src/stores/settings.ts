@@ -24,25 +24,34 @@ export const useSettingsStore = defineStore('settings', {
     readerFontSize: DEFAULT_SETTINGS.readerFontSize
   }),
   actions: {
+    /** 主进程返回的权威值灌回 state（init 与 persist 共用，避免逐字段两处漂移） */
+    applySaved(saved: AppSettings): void {
+      this.appearance = saved.appearance
+      this.sidebarWidth = saved.sidebarWidth
+      this.libraryRoot = saved.libraryRoot
+      this.preloadCount = saved.preloadCount
+      this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
+      this.readerFont = saved.readerFont
+      this.readerFontSize = saved.readerFontSize
+    },
+
+    /** 按外观三态计算生效主题（matchMedia 只在 system 态需要） */
+    resolveDark(appearance: ThemeMode): boolean {
+      return appearance === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : appearance === 'dark'
+    },
+
     /** 首帧前初始化：读设置 → 注入 token → 订阅 nativeTheme 推送 */
     async init(): Promise<void> {
       try {
         const saved = await settingsGet()
-        this.appearance = saved.appearance
-        this.sidebarWidth = saved.sidebarWidth
-        this.libraryRoot = saved.libraryRoot
-        this.preloadCount = saved.preloadCount
-        this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
-        this.readerFont = saved.readerFont
-        this.readerFontSize = saved.readerFontSize
+        this.applySaved(saved)
       } catch (e) {
         console.error('[theme] 读取设置失败，按默认外观启动:', e)
       }
       // 主进程已在建窗前应用 themeSource，matchMedia 反映的就是生效主题
-      this.dark =
-        this.appearance === 'system'
-          ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          : this.appearance === 'dark'
+      this.dark = this.resolveDark(this.appearance)
       this.apply()
       if (!themeSubscribed) {
         themeSubscribed = true
@@ -70,13 +79,7 @@ export const useSettingsStore = defineStore('settings', {
     async persist(): Promise<AppSettings> {
       try {
         const saved = await settingsSet(this.snapshot())
-        this.appearance = saved.appearance
-        this.sidebarWidth = saved.sidebarWidth
-        this.libraryRoot = saved.libraryRoot
-        this.preloadCount = saved.preloadCount
-        this.closeButtonAlwaysVisible = saved.closeButtonAlwaysVisible
-        this.readerFont = saved.readerFont
-        this.readerFontSize = saved.readerFontSize
+        this.applySaved(saved)
         return saved
       } catch (e) {
         console.error('[settings] 保存失败，本次修改仅内存生效:', e)
@@ -87,10 +90,7 @@ export const useSettingsStore = defineStore('settings', {
     /** 切换外观：先本地立即生效（避免一帧闪白），主进程 themeSource 更新后会推送权威值 */
     async setAppearance(appearance: ThemeMode): Promise<void> {
       this.appearance = appearance
-      this.dark =
-        appearance === 'system'
-          ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          : appearance === 'dark'
+      this.dark = this.resolveDark(appearance)
       this.apply()
       await this.persist()
     },

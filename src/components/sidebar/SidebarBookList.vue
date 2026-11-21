@@ -5,6 +5,8 @@ import { useLibraryStore } from '@/stores/library'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
 import StarRating from './StarRating.vue'
 import type { LibraryBook } from '../../../shared/types'
+import { formatError } from '../../utils/format'
+import { formatDateTime } from '@/utils/format'
 
 /**
  * 书库两行列表（方案 §2.5：历史/追更/标签下钻/评分共用）：
@@ -26,14 +28,6 @@ function formatWords(value: number): string {
   return value >= 10000 ? `${(value / 10000).toFixed(1)}万字` : `${value}字`
 }
 
-/** 只展示到分钟：最近阅读用于排序与粗粒度回顾，秒没有意义（同 Python） */
-function formatTime(value: number): string {
-  if (!value) return '未读'
-  const date = new Date(value)
-  const pad = (n: number): string => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
 function rateBook(book: LibraryBook, clicked: number): void {
   const next = resolveRatingClick(`book:${book.id}`, book.rating, clicked)
   void library.setBookRating(book.id, next)
@@ -46,7 +40,7 @@ async function openBook(book: LibraryBook): Promise<void> {
     const id = await openFile(book.path)
     activateTab(id)
   } catch (e) {
-    status.value = `打开失败：${e instanceof Error ? e.message : String(e)}`
+    status.value = `打开失败：${formatError(e)}`
   }
 }
 </script>
@@ -59,7 +53,7 @@ async function openBook(book: LibraryBook): Promise<void> {
         v-for="book in props.books"
         :key="book.id"
         class="book-row"
-        :title="`${book.title || book.filename}\n${book.author || '佚名'} · ${book.wordCount.toLocaleString()} 字 · ${formatTime(book.lastReadAt)}\n${book.path}`"
+        :title="`${book.title || book.filename}\n${book.author || '佚名'} · ${book.wordCount.toLocaleString()} 字 · ${formatDateTime(book.lastReadAt)}\n${book.path}`"
         @click="openBook(book)"
       >
         <div class="row-top">
@@ -68,7 +62,7 @@ async function openBook(book: LibraryBook): Promise<void> {
         </div>
         <div class="row-sub">
           {{ book.author || '佚名' }} · {{ formatWords(book.wordCount) }} ·
-          {{ formatTime(book.lastReadAt) }}
+          {{ formatDateTime(book.lastReadAt) }}
         </div>
       </div>
       <div v-if="!props.books.length" class="yd-sidebar-empty">{{ props.emptyText }}</div>
