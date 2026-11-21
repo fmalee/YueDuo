@@ -281,14 +281,19 @@ export const useLibraryStore = defineStore('library', {
       for (const path of paths) await this.markRead(path)
     },
 
-    /** 书籍评分：库内评分与 Finder 星级同写，随后按新评分刷新评分页 */
+    /** 书籍评分：库内评分与 Finder 星级同写；就地改值只更新星标显示，按评分排序的列表需重读才实时重排 */
     async setBookRating(id: number, rating: number): Promise<void> {
       try {
         const value = await librarySetBookRating(id, rating)
         for (const list of [this.history, this.following, this.tagBooks, this.rated]) {
           for (const book of list) if (book.id === id) book.rating = value
         }
-        await this.loadRated()
+        // 追更/标签下钻/评分页均按 rating DESC 排序；历史按最近阅读排序，无需重读
+        await Promise.all([
+          this.loadFollowing(),
+          this.activeTag ? this.loadTagBooks() : Promise.resolve(),
+          this.loadRated()
+        ])
       } catch (e) {
         this.error = message(e)
       }
