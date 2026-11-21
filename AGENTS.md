@@ -13,7 +13,7 @@
 - 只读写项目目录与系统临时目录；其他目录（用户书库、`~/Library`、`/Applications`）先说明用途并取得授权。
 - 验收书库 `/Users/Joey/Sites/Projects/小说` 已授权读写；已打包的 `/Applications/YueDuo.app` 及其数据一律不动。
 - 测试在 `std::env::temp_dir()` 下构造数据并自清；不打印正文到对话。
-- 数据目录：`app_data_dir`（`~/Library/Application Support/com.yueduo.reader`）；自动化验收用 `YUE_USER_DATA` env 隔离。首次启动把 Electron 版 `~/Library/Application Support/YueDuo` 的 settings.json 与回落库一次性搬来（copy 不删源、`.migrated-from-electron` 标记幂等），不要删除旧目录。
+- 数据目录：打包版用 `app_data_dir`（`~/Library/Application Support/com.yueduo.reader`）；开发态（debug 构建，`npm run dev`）用项目内 `.dev/user-data`（gitignore，与打包版配置/会话/索引完全隔离）；自动化验收用 `YUE_USER_DATA` env 隔离。首次启动（仅打包版）把 Electron 版 `~/Library/Application Support/YueDuo` 的 settings.json 与回落库一次性搬来（copy 不删源、`.migrated-from-electron` 标记幂等），不要删除旧目录；开发态跳过此迁移，用干净默认配置，不继承真实书库。
 
 ## 技术栈基线
 

@@ -63,16 +63,25 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::FlushGate::default())
         .setup(|app| {
-            // 数据目录：优先 YUE_USER_DATA（自动化验收隔离），否则 app_data_dir。
+            // 数据目录隔离（对齐 Electron devEnv.ts 约定）：
+            // 1) YUE_USER_DATA 显式指定（自动化验收隔离）；
+            // 2) 开发态（debug 构建）→ 项目内 .dev/user-data（gitignore），与打包版系统目录分开；
+            // 3) 打包版 → app_data_dir。
             let user_data = match std::env::var("YUE_USER_DATA") {
                 Ok(dir) if !dir.trim().is_empty() => std::path::PathBuf::from(dir),
+                _ if cfg!(debug_assertions) => {
+                    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.dev/user-data")
+                }
                 _ => app
                     .path()
                     .app_data_dir()
                     .map_err(|e| format!("无法定位应用数据目录: {e}"))?,
             };
             // Electron 版数据一次性搬家（settings.json + library-db 回落库），幂等。
-            state::migrate_electron_user_data(&user_data)?;
+            // 开发态跳过：.dev/user-data 用干净默认配置，不继承 Electron 打包版的真实书库配置。
+            if !cfg!(debug_assertions) {
+                state::migrate_electron_user_data(&user_data)?;
+            }
             let state = state::AppState::new(user_data)?;
             // 主题先于首帧生效：设置窗口 appearance，前端首帧 matchMedia 即反映正确值。
             // 失败不阻断启动（渲染层回落浅色）。
