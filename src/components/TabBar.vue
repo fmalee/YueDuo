@@ -239,6 +239,12 @@ function startAutoScroll(): void {
 }
 
 function onTabPointerDown(e: PointerEvent, tabId: string): void {
+  // 中键直接关闭（浏览器习惯）：任何标签免激活即关；阻掉 WebKit 中键默认行为
+  if (e.button === 1) {
+    e.preventDefault()
+    void closeTab(tabId)
+    return
+  }
   if (e.button !== 0) return
   // 关闭按钮优先响应点击，不参与拖动
   if (e.target instanceof Element && e.target.closest('.tab-close')) return
@@ -767,11 +773,13 @@ onBeforeUnmount(() => {
   line-height: 1;
   border-radius: 4px;
   color: var(--yd-text-3);
-  /* 关闭按钮常驻由设置决定（方案 §1.9）；非常驻时仅悬停标签显示 */
+  /* 关闭按钮常驻由设置决定（方案 §1.9）；非常驻时仅悬停【活动标签】显示——
+     非活动标签永不出现按钮：标题完全对称、悬停切换零误触；要关未激活的标签
+     先点击激活再关，或中键直关，或右键菜单关闭 */
   opacity: 0;
   pointer-events: none;
 }
-.tab:hover .tab-close,
+.tab.active:hover .tab-close,
 .tab-bar.close-always .tab-close {
   opacity: 1;
   pointer-events: auto;
