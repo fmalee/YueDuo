@@ -1,6 +1,5 @@
 import type * as Monaco from 'monaco-editor/editor/editor.api'
 import {
-  appPerfLog,
   convertTidy,
   convertToHalfwidth,
   convertToSimplified,
@@ -150,17 +149,11 @@ export function useEditorCommands(): {
     showStatusMessage(`已转换为${mode === 'lower' ? '小写' : '大写'}，可用撤销恢复`, 5000)
   }
 
-  /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，按行精确替换、可撤销。
-   *  各阶段耗时经 appPerfLog 打到终端（[perf:fe] 前缀），用于大书性能定位 */
+  /** 一键整理（方案 §3.2）：固定三段顺序在主进程完成，按行精确替换、可撤销 */
   async function tidyDocument(editor: Editor): Promise<void> {
     const model = editor.getModel()
     if (!model) return
-    const t0 = performance.now()
-    const mark = (label: string): void => {
-      void appPerfLog(`tidy[${label}]: +${(performance.now() - t0).toFixed(0)}ms`)
-    }
     const original = model.getValue()
-    mark('getValue')
     if (!original.trim()) {
       showStatusMessage('当前文档为空，无需整理')
       return
@@ -169,7 +162,6 @@ export function useEditorCommands(): {
     let result: TidyResult
     try {
       result = await convertTidy(original)
-      mark('ipc+convert')
     } catch (e) {
       showStatusMessage(`整理失败：${e instanceof Error ? e.message : String(e)}`, 5000)
       return
@@ -182,7 +174,6 @@ export function useEditorCommands(): {
       showStatusMessage('整理期间文本已修改，结果未应用', 5000)
       return
     }
-    mark('guard getValue')
     if (result.edits.length === 0) {
       showStatusMessage('文本无需整理')
       return
@@ -194,13 +185,12 @@ export function useEditorCommands(): {
     // 删除空行必须连换行一起删，否则零宽替换等于无操作（空行永远剩一行）。
     // 文档最后一行没有行尾换行可吃，退化为内容替换 (endLine,maxColumn)。
     // 不传 forceMoveMarkers（装饰走 delta 平移的廉价路径）；分批应用 + 每批让出主线程，
-    // 大编辑列表不再冻结 UI，批次耗时各自打点定位。
+    // 大编辑列表不再冻结 UI。批间不插 undo stop，一次撤销恢复全部。
     const CHUNK = 400
     const lastLine = model.getLineCount() // 以应用前的原始行数判定末行编辑
     // 关键：按行号【降序】分批——每批独立 executeEdits，从文档尾部往前打，
     // 前面批次（更高行号）即使改变了行数也不影响后续批次（更低行号）的目标位置
     const sorted = [...result.edits].sort((x, y) => y.startLine - x.startLine)
-    let applied = 0
     const applyChunk = (batch: typeof result.edits): void => {
       editor.executeEdits(
         'tidy',
@@ -222,8 +212,6 @@ export function useEditorCommands(): {
           text: e.text
         }))
       )
-      applied += batch.length
-      mark(`executeEdits(${applied}/${result.edits.length})`)
     }
     for (let i = 0; i < sorted.length; i += CHUNK) {
       const batch = sorted.slice(i, i + CHUNK)

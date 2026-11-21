@@ -479,14 +479,10 @@ fn push_segment_edits(
 }
 
 pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
-    use std::time::Instant;
-    let t0 = Instant::now();
     let mut result = text.replace("\r\n", "\n").replace('\r', "\n");
     let converted = to_simplified(&result, dict_dir)?;
     result = converted.text;
-    let t_simplified = t0.elapsed();
     result = to_halfwidth(&result)?.text;
-    let t_halfwidth = t0.elapsed();
     // 预编译 tidy 规则（转义展开一次完成；分组展开依赖每个匹配，替换时进行）
     let mut steps: Vec<(regex::Regex, String)> = Vec::new();
     for rule in find_rules::rules().iter().filter(|r| r.tidy_enabled) {
@@ -497,7 +493,6 @@ pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
         let re = find_rules::compile_pattern(&rule.pattern, true)?;
         steps.push((re, unescape_template(replacement)));
     }
-    let t_compile = t0.elapsed();
     for (re, template) in steps {
         result = re
             .replace_all(&result, |caps: &regex::Captures| {
@@ -508,19 +503,7 @@ pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
             })
             .into_owned();
     }
-    let t_rules = t0.elapsed();
     let edits = diff_line_edits(text, &result);
-    eprintln!(
-        "[tidy] in {} chars/{} lines | simplified {}ms | halfwidth {}ms | compile {}ms | rules {}ms | diff {}ms | {} edits",
-        text.chars().count(),
-        text.split('\n').count(),
-        t_simplified.as_millis(),
-        (t_halfwidth - t_simplified).as_millis(),
-        (t_compile - t_halfwidth).as_millis(),
-        (t_rules - t_compile).as_millis(),
-        t0.elapsed().as_millis(),
-        edits.len()
-    );
     Ok(TidyResult {
         edits,
         convert_kept: converted.kept,

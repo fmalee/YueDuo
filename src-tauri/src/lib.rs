@@ -86,7 +86,6 @@ pub fn run() {
             commands::settings::settings_get,
             commands::settings::settings_set,
             commands::app::app_sync_menu_state,
-            commands::app::app_perf_log,
             commands::library::library_current,
             commands::library::library_open,
             commands::library::library_activate,

@@ -490,10 +490,3 @@ export function onThemeUpdated(callback: (payload: ThemeChanged) => void): () =>
 export function windowShow(): Promise<void> {
   return getCurrentWindow().show()
 }
-
-// ---------- 性能日志 ----------
-
-/** 前端关键耗时回传 Rust 打 stderr（[perf:fe] 前缀，打包版从终端启动可见） */
-export function appPerfLog(message: string): Promise<void> {
-  return invoke('app_perf_log', { message })
-}
