@@ -168,18 +168,23 @@ export function useTabs(): {
     return id
   }
 
-  /**
-   * 保存指定标签（方案 §3.5：文件菜单与标签右键菜单共用）。
-   * 空白标签先走「保存为」；取消返回 false，调用方（关闭流程）据此中止。
-   */
-  async function saveTab(id: string): Promise<boolean> {
-    const tab = store.tabs.find((t) => t.id === id)
-    if (!tab) return false
-    // 模型未驻留（LRU 已卸载）时不能保存，避免写出空内容
-    if (!getTabModel(id)) return false
-    store.setActive(id)
-    if (!tab.path) {
-      const chosen = await chooseSaveFile(tab.title)
+/** 保存对话框默认文件名：剥离首尾书名号——正文标题惯例带《》，文件名不带 */
+function stripBookMarks(title: string): string {
+  return title.replace(/^《+/, '').replace(/》+$/, '').trim()
+}
+
+/**
+ * 保存指定标签（方案 §3.5：文件菜单与标签右键菜单共用）。
+ * 空白标签先走「保存为」；取消返回 false，调用方（关闭流程）据此中止。
+ */
+async function saveTab(id: string): Promise<boolean> {
+  const tab = store.tabs.find((t) => t.id === id)
+  if (!tab) return false
+  // 模型未驻留（LRU 已卸载）时不能保存，避免写出空内容
+  if (!getTabModel(id)) return false
+  store.setActive(id)
+  if (!tab.path) {
+    const chosen = await chooseSaveFile(stripBookMarks(tab.title) || '未命名')
       if (!chosen) return false
       // 落盘后按正文书名（含书名号）重算标题，没有就走新文件名去后缀
       const text = getTabModel(id)?.model.getValue() ?? ''
