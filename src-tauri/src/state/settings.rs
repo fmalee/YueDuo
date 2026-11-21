@@ -137,4 +137,18 @@ mod tests {
         assert_eq!(read_settings(&dir).sidebar_width, 320);
         fs::remove_dir_all(&dir).unwrap();
     }
+
+    /// 默认值单一源（shared/defaultSettings.json）：解析结果与预期一致，
+    /// 防止 JSON 字段改名/类型不对导致静默回落。
+    #[test]
+    fn default_settings_from_shared_json() {
+        let s = default_settings();
+        assert_eq!(s.appearance, "system");
+        assert_eq!(s.sidebar_width, 240);
+        assert_eq!(s.library_root, "");
+        assert_eq!(s.preload_count, 4);
+        assert!(s.close_button_always_visible);
+        assert_eq!(s.reader_font, "pingfang");
+        assert_eq!(s.reader_font_size, 15);
+    }
 }

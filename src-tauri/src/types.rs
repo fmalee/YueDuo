@@ -2,6 +2,8 @@
 //! serde camelCase 对齐 TS 侧字段名；两侧字段与语义保持一致，改动必须同步两处。
 //! 本文件只放已实现 command 实际用到的类型，避免死代码；后续阶段随命令落地逐步补齐。
 
+use std::sync::OnceLock;
+
 use serde::{Deserialize, Serialize};
 
 /// 外观三态白名单（shared/types.ts ThemeMode）
@@ -44,18 +46,19 @@ pub struct AppSettings {
     pub reader_font_size: i64,
 }
 
-/// 设置默认值（与 shared/types.ts DEFAULT_SETTINGS 同一份，避免两侧漂移）。
-/// String 字段不能进 const，用函数构造。
+/// 编译期嵌入，与 TS 侧 import 同一份文件（单一来源的保证）
+pub const DEFAULT_SETTINGS_JSON: &str = include_str!("../../shared/defaultSettings.json");
+
+/// 设置默认值：读 shared/defaultSettings.json（单一源，避免两侧漂移）。
+/// 解析失败属代码/资源错误，panic 快速暴露。
 pub fn default_settings() -> AppSettings {
-    AppSettings {
-        appearance: "system".into(),
-        sidebar_width: 240,
-        library_root: String::new(),
-        preload_count: 10,
-        close_button_always_visible: true,
-        reader_font: "pingfang".into(),
-        reader_font_size: 15,
-    }
+    static DEFAULTS: OnceLock<AppSettings> = OnceLock::new();
+    DEFAULTS
+        .get_or_init(|| {
+            serde_json::from_str(DEFAULT_SETTINGS_JSON)
+                .expect("shared/defaultSettings.json 必须是合法默认设置")
+        })
+        .clone()
 }
 
 /// library:current 返回：启动时按设置打开的活动书库

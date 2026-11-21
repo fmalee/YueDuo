@@ -71,6 +71,7 @@
 
 ## 数据约定
 
+- **设置默认值单一源 = `shared/defaultSettings.json`**（TS `import` + Rust `include_str!` 嵌入同一份文件，仿 findRules.json 模式）：`DEFAULT_SETTINGS`（types.ts）与 `default_settings()`（types.rs）都只从该 JSON 读，改默认值只改 JSON，禁止在两侧各抄一份。Rust 侧解析失败 panic 快速暴露；cargo test `default_settings_from_shared_json` 锁默认值防漂移。
 - 元数据：名称取前两行书名号内，否则文件名；作者取前十行 `作者：`，否则「佚名」；标签取前十行 `主题：`，否则目录名；评分 5 分制。书名识别只看**前两行**（titleLineIndex 限制）。
 - 元数据写回用一次最小区间替换生成可撤销 TextEdit（**UTF-16 码元偏移**，Monaco executeEdits 口径，Rust 侧 services/metadata_writer.rs 做码元↔字节换算），保留光标与未保存标记；applyEdit 按 B1 口径提交即同步 books（不等保存），不写文件。
 - Finder 星级/注释走 `xattr` crate 直读写原始字节 + 手写 bplist00（与 python3 `plistlib.dumps(FMT_BINARY)` 逐字节一致，cargo test 有对照测试）：float marker `0x23` + 8 字节 BE double；字符串全 ASCII 走 `0x5X`，否则 UTF-16BE marker `0x60|字符数` 或 `0x6F`+2 字节字符数；trailer 32 字节；禁止 plist crate 的 `buildBinary`。写前读旧值，相同跳过。

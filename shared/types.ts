@@ -1,3 +1,6 @@
+/** 设置默认值单一源（TS import + Rust include_str 共用，避免两侧漂移） */
+import defaultSettingsJson from './defaultSettings.json'
+
 /** 文件身份（同文件去重依据：dev+ino 优先，realPath 兜底，方案 §1.6） */
 export interface FileStat {
   dev: number
@@ -355,15 +358,16 @@ export const SIDEBAR_MAX_WIDTH = 640
 export const PRELOAD_MIN_COUNT = 0
 export const PRELOAD_MAX_COUNT = 20
 
-/** 设置默认值（主进程落盘与渲染层首帧共用同一份，避免两侧漂移） */
+/** 设置默认值（主进程落盘与渲染层首帧共用同一份，单一源见 shared/defaultSettings.json；
+ *  字符串字段在此断言成联合类型） */
 export const DEFAULT_SETTINGS: AppSettings = {
-  appearance: 'system',
-  sidebarWidth: 240,
-  libraryRoot: '',
-  preloadCount: 10,
-  closeButtonAlwaysVisible: true,
-  readerFont: 'pingfang',
-  readerFontSize: 15
+  appearance: defaultSettingsJson.appearance as ThemeMode,
+  sidebarWidth: defaultSettingsJson.sidebarWidth,
+  libraryRoot: defaultSettingsJson.libraryRoot,
+  preloadCount: defaultSettingsJson.preloadCount,
+  closeButtonAlwaysVisible: defaultSettingsJson.closeButtonAlwaysVisible,
+  readerFont: defaultSettingsJson.readerFont as ReaderFont,
+  readerFontSize: defaultSettingsJson.readerFontSize
 }
 
 /** 当前生效主题（主进程判定后推给渲染层，方案 §1.10） */
