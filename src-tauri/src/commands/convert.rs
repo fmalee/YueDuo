@@ -54,8 +54,25 @@ pub async fn convert_to_traditional(
     service::to_traditional(&text, &dict_dir)
 }
 
+/// 一键整理：原始字节通道（大文书的主要 IPC 成本在 ~20MB 全文 JSON 序列化/解析）。
+/// 前端 invoke(cmd, Uint8Array) → InvokeBody::Raw；返回值只含变更行编辑列表（小 JSON）。
 #[tauri::command]
-pub async fn convert_tidy(app: AppHandle, text: String) -> Result<TidyResult, String> {
+pub async fn convert_tidy(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<TidyResult, String> {
+    let text = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => {
+            // TextEncoder 保证合法 UTF-8，lossy 对合法输入零拷贝借用
+            String::from_utf8_lossy(bytes).into_owned()
+        }
+        tauri::ipc::InvokeBody::Json(_) => {
+            return Err("一键整理需要原始字节载荷（Uint8Array）".into());
+        }
+    };
     let dict_dir = resolve_dict_dir(&app)?;
-    service::tidy(&text, &dict_dir)
+    // 纯 CPU 流水线放 blocking 线程，避免占死 async 池
+    tauri::async_runtime::spawn_blocking(move || service::tidy(&text, &dict_dir))
+        .await
+        .map_err(|e| format!("整理任务失败: {e}"))?
 }

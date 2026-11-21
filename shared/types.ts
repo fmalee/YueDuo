@@ -347,9 +347,16 @@ export interface ConvertResult {
   keptWords: number
 }
 
-/** 一键整理结果（方案 §3.2：转换计数供状态栏说明，text 为整理后的全文） */
-export interface TidyResult {
+/** 行级编辑（方案 §3.2）：原文 [startLine, endLine]（1 起、含两端）整块替换为 text（块内换行自带），不含行尾换行符 */
+export interface TidyEdit {
+  startLine: number
+  endLine: number
   text: string
+}
+
+/** 一键整理结果（方案 §3.2）：patience 行级 diff 只下发变更行，转换计数供状态栏说明 */
+export interface TidyResult {
+  edits: TidyEdit[]
   convertKept: number
   convertKeptWords: number
 }

@@ -345,11 +345,22 @@ pub struct ConvertResult {
     pub kept_words: i64,
 }
 
-/// 一键整理结果：转换计数供状态栏提示，text 为整理后的全文
+/// 行级编辑：原文 [start_line, end_line]（1 起、含两端）整块替换为 text（块内换行自带）。
+/// 范围不含 end_line 的换行符；行号对齐 Monaco 的行号口径（getValue 的 \n 切分行）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TidyEdit {
+    pub start_line: usize,
+    pub end_line: usize,
+    pub text: String,
+}
+
+/// 一键整理结果：只下发变更行的编辑列表（patience 行级 diff），避免全文 JSON 往返；
+/// 转换计数供状态栏提示
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TidyResult {
-    pub text: String,
+    pub edits: Vec<TidyEdit>,
     pub convert_kept: i64,
     pub convert_kept_words: i64,
 }

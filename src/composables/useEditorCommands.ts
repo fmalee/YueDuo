@@ -174,13 +174,27 @@ export function useEditorCommands(): {
       showStatusMessage('整理期间文本已修改，结果未应用', 5000)
       return
     }
-    if (result.text === original) {
+    if (result.edits.length === 0) {
       showStatusMessage('文本无需整理')
       return
     }
     const position = editor.getPosition()
     editor.pushUndoStop()
-    editor.executeEdits('tidy', [{ range: model.getFullModelRange(), text: result.text }])
+    // 按行精确替换（Rust patience diff 只下发变更行）：Monaco 只重算被改行，撤销栈只存增量。
+    // 范围 (line,1)-(endLine,maxColumn) 覆盖整行、不含行尾换行符，与 Rust diff 口径一致。
+    editor.executeEdits(
+      'tidy',
+      result.edits.map((e) => ({
+        range: {
+          startLineNumber: e.startLine,
+          startColumn: 1,
+          endLineNumber: e.endLine,
+          endColumn: model.getLineMaxColumn(e.endLine)
+        },
+        text: e.text,
+        forceMoveMarkers: true
+      }))
+    )
     editor.pushUndoStop()
     if (position) editor.setPosition(position)
     showStatusMessage('已整理完成，可用撤销恢复', 5000)

@@ -42,10 +42,11 @@ import type {
   TidyResult
 } from '../../shared/types'
 
-/** invoke 包装：统一错误形状 `[command] message`，成功直接返回 data */
+/** invoke 包装：统一错误形状 `[command] message`，成功直接返回 data。
+ *  args 传 Uint8Array 时走 Tauri 原始字节载荷（Rust 侧 Request.body() 收 Raw） */
 async function ipcInvoke<T = unknown>(
   command: string,
-  args?: Record<string, unknown>
+  args?: Record<string, unknown> | Uint8Array
 ): Promise<T> {
   try {
     return await invoke<T>(command, args)
@@ -468,9 +469,10 @@ export function convertToSimplified(text: string): Promise<ConvertResult> {
   return ipcInvoke<ConvertResult>('convert_to_simplified', { text })
 }
 
-/** convert:tidy —— 一键整理全文（固定顺序，返回转换保留项计数供状态栏提示） */
+/** convert:tidy —— 一键整理全文：原始字节通道（UTF-8 直传免 ~20MB JSON 往返），
+ *  返回 patience 行级 diff 的编辑列表（只含变更行） */
 export function convertTidy(text: string): Promise<TidyResult> {
-  return ipcInvoke<TidyResult>('convert_tidy', { text })
+  return ipcInvoke<TidyResult>('convert_tidy', new TextEncoder().encode(text))
 }
 
 // ---------- 主题推送 ----------

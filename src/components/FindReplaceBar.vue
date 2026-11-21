@@ -38,6 +38,20 @@ const DECORATION_MARGIN_LINES = 200
  */
 const MATCH_LIMIT = 1_073_741_824
 
+/**
+ * 正则全文扫描的取文缓存：按 model 引用 + versionId 缓存 getValue 结果。
+ * 搜索框每敲一个字都全量扫描，13MB 全文的 getValue/分配占大头；文档未变时直接复用。
+ */
+let scanCache: { model: monaco.editor.ITextModel; versionId: number; text: string } | null = null
+function scanTextOf(model: monaco.editor.ITextModel): string {
+  if (scanCache && scanCache.model === model && scanCache.versionId === model.getVersionId()) {
+    return scanCache.text
+  }
+  const text = model.getValue()
+  scanCache = { model, versionId: model.getVersionId(), text }
+  return text
+}
+
 const reader = useReaderStore()
 
 const open = ref(false)
@@ -321,7 +335,7 @@ function refreshNow(autoJump = false): void {
   if (regex.value) {
     // 正则模式按全文匹配：Monaco 的 findMatches 逐行扫描，`\n` 永远跨不过行
     try {
-      const text = model.getValue()
+      const text = scanTextOf(model)
       const found = searchMultilineRegex(text, pattern, matchCase.value, wordSeparators())
       matches.value = found.map((hit) => ({
         range: rangeFromOffsets(model, hit.index, hit.index + hit.length),

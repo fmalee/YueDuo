@@ -10,7 +10,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use crate::services::find_rules::{self, FindRule};
-use crate::types::{ConvertResult, TidyResult};
+use crate::types::{ConvertResult, TidyEdit, TidyResult};
 
 // ---------- 替换模板展开（对齐 shared/replaceTemplate.ts，一键整理与查找替换同语义） ----------
 
@@ -333,6 +333,133 @@ pub fn to_simplified(text: &str, dict_dir: &Path) -> Result<ConvertResult, Strin
 /// 3. 全角转半角（以 to_halfwidth 规则为准）
 /// 4. 按 findRules.json 数组顺序执行 tidyEnabled 的规则
 /// 替换模板走与查找替换栏同一个展开入口；缺替换文本的条目跳过并记 warning。
+/// patience 行级 diff（git 同款思路）：前后缀整段裁剪后，以「两侧都唯一且相等」的行做锚点，
+/// 锚点间成段对比——行数一致精确到差异行，行数不同整段替换。
+/// 选择 patience 而非逐字全文替换的原因：一键整理通常只碰零散行（繁简转换、半角、少量规则），
+/// 按行下发让 Monaco 只重算被改行；空行折叠这类改行数的规则也落在小段内，不会退化成全文替换。
+/// 正确性只依赖「锚点行相等 + 段内整体替换」这一保证，锚点选择只影响质量不影响结果。
+fn diff_line_edits(original: &str, result: &str) -> Vec<TidyEdit> {
+    let a: Vec<&str> = original.split('\n').collect();
+    let b: Vec<&str> = result.split('\n').collect();
+    // 1) 前后缀整段裁剪（切片比较走 memcmp 快路径）
+    let mut pre = 0usize;
+    while pre < a.len() && pre < b.len() && a[pre] == b[pre] {
+        pre += 1;
+    }
+    let mut suf = 0usize;
+    while suf < a.len() - pre && suf < b.len() - pre && a[a.len() - 1 - suf] == b[b.len() - 1 - suf]
+    {
+        suf += 1;
+    }
+    let am = &a[pre..a.len() - suf];
+    let bm = &b[pre..b.len() - suf];
+    if am.is_empty() && bm.is_empty() {
+        return Vec::new();
+    }
+
+    // 2) patience 锚点：a 中唯一、b 中唯一且相等的行，按 LIS 取最长递增锚点序列
+    let anchors = patience_anchors(am, bm);
+
+    // 3) 相邻锚点之间成段下发（哨兵 (len,len) 兜住最后一段）
+    let mut edits: Vec<TidyEdit> = Vec::new();
+    let mut ai = 0usize;
+    let mut bi = 0usize;
+    for (ax, bx) in anchors
+        .into_iter()
+        .chain(std::iter::once((am.len(), bm.len())))
+    {
+        push_segment_edits(&mut edits, pre, am, bm, ai, ax, bi, bx);
+        ai = ax + 1;
+        bi = bx + 1;
+    }
+    edits
+}
+
+/// 锚点：行内容在 a 与 b 中都恰好出现一次且相等，返回 (a 下标, b 下标)，按 a 下标升序。
+fn patience_anchors(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
+    use std::collections::HashMap;
+    let mut count_a: HashMap<&str, usize> = HashMap::new();
+    for line in a {
+        *count_a.entry(line).or_insert(0) += 1;
+    }
+    let mut count_b: HashMap<&str, usize> = HashMap::new();
+    let mut pos_b: HashMap<&str, usize> = HashMap::new();
+    for (j, line) in b.iter().enumerate() {
+        *count_b.entry(line).or_insert(0) += 1;
+        pos_b.insert(line, j);
+    }
+    // 候选锚点（a 下标天然升序），再对 b 下标求 LIS 保证单调
+    let pairs: Vec<(usize, usize)> = a
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| count_a.get(*line) == Some(&1) && count_b.get(*line) == Some(&1))
+        .map(|(i, line)| (i, pos_b[*line]))
+        .collect();
+    // patience 排序求 LIS：pile_tops 是各堆的 b 下标（严格递增），pile_pair 记堆顶对应的候选下标
+    let mut pile_tops: Vec<usize> = Vec::new();
+    let mut pile_pair: Vec<usize> = Vec::new();
+    let mut prev: Vec<Option<usize>> = vec![None; pairs.len()];
+    for (k, &(_, bx)) in pairs.iter().enumerate() {
+        let pos = pile_tops.partition_point(|&x| x < bx);
+        if pos == pile_tops.len() {
+            pile_tops.push(bx);
+            pile_pair.push(k);
+        } else {
+            pile_tops[pos] = bx;
+            pile_pair[pos] = k;
+        }
+        prev[k] = if pos > 0 {
+            Some(pile_pair[pos - 1])
+        } else {
+            None
+        };
+    }
+    // 从最长堆顶回溯出锚点序列（a 下标升序）
+    let mut anchors: Vec<(usize, usize)> = Vec::new();
+    let mut cur = pile_pair.last().copied();
+    while let Some(k) = cur {
+        anchors.push(pairs[k]);
+        cur = prev[k];
+    }
+    anchors.reverse();
+    anchors
+}
+
+/// 两锚点之间（或首尾哨兵之间）的段：相等跳过；行数一致只下差异行；否则整段替换。
+fn push_segment_edits(
+    edits: &mut Vec<TidyEdit>,
+    pre: usize,
+    a: &[&str],
+    b: &[&str],
+    ai: usize,
+    ax: usize,
+    bi: usize,
+    bx: usize,
+) {
+    let a_seg = &a[ai..ax];
+    let b_seg = &b[bi..bx];
+    if a_seg == b_seg {
+        return;
+    }
+    if a_seg.len() == b_seg.len() {
+        for k in 0..a_seg.len() {
+            if a_seg[k] != b_seg[k] {
+                edits.push(TidyEdit {
+                    start_line: pre + ai + k + 1,
+                    end_line: pre + ai + k + 1,
+                    text: b_seg[k].to_string(),
+                });
+            }
+        }
+        return;
+    }
+    edits.push(TidyEdit {
+        start_line: pre + ai + 1,
+        end_line: pre + ai + a_seg.len(),
+        text: b_seg.join("\n"),
+    });
+}
+
 pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
     let mut result = text.replace("\r\n", "\n").replace('\r', "\n");
     let converted = to_simplified(&result, dict_dir)?;
@@ -358,8 +485,9 @@ pub fn tidy(text: &str, dict_dir: &Path) -> Result<TidyResult, String> {
             })
             .into_owned();
     }
+    let edits = diff_line_edits(text, &result);
     Ok(TidyResult {
-        text: result,
+        edits,
         convert_kept: converted.kept,
         convert_kept_words: converted.kept_words,
     })
@@ -432,6 +560,44 @@ mod tests {
         assert_eq!((out.kept, out.kept_words), (0, 0));
     }
 
+    /// 按编辑列表重建结果（与前端 executeEdits 同语义：替换 [start,end] 行、不含行尾换行符；
+    /// text 为空 = 删除该行块）
+    fn apply_edits(text: &str, edits: &[TidyEdit]) -> String {
+        let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+        for e in edits.iter().rev() {
+            let s = e.start_line - 1;
+            let len = e.end_line - e.start_line + 1;
+            let new: Vec<String> = if e.text.is_empty() {
+                Vec::new()
+            } else {
+                e.text.split('\n').map(str::to_string).collect()
+            };
+            lines.splice(s..s + len, new);
+        }
+        lines.join("\n")
+    }
+
+    #[test]
+    fn line_diff_edits_reconstruct_result() {
+        // 相同 → 无编辑
+        assert!(diff_line_edits("a\nb\nc", "a\nb\nc").is_empty());
+        // 零散差异行：只下发差异行
+        let edits = diff_line_edits("甲\n乙\n丙\n丁", "甲\n乙二\n丙\n丁二");
+        assert_eq!(edits.len(), 2);
+        assert_eq!(apply_edits("甲\n乙\n丙\n丁", &edits), "甲\n乙二\n丙\n丁二");
+        // 行数变化（空行折叠）：落在锚点之间的小段（后缀裁剪会把对称空行吃进去，
+        // 编辑区是「多余空行」本段：第 3~4 行清空）
+        let edits = diff_line_edits("甲\n\n\n\n乙\n丙", "甲\n\n乙\n丙");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].start_line, 3);
+        assert_eq!(edits[0].end_line, 4);
+        assert_eq!(edits[0].text, "");
+        assert_eq!(apply_edits("甲\n\n\n\n乙\n丙", &edits), "甲\n\n乙\n丙");
+        // 尾部行数变化（块编辑兜底）
+        let edits = diff_line_edits("a\nx\ny", "a\nb\nc\nd");
+        assert_eq!(apply_edits("a\nx\ny", &edits), "a\nb\nc\nd");
+    }
+
     #[test]
     fn tidy_pipeline_matches_electron_order() {
         // 输入不含词表汉字，转换步为恒等，期望值可用 node 复现原版管线逐字验证：
@@ -442,7 +608,7 @@ mod tests {
         // 已用 node 对 `^[ \t\u3000]{0,}` gm 验证：'abc\n' → 'Xabc\nX'。
         let input = "　　Title ~ end　\r\n\r\n\r\n\tＡＢＣ１２３\n";
         let out = tidy(input, &dict_dir()).unwrap();
-        assert_eq!(out.text, "　　Title～end\n　　ABC123\n　　");
+        assert_eq!(apply_edits(input, &out.edits), "　　Title～end\n　　ABC123\n　　");
         assert_eq!((out.convert_kept, out.convert_kept_words), (0, 0));
     }
 
@@ -452,6 +618,6 @@ mod tests {
         // （规则描述「未缩进则增加缩进」，Electron 版行为一致）
         let input = "前--后\n\n\n\n续";
         let out = tidy(input, &dict_dir()).unwrap();
-        assert_eq!(out.text, "　　前——后\n　　续");
+        assert_eq!(apply_edits(input, &out.edits), "　　前——后\n　　续");
     }
 }
