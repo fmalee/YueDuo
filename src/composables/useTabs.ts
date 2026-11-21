@@ -1,11 +1,13 @@
 import {
   fileClearDraft,
+  fileMove,
   fileReadText,
   fileRename,
   fileReveal,
   fileStat,
   fileTrash,
   chooseSaveFile,
+  chooseFolderIn,
   confirmClose,
   confirmTrash,
   libraryBookByPath,
@@ -66,6 +68,7 @@ export function useTabs(): {
   cycleTab: (step: 1 | -1) => void
   saveTab: (id: string) => Promise<boolean>
   renameTab: (id: string, newName: string) => Promise<string | null>
+  moveTab: (id: string) => Promise<string | null>
   deleteTabFile: (id: string) => Promise<boolean>
   revealTabFile: (id: string) => void
 } {
@@ -262,6 +265,36 @@ async function saveTab(id: string): Promise<boolean> {
     }
   }
 
+  /**
+   * 移动到书库内目录（方案 §3.5）：目录选择起点落在书库根（库根本身也可选）。
+   * 磁盘移动由主进程做并同步 books 身份（id 不变，书签/评分/进度全保留）；
+   * 成功后就地更新标签 path 与 stat 缓存（状态栏路径随标签响应式更新），
+   * 立即落盘会话并驱动书库目录树/列表重读。
+   * 返回 null = 成功或取消，返回字符串 = 给状态栏展示的错误。
+   */
+  async function moveTab(id: string): Promise<string | null> {
+    const tab = store.tabs.find((t) => t.id === id)
+    if (!tab) return '标签已关闭'
+    if (!tab.path) return '空白标签不能移动'
+    // 先把待落库的书签漂移写回旧路径（books id 不变，移动后书签继续跟随）
+    await flushBookmarkDrift()
+    const dest = await chooseFolderIn(library.root)
+    if (!dest) return null
+    try {
+      const result = await fileMove(tab.path, dest)
+      if (result.path !== tab.path) {
+        store.patchTab(id, { path: result.path })
+        setStatCache(id, result.stat)
+        await persistSessionNow()
+        // 移动改变文件位置：书架目录树与库内列表（历史/追更/标签/评分）一起重读
+        void library.notifyFilesChanged()
+      }
+      return null
+    } catch (e) {
+      return cleanError(e)
+    }
+  }
+
   /** 移到废纸篓（方案 §3.5）：确认后删文件 + 库记录，静默关闭标签（不再走保存确认） */
   async function deleteTabFile(id: string): Promise<boolean> {
     const tab = store.tabs.find((t) => t.id === id)
@@ -321,6 +354,7 @@ async function saveTab(id: string): Promise<boolean> {
     cycleTab,
     saveTab,
     renameTab,
+    moveTab,
     deleteTabFile,
     revealTabFile
   }

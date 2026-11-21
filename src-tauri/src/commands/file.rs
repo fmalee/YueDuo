@@ -3,7 +3,7 @@
 //! 里 UTF-8 3 字节/字 vs UTF-16 2 字节/字，且省掉两侧 JSON parse/serialize 全量拷贝），
 //! 这是启动恢复大书速度的关键优化（首次迁移已诊断）。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use tauri::ipc::Response;
 use tauri::State;
@@ -160,6 +160,77 @@ pub async fn file_rename(
             state.with_active_db(|db, _| {
                 if let Err(e) = books::rename_book_record(db, &old_relative, &new_relative, &name) {
                     eprintln!("[file] 重命名后同步库身份失败: {e}");
+                }
+                Ok::<(), String>(())
+            })?;
+        }
+    }
+    Ok(FileRenameResult {
+        path: new_path_str,
+        title: name,
+        stat,
+    })
+}
+
+/// file:move —— 移动标签文件到书库内其它目录（含库根，文件名不变）：
+/// 目标目录必须在书库内（库外文件无法维持 books 身份）；移动成功后同步 books 身份
+/// （relative_path 更新、id 不变，书签/评分/进度全保留）；同步失败只记日志交给对账。
+#[tauri::command]
+pub async fn file_move(
+    state: State<'_, AppState>,
+    path: String,
+    dest_dir: String,
+) -> Result<FileRenameResult, String> {
+    if path.is_empty() {
+        return Err("当前标签没有可移动的文件".into());
+    }
+    let source = Path::new(&path);
+    if !source.is_file() {
+        return Err("源文件不存在".into());
+    }
+    let name = source
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .ok_or("源路径无文件名")?;
+    let dest = Path::new(&dest_dir);
+    if !dest.is_dir() {
+        return Err("目标目录不存在".into());
+    }
+    let new_path = dest.join(&name);
+    let new_path_str = new_path.to_string_lossy().to_string();
+    if new_path_str == path {
+        // 已在目标目录：视为成功不做磁盘动作（与 rename 同路径语义一致）
+        let stat = files::stat_of(source)?;
+        return Ok(FileRenameResult {
+            path,
+            title: name,
+            stat,
+        });
+    }
+    if new_path.exists() {
+        return Err(format!("目标目录已有「{name}」"));
+    }
+    // 目标必须落在书库内：相对路径是库身份的锚点，库外目录直接拒绝
+    let root = state.active_root();
+    let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| PathBuf::from(&root));
+    let canonical_dest =
+        std::fs::canonicalize(dest).map_err(|e| format!("目标目录不可用: {e}"))?;
+    if !canonical_dest.starts_with(&canonical_root) {
+        return Err("目标目录必须在书库内".into());
+    }
+
+    // 移动后旧路径不复存在，库内相对路径必须在 move 前取
+    let old_relative = books::relative_in_library(&root, &path);
+
+    std::fs::rename(source, &new_path).map_err(|e| format!("移动失败: {e}"))?;
+    let stat = files::stat_of(&new_path)?;
+
+    if let Some(old_relative) = old_relative {
+        if let Some(new_relative) = books::relative_in_library(&root, &new_path_str) {
+            // 文件已移动成功；库身份同步失败交给下次扫描对账修复，不能反过来报移动失败
+            state.with_active_db(|db, _| {
+                if let Err(e) = books::rename_book_record(db, &old_relative, &new_relative, &name) {
+                    eprintln!("[file] 移动后同步库身份失败: {e}");
                 }
                 Ok::<(), String>(())
             })?;

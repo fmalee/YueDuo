@@ -214,6 +214,11 @@ export function fileRename(path: string, newName: string): Promise<FileRenameRes
   return ipcInvoke<FileRenameResult>('file_rename', { path, newName })
 }
 
+/** file:move —— 移动标签文件到书库内其它目录并同步库身份（方案 §3.5） */
+export function fileMove(path: string, destDir: string): Promise<FileRenameResult> {
+  return ipcInvoke<FileRenameResult>('file_move', { path, destDir })
+}
+
 /** file:trash —— 移到系统废纸篓并清理库记录（方案 §3.5） */
 export function fileTrash(path: string): Promise<FileTrashResult> {
   return ipcInvoke<FileTrashResult>('file_trash', { path })
@@ -254,6 +259,11 @@ export function showError(title: string, message: string): Promise<null> {
 /** dialog:chooseLibrary —— 选择书库根目录（返回 null = 取消） */
 export function chooseLibrary(): Promise<string | null> {
   return ipcInvoke<string | null>('dialog_choose_library')
+}
+
+/** dialog:pickFolderIn —— 从指定目录选择子目录，移动文本用（返回 null = 取消） */
+export function chooseFolderIn(dir: string): Promise<string | null> {
+  return ipcInvoke<string | null>('dialog_pick_folder_in', { dir })
 }
 
 // ---------- session 域 ----------

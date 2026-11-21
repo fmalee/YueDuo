@@ -53,6 +53,23 @@ pub async fn dialog_choose_library(app: AppHandle) -> Result<Option<String>, Str
     Ok(picked.and_then(filepath_to_string))
 }
 
+/// dialog:pickFolderIn —— 从指定目录（通常为书库根）选择子目录（None = 取消）。
+/// 起点落在 dir：移动文本时用户从书库根往下找，不用每次从系统默认位置开始。
+#[tauri::command]
+pub async fn dialog_pick_folder_in(
+    app: AppHandle,
+    dir: String,
+) -> Result<Option<String>, String> {
+    let path = std::path::Path::new(&dir);
+    let builder = if dir.is_empty() || !path.is_dir() {
+        app.dialog().file()
+    } else {
+        app.dialog().file().set_directory(path)
+    };
+    let picked = builder.blocking_pick_folder();
+    Ok(picked.and_then(filepath_to_string))
+}
+
 fn show_message(
     app: &AppHandle,
     kind: MessageDialogKind,

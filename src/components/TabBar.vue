@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
+import { showStatusMessage } from '@/composables/useStatusMessage'
 import { useSettingsStore } from '@/stores/settings'
 import { METRICS } from '@/styles/theme'
 
@@ -15,6 +16,7 @@ const {
   closeOtherTabs,
   closeAllTabs,
   renameTab,
+  moveTab,
   deleteTabFile,
   revealTabFile
 } = useTabs()
@@ -293,7 +295,7 @@ function onTabClick(id: string): void {
 // —— 标签右键菜单与重命名浮层（方案 §3.5）——
 /** 菜单实际高度约 200px；用于贴近窗口底边时向上收，避免被裁掉 */
 const MENU_WIDTH = 168
-const MENU_HEIGHT = 210
+const MENU_HEIGHT = 236
 const menu = ref<{ x: number; y: number; tabId: string } | null>(null)
 const menuTab = computed(() =>
   menu.value ? (store.tabs.find((t) => t.id === menu.value?.tabId) ?? null) : null
@@ -342,6 +344,15 @@ function menuRename(): void {
   const id = menu.value?.tabId
   dismissMenu()
   if (id) beginRename(id)
+}
+
+function menuMove(): void {
+  const id = menu.value?.tabId
+  dismissMenu()
+  if (!id) return
+  void moveTab(id).then((error) => {
+    if (error) showStatusMessage(`移动失败：${error}`, 5000)
+  })
 }
 
 function menuDelete(): void {
@@ -544,6 +555,7 @@ onBeforeUnmount(() => {
       <button class="tab-menu-item" @click="menuCloseAll">关闭全部</button>
       <div class="tab-menu-sep"></div>
       <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuRename">重命名…</button>
+      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuMove">移动…</button>
       <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuDelete">删除…</button>
       <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuReveal">
         在 Finder 中显示
