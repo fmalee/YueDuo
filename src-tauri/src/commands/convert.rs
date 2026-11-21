@@ -66,9 +66,12 @@ pub async fn convert_tidy(
             // TextEncoder 保证合法 UTF-8，lossy 对合法输入零拷贝借用
             String::from_utf8_lossy(bytes).into_owned()
         }
-        tauri::ipc::InvokeBody::Json(_) => {
-            return Err("一键整理需要原始字节载荷（Uint8Array）".into());
-        }
+        // 兼容回落：HMR 过渡期旧前端仍可能发 { text } JSON（dev 下编译期常量不变但模块未整页刷新）
+        tauri::ipc::InvokeBody::Json(value) => value
+            .get("text")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| "一键整理需要原始字节载荷（Uint8Array）或 { text } JSON".to_string())?,
     };
     let dict_dir = resolve_dict_dir(&app)?;
     // 纯 CPU 流水线放 blocking 线程，避免占死 async 池
