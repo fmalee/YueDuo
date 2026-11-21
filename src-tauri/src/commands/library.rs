@@ -104,7 +104,6 @@ fn run_enrich(
     cancel: &std::sync::atomic::AtomicBool,
     app: &AppHandle,
 ) -> Result<LibraryEnrichResult, String> {
-    let t0 = std::time::Instant::now();
     let db = open_database(std::path::Path::new(db_file))?;
     let result = scanner::scan_library(
         std::path::Path::new(root),
@@ -114,7 +113,6 @@ fn run_enrich(
             let _ = app.emit("library:scanProgress", &progress);
         },
     )?;
-    let t_scan = t0.elapsed();
     // 被换库/退出中止的扫描不做对账：半份结果会把没扫到的书误记成「连续零匹配」
     if cancel.load(Ordering::SeqCst) {
         return Ok(LibraryEnrichResult {
@@ -125,15 +123,8 @@ fn run_enrich(
             deleted: 0,
         });
     }
-    let t0b = std::time::Instant::now();
     let log = reconcile::reconcile_library(&db, &result.books)?;
-    eprintln!(
-        "[perf] enrich total={} skipped={} scan={:?} reconcile={:?}",
-        result.total,
-        result.skipped,
-        t_scan,
-        t0b.elapsed()
-    );
+
     Ok(LibraryEnrichResult {
         total: result.total,
         skipped: result.skipped,

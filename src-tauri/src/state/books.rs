@@ -148,7 +148,14 @@ pub fn list_rated(db: &Connection, root: &str, rating: Option<i64>) -> Result<Ve
     if rating.is_none() {
         sql.push_str(&format!(" LIMIT {RATED_LIST_LIMIT}"));
     }
-    query_books(db, &sql, root, params![rating.unwrap_or(0)])
+    // 占位符随分支变化：无条件过滤时不传参（此前恒传 1 参导致 null 分支报
+    // 「Wrong number of parameters」，评分列表自 P2 起一直为空）
+    let books = if rating.is_some() {
+        query_books(db, &sql, root, params![rating.unwrap()])?
+    } else {
+        query_books(db, &sql, root, params![])?
+    };
+    Ok(books)
 }
 
 /// 标签页：名称/数量/标签评分；先按标签评分、再按该标签下最近阅读时间排序
@@ -362,3 +369,4 @@ pub(super) fn now_ms() -> i64 {
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
 }
+

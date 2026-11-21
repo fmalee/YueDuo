@@ -119,20 +119,16 @@ async function readTextSingle(path: string): Promise<FileReadResult> {
  * 分块失败（utf-16be 等不支持编码/异常）回落单发二进制通道。
  */
 export async function fileReadText(path: string): Promise<FileReadResult> {
-  const tA = performance.now()
   const CHUNK = 4 * 1024 * 1024
   let chunked: FileReadResult | null = null
-  let chunkInfo = '分块失败'
   try {
     const stat = await fileStat(path)
     const n = Math.max(1, Math.ceil(stat.size / CHUNK))
-    const tC0 = performance.now()
     const raws = await Promise.all(
       Array.from({ length: n }, (_, i) =>
         invoke<ArrayBuffer>('file_read_chunk', { path, offset: i * CHUNK, len: CHUNK })
       )
     )
-    const tC1 = performance.now()
     const parts = raws.map((r) => (r instanceof Uint8Array ? r : new Uint8Array(r)))
     // 帧格式对每块统一：[u32 LE 头长][头 JSON][gzip 数据]。chunk 0 的头含 encoding/size/compressed。
     // DecompressionStream 不接受拼接 gzip 成员（读完首个成员即报 Extra bytes），逐块独立解压后拼接
@@ -171,19 +167,11 @@ export async function fileReadText(path: string): Promise<FileReadResult> {
       ? text0.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
       : text0
     chunked = { text, encoding: header0.encoding, stat }
-    chunkInfo = `分块=${Math.round(tC1 - tC0)}ms(${n}块) 解压+后处理=${Math.round(performance.now() - tC1)}ms`
-  } catch (e) {
-    void appPerfLog(`分块失败回落单发: ${String(e)}`)
+  } catch {
+    // 解压/解码异常回落单发二进制通道
     chunked = null
   }
-  const finalResult = chunked ?? (await readTextSingle(path))
-  const tB = performance.now()
-  if (tB - tA > 120) {
-    void appPerfLog(
-      `readText ${path.split('/').pop()}: ${chunkInfo} 总=${Math.round(tB - tA)}ms chars=${finalResult.text.length}`
-    )
-  }
-  return finalResult
+  return chunked ?? (await readTextSingle(path))
 }
 
 /** file:stat —— 同文件去重（inode） */

@@ -19,29 +19,19 @@ use crate::types::{
 
 #[tauri::command]
 pub async fn file_read_text(path: String) -> Result<Response, String> {
-    let t0 = std::time::Instant::now();
     let outcome = files::read_text(Path::new(&path))?;
-    let t_read = t0.elapsed();
     let stat = files::stat_of(Path::new(&path))?;
     let meta = serde_json::to_vec(&FileReadMeta {
         encoding: outcome.encoding,
         stat,
     })
     .map_err(|e| e.to_string())?;
-    let t0b = std::time::Instant::now();
     let mut payload = Vec::with_capacity(4 + meta.len() + outcome.text.len() * 2);
     payload.extend_from_slice(&(meta.len() as u32).to_le_bytes());
     payload.extend_from_slice(&meta);
     for unit in outcome.text.encode_utf16() {
         payload.extend_from_slice(&unit.to_le_bytes());
     }
-    eprintln!(
-        "[perf] read_text {} bytes={} read+decode={:?} utf16_pack={:?}",
-        path.rsplit('/').next().unwrap_or(&path),
-        outcome.text.len(),
-        t_read,
-        t0b.elapsed()
-    );
     Ok(Response::new(payload))
 }
 
@@ -55,7 +45,6 @@ pub async fn file_read_text(path: String) -> Result<Response, String> {
 pub async fn file_read_chunk(path: String, offset: u64, len: u32) -> Result<Response, String> {
     use std::fs;
     use std::io::{Read, Seek, SeekFrom, Write};
-    let started = std::time::Instant::now();
     let mut f = fs::File::open(&path).map_err(|e| format!("读取文件失败 {path}: {e}"))?;
     let size = f
         .metadata()
@@ -93,13 +82,6 @@ pub async fn file_read_chunk(path: String, offset: u64, len: u32) -> Result<Resp
     payload.extend_from_slice(&(meta.len() as u32).to_le_bytes());
     payload.extend_from_slice(&meta);
     payload.extend_from_slice(&compressed);
-    eprintln!(
-        "[perf:chunk] {} offset={start} raw={} gz={} serve={:?}",
-        path.rsplit('/').next().unwrap_or(&path),
-        buf.len(),
-        compressed.len(),
-        started.elapsed()
-    );
     Ok(Response::new(payload))
 }
 
