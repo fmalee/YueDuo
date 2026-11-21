@@ -264,8 +264,8 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         None,
     )?;
     window_menu.append(&PredefinedMenuItem::separator(app)?)?;
-    add_item(&window_menu, app, "cmd:nextTab", "下一个标签", Some("Alt+Cmd+ArrowRight"))?;
-    add_item(&window_menu, app, "cmd:prevTab", "上一个标签", Some("Alt+Cmd+ArrowLeft"))?;
+    add_item(&window_menu, app, "cmd:nextTab", "下一个标签", Some("Control+Tab"))?;
+    add_item(&window_menu, app, "cmd:prevTab", "上一个标签", Some("Shift+Control+Tab"))?;
     window_menu.append(&PredefinedMenuItem::separator(app)?)?;
     window_menu.append(&PredefinedMenuItem::minimize(app, Some("最小化"))?)?;
     window_menu.append(&PredefinedMenuItem::bring_all_to_front(app, Some("前置全部窗口"))?)?;
