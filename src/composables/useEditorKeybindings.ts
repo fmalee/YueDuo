@@ -15,6 +15,8 @@ export interface KeyChord {
   code: string
   /** Cmd（macOS）/ Ctrl（其他平台） */
   mod?: boolean
+  /** 严格 Control 键：Ctrl+Tab 是命令，Cmd+Tab 被系统应用切换器占用且到不了应用，二者必须区分 */
+  ctrl?: boolean
   shift?: boolean
   alt?: boolean
 }
@@ -65,7 +67,10 @@ function isComposing(e: KeyboardEvent): boolean {
 
 function matches(chord: KeyChord, e: KeyboardEvent): boolean {
   if (e.code !== chord.code) return false
-  if (!!chord.mod !== (e.metaKey || e.ctrlKey)) return false
+  if (chord.ctrl != null) {
+    // 严格匹配：Ctrl 按下状态一致，且 Cmd 未按下
+    if (!!chord.ctrl !== e.ctrlKey || e.metaKey) return false
+  } else if (!!chord.mod !== (e.metaKey || e.ctrlKey)) return false
   if (!!chord.shift !== e.shiftKey) return false
   if (!!chord.alt !== e.altKey) return false
   return true
@@ -81,7 +86,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
   const store = useTabsStore()
   const reader = useReaderStore()
   const palette = useCommandPalette()
-  const { saveTab, newBlankTab } = useTabs()
+  const { saveTab, newBlankTab, cycleTab } = useTabs()
 
   const bindings: KeybindingSpec[] = [
     {
@@ -114,6 +119,25 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       scope: 'global',
       availability: 'always',
       run: () => palette.toggle()
+    },
+    {
+      // 浏览器风格标签切换：菜单里的同名加速键在 WKWebView 聚焦时会被 webview 吞掉
+      // （Tab 属于网页焦点导航键，key equivalent 到不了 NSMenu），实际按键由这里兜住；
+      // 菜单加速键仅作为无焦点场景的原生路径与菜单文案展示，两条路径按事件归属互斥不重复
+      id: 'nextTab',
+      label: '下一个标签',
+      chord: { code: 'Tab', ctrl: true },
+      scope: 'global',
+      availability: 'always',
+      run: () => cycleTab(1)
+    },
+    {
+      id: 'prevTab',
+      label: '上一个标签',
+      chord: { code: 'Tab', ctrl: true, shift: true },
+      scope: 'global',
+      availability: 'always',
+      run: () => cycleTab(-1)
     },
     {
       id: 'toggleLock',
