@@ -22,7 +22,7 @@
 | **书签与元数据** | `src/composables/useBookmarkDrift.ts` | `handleBookmarkDrift(tabId, path, oldDoc, newDoc, changes)` 改调 `mapBookmarksByChanges`，去掉旧 `lineCounts` 粗差量算法 |
 | | `src/composables/useBookmarks.ts` | 读 `getTabState(tab.id)?.doc` 的 `doc.lines` / `doc.line(line).text` |
 | | `src/components/right/BookmarkList.vue` | `lineText` 读 `getTabState(id)?.doc` |
-| | `src/composables/useMetadataEdit.ts` | 直接用 UTF-16 `result.edit.start`/`end` 派发 `changes` + `isolateHistory.of('full')`；切走标签时离线 `entry.state.update` 写回注册表 |
+| | `src/composables/useMetadataEdit.ts` | 直接用 UTF-16 `result.edit.start`/`end` 派发 `changes` + `annotations: isolateHistory.of('full')`；切走标签时离线 `entry.state.update` 写回注册表 |
 | | `src/components/MetadataBar.vue` | 订阅 `onEditorStateSwitch` + `onEditorViewUpdate`，用 `docHeadText(doc, 10)` 本地解析（去掉 `model.onDidChangeContent`） |
 | **宿主与外围** | `src/components/EditorHost.vue` | 挂载单 `EditorView`；监听 `settings.dark` 切主题；接入正文原生右键菜单；暂写 `<FindReplaceBar :loading="loading" />`（Card 04 接回 `:editor`） |
 | | `src/composables/useTabs.ts` | `getTabModel(id)?.model.getValue()` → `getTabState(id)?.doc.toString()`（2 处） |
@@ -156,7 +156,8 @@ function restoreEditorFocus(): void {
 1. **切标签同步 Compartment**：`activateFor` 每次 `view.setState(...)` 前必须执行 `syncStateCompartments(entry.state, currentConfig)`，否则切回旧标签后主题/字体/字号/锁定态错乱。
 2. **禁止跳过 `isTextInput` 排除 `.cm-editor`**：CM6 内容区是 `contenteditable="true"`，必须先判 `if (el.closest('.cm-editor')) return false` 再判 `el.isContentEditable`。
 3. **顶部菜单 `undo`/`redo`**：`App.vue` 焦点在 `.cm-editor` 内且 `reader.locked` 为真时不得执行撤销/恢复；焦点在普通 `<input>`/`<textarea>` 内走 `document.execCommand`。
-4. **暂不卸载 `monaco-editor`**：因 `FindReplaceBar.vue` 尚未迁完，本卡不动 `package.json`、`src/monaco.ts`、`vite.config.ts`。
+4. **`isolateHistory` 字段位置**：`@codemirror/commands` 的 `isolateHistory.of('full')` 是 `AnnotationType`，派发时必须放在 `annotations:` 中（不可放 `effects:`）。
+5. **暂不卸载 `monaco-editor`**：因 `FindReplaceBar.vue` 尚未迁完，本卡不动 `package.json`、`src/monaco.ts`、`vite.config.ts`。
 
 ---
 

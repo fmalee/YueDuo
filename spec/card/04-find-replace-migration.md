@@ -80,13 +80,13 @@
     ```ts
     view.dispatch({
       changes: { from: match.from, to: match.to, insert },
-      effects: isolateHistory.of('full')
+      annotations: isolateHistory.of('full')
     })
     ```
   - 立即 `refreshNow()`，再二分定位首个 `from >= match.from + insert.length`（越界回绕 `0`）并 `selectMatch(index)`，焦点仍留在替换框。
 - **`replaceAllMatches()`**：
   - 构造全量 `changes = matches.value.map((m) => ({ from: m.from, to: m.to, insert: buildReplacement(m, view.state.sliceDoc(m.from, m.to)) }))`。
-  - 一次派发完成全部替换，带 `effects: isolateHistory.of('full')`（一次 `Cmd+Z` 完整还原！）。
+  - 一次派发完成全部替换，带 `annotations: isolateHistory.of('full')`（一次 `Cmd+Z` 完整还原！）。
   - 立即 `refreshNow()` 并显示 `已替换 ${changes.length} 处`。
 
 ### 6. 订阅编辑器事件（替代 `instance.onDidChange*`）
@@ -107,7 +107,7 @@
 ## 三、防坑红线
 
 1. **严禁**对全量 `matches` 直接构造全文档装饰；必须经 `setFindHighlightEffect` 交由 `findDecorations.ts` 的 `ViewPlugin` 仅装饰 `view.visibleRanges`。
-2. 替换与全部替换必须携带 `isolateHistory.of('full')`，确保单步/全部替换各自对应一次独立撤销。
+2. 替换与全部替换必须携带 `annotations: isolateHistory.of('full')`（注意 `isolateHistory` 是 `AnnotationType`，放 `annotations` 而非 `effects`），确保单步/全部替换各自对应一次独立撤销。
 3. 切标签或关闭查找栏时务必清空高亮与 `scanCache`，避免残留高亮或持有旧 10MB 字符串引用导致内存泄漏。
 
 ---

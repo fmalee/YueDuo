@@ -13,6 +13,74 @@ export interface MultilineMatch {
   groups: string[]
 }
 
+export interface DocumentSearchMatch {
+  from: number
+  to: number
+  groups: string[] | null
+}
+
+export interface DocumentSearchOptions {
+  regex: boolean
+  matchCase: boolean
+  wordSeparators: string | null
+}
+
+/**
+ * 统一文档搜索入口（纯文本 + 跨行正则），返回相对全文的 UTF-16 偏移区间 [from, to)
+ */
+export function searchDocument(
+  text: string,
+  pattern: string,
+  options: DocumentSearchOptions
+): DocumentSearchMatch[] {
+  if (pattern.length === 0) return []
+
+  if (options.regex) {
+    return searchMultilineRegex(text, pattern, options.matchCase, options.wordSeparators).map(
+      (m) => ({
+        from: m.index,
+        to: m.index + m.length,
+        groups: m.groups
+      })
+    )
+  }
+
+  const separatorCodes =
+    options.wordSeparators === null ? null : buildSeparatorCodes(options.wordSeparators)
+  const results: DocumentSearchMatch[] = []
+
+  if (options.matchCase) {
+    const len = pattern.length
+    let pos = 0
+    while (pos <= text.length) {
+      const idx = text.indexOf(pattern, pos)
+      if (idx === -1) break
+      if (!separatorCodes || isWholeWord(text, idx, len, separatorCodes)) {
+        results.push({ from: idx, to: idx + len, groups: null })
+      }
+      pos = idx + len
+    }
+    return results
+  }
+
+  // 忽略大小写纯文本：转义正则元字符 + giu 扫描，避免 toLowerCase() 在极少数 Unicode 字符上产生长度偏移
+  const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const regex = new RegExp(escaped, 'giu')
+  let match: RegExpExecArray | null
+  while ((match = regex.exec(text)) !== null) {
+    const value = match[0]
+    if (value.length === 0) {
+      regex.lastIndex = match.index + 1
+      continue
+    }
+    if (separatorCodes && !isWholeWord(text, match.index, value.length, separatorCodes)) {
+      continue
+    }
+    results.push({ from: match.index, to: match.index + value.length, groups: null })
+  }
+  return results
+}
+
 /**
  * 全文正则扫描。
  * - `m` 标志复刻 Monaco 逐行搜索时的 ^ / $ 语义；

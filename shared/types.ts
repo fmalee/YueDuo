@@ -323,7 +323,7 @@ export interface ConvertResult {
   keptWords: number
 }
 
-/** 行级编辑（方案 §3.2）：原文 [startLine, endLine]（1 起、含两端）整块替换为 text（块内换行自带），不含行尾换行符 */
+/** 行级编辑（方案 §3.2）：替换原文 [startLine, endLine]（1 起、含两端）及 endLine 行尾换行；非末行 text 自带尾 `\n`，纯删除为空串，末行无尾 `\n` */
 export interface TidyEdit {
   startLine: number
   endLine: number
