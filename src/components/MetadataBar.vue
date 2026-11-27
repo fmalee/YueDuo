@@ -1,17 +1,20 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { tabIdField } from '@/editor/codemirror'
 import { useTabsStore } from '@/stores/tabs'
 import { useReaderStore } from '@/stores/reader'
 import { useMetadataEdit } from '@/composables/useMetadataEdit'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
-import { getTabModel } from '@/composables/useTabLifecycle'
-import { statusMetrics } from '@/composables/useStatusMetrics'
+import {
+  getTabState,
+  onEditorStateSwitch,
+  onEditorViewUpdate
+} from '@/composables/useTabLifecycle'
 import { metaReadMetadata, metaReadRating } from '@/ipc/bridge'
-import { monaco } from '@/monaco'
 import { parseMetadata } from '../../shared/metadataParser'
 import StarRating from './sidebar/StarRating.vue'
 import type { MetadataField, ParsedMetadata } from '../../shared/types'
-import { fileNameOf, dirNameOf, modelHeadText } from '@/utils/format'
+import { fileNameOf, dirNameOf, docHeadText } from '@/utils/format'
 
 /**
  * 元数据栏（方案 §2.9）：编辑器下方、状态栏上方，编辑名称/作者/标签/评分四项。
@@ -53,9 +56,7 @@ let loadGeneration = 0
 /** 评分写回代际：连续点击或切走标签时只认最新一次，避免旧结果回退新值 */
 let ratingWriteGeneration = 0
 
-/** 当前挂上监听的 model 与上次头部文本（相同则不刷新栏位） */
-let attachedModel: monaco.editor.ITextModel | null = null
-let detachModel: monaco.IDisposable | null = null
+/** 上次解析的头部文本（相同则不刷新栏位） */
 let lastHead = ''
 
 function assignMetadata(meta: Pick<ParsedMetadata, 'title' | 'author' | 'tags'>): void {
@@ -81,58 +82,53 @@ function applyTextMetadata(head: string): void {
   if (editing.value !== 'tags') tags.value = meta.tags.join(' ')
 }
 
-function headText(model: monaco.editor.ITextModel): string {
-  return modelHeadText(model, HEAD_LINES)
-}
-
 /**
- * 挂当前标签的 model 监听：切换/重载后 model 变了就重挂。
- * 返回 false 表示暂时没有 model（调用方回退读盘解析）。
+ * 从当前激活标签的 EditorState 同步前 10 行元数据。
+ * 返回 false 表示当前状态尚未驻留（调用方回退读盘解析）。
  */
-function attachToActiveModel(): boolean {
+function syncFromActiveState(): boolean {
   const tab = store.activeTab
-  const model = tab?.path ? (getTabModel(tab.id)?.model ?? null) : null
-  if (model === attachedModel) return model !== null
-
-  detachModel?.dispose()
-  detachModel = null
-  attachedModel = model
-  if (!model) return false
-
-  lastHead = headText(model)
-  applyTextMetadata(lastHead)
-  detachModel = model.onDidChangeContent(() => {
-    if (attachedModel !== model) return
-    const head = headText(model)
-    if (head === lastHead) return
+  const state = tab?.path ? getTabState(tab.id) : null
+  if (!state) return false
+  const head = docHeadText(state.doc, HEAD_LINES)
+  if (head !== lastHead) {
     lastHead = head
     applyTextMetadata(head)
-  })
+  }
   return true
 }
 
-function detachActiveModel(): void {
-  detachModel?.dispose()
-  detachModel = null
-  attachedModel = null
+const offStateSwitch = onEditorStateSwitch((tabId) => {
+  if (!tabId || tabId !== store.activeTabId) return
   lastHead = ''
-}
+  syncFromActiveState()
+})
+
+const offViewUpdate = onEditorViewUpdate((update) => {
+  if (!update.docChanged) return
+  const tab = store.activeTab
+  if (!tab?.path || update.state.field(tabIdField) !== tab.id) return
+  const head = docHeadText(update.state.doc, HEAD_LINES)
+  if (head === lastHead) return
+  lastHead = head
+  applyTextMetadata(head)
+})
 
 /**
- * 首屏：文本三项以编辑器正文为准（有 model 就在本地解析，不读盘也不走 IPC）；
+ * 首屏：文本三项以编辑器正文为准（有 state 就在本地解析，不读盘也不走 IPC）；
  * 评分不在正文里，与书名/标签同一判定——有路径就能读（库内 books，库外文件星级）。
  */
 async function load(): Promise<void> {
   const gen = ++loadGeneration
   editing.value = null
+  lastHead = ''
   const path = store.activeTab?.path ?? ''
   if (!path) {
     clear()
-    detachActiveModel()
     return
   }
 
-  if (!attachToActiveModel()) {
+  if (!syncFromActiveState()) {
     try {
       const meta = await metaReadMetadata(path)
       if (gen === loadGeneration) assignMetadata(meta)
@@ -151,13 +147,10 @@ watch([() => store.activeTabId, () => store.activeTab?.path], () => void load(),
   immediate: true
 })
 
-// 标签从 LRU 重载回来时 model 才驻留：状态栏指标随 setModel 刷新，借此补挂监听
-watch(
-  () => [statusMetrics.lineCount, statusMetrics.charCount],
-  () => void attachToActiveModel()
-)
-
-onBeforeUnmount(() => detachActiveModel())
+onBeforeUnmount(() => {
+  offStateSwitch()
+  offViewUpdate()
+})
 
 // 锁定阅读（方案 §3.3，同 Python metadata_bar.set_locked）：正文只读时元数据也不可编辑
 watch(

@@ -3,7 +3,6 @@ import { DEFAULT_SETTINGS } from '../../shared/types'
 import type { AppSettings, ReaderFont, ThemeMode } from '../../shared/types'
 import { onThemeUpdated, settingsGet, settingsSet } from '@/ipc/bridge'
 import { applyTheme } from '@/styles/theme'
-import { applyMonacoTheme } from '@/monaco'
 
 /** 订阅只挂一次（HMR 重挂载不重复注册，preload 侧监听器不泄漏） */
 let themeSubscribed = false
@@ -126,10 +125,9 @@ export const useSettingsStore = defineStore('settings', {
       await this.persist()
     },
 
-    /** DOM token + Monaco 主题同步切换 */
+    /** DOM token 主题切换（CM6 主题由 EditorHost 监听 settings.dark 响应） */
     apply(): void {
       applyTheme(this.dark)
-      applyMonacoTheme(this.dark)
     }
   }
 })

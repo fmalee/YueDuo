@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { libraryAddBookmark, libraryBookmarks, libraryRemoveBookmark } from '@/ipc/bridge'
-import { getTabModel } from '@/composables/useTabLifecycle'
+import { getTabState } from '@/composables/useTabLifecycle'
 import { caretSnapshot } from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
 import { INDENT_RE } from './useLineCommands'
@@ -66,12 +66,12 @@ async function addBookmarkAtCaret(): Promise<string> {
   const store = useTabsStore()
   const tab = store.activeTab
   if (!tab?.path) throw new Error('当前标签没有可收录的内容')
-  const model = getTabModel(tab.id)?.model
-  if (!model) throw new Error('当前正文尚未载入')
+  const doc = getTabState(tab.id)?.doc
+  if (!doc) throw new Error('当前正文尚未载入')
   let line = caretSnapshot()?.line ?? 1
   let text = ''
-  while (line <= model.getLineCount()) {
-    text = model.getLineContent(line).replace(INDENT, '').trim()
+  while (line <= doc.lines) {
+    text = doc.line(line).text.replace(INDENT, '').trim()
     if (text) break
     line++
   }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { redo, undo } from '@codemirror/commands'
 import TabBar from '@/components/TabBar.vue'
 import Sidebar from '@/components/Sidebar.vue'
 import EditorHost from '@/components/EditorHost.vue'
@@ -20,7 +21,12 @@ import {
   chooseLibrary,
   onAppMenuCommand
 } from '@/ipc/bridge'
-import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
+import {
+  applyTabEdit,
+  getTabModel,
+  getTabState,
+  residentModelCount
+} from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
   caretSnapshot,
@@ -87,16 +93,20 @@ function dispatchEditorCommand(
   window.dispatchEvent(new CustomEvent(event, { detail }))
 }
 
-/** 顶部「编辑 → 撤消 / 恢复」按焦点分流：原生输入框走 execCommand，编辑器走 Monaco */
+/** 顶部「编辑 → 撤消 / 恢复」按焦点分流：原生输入框走 execCommand，编辑器走 CM6（锁定态跳过） */
 function runUndoRedo(action: 'undo' | 'redo'): void {
   const active = document.activeElement
-  const inMonaco = active instanceof Element && Boolean(active.closest('.monaco-editor'))
-  if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && !inMonaco) {
+  const inCm = active instanceof Element && Boolean(active.closest('.cm-editor'))
+  if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && !inCm) {
     document.execCommand(action)
     return
   }
-  if (inMonaco) {
-    getActiveEditor()?.trigger('menu', action, null)
+  if (inCm) {
+    if (reader.locked) return
+    const view = getActiveEditor()
+    if (!view) return
+    if (action === 'undo') undo(view)
+    else redo(view)
   }
 }
 
@@ -247,10 +257,7 @@ async function editAndSave(): Promise<Record<string, unknown>> {
   if (!tab || !getTabModel(tab.id)) return { error: '测试标签打开失败' }
   store.setActive(tab.id)
   const mark = `【YUE_SAVE_MARK ${Date.now()}】`
-  const entry = getTabModel(tab.id)!
-  entry.model.applyEdits([
-    { range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: mark }
-  ])
+  applyTabEdit(tab.id, 0, 0, mark)
   const dirtyAfterEdit = store.activeTab?.dirty === true
   await saveActive()
   const dirtyAfterSave = store.activeTab?.dirty === false
@@ -297,19 +304,9 @@ onMounted(async () => {
         saveActive,
         // LRU 验收通道（方案 §1.7）
         residentCount: () => residentModelCount(),
-        getModelText: (tabId: string) => getTabModel(tabId)?.model.getValue() ?? null,
+        getModelText: (tabId: string) => getTabState(tabId)?.doc.toString() ?? null,
         readDraft: (tabId: string) => fileReadDraft(tabId),
-        applyEdit: (tabId: string, insertText: string) => {
-          const entry = getTabModel(tabId)
-          if (!entry) return false
-          entry.model.applyEdits([
-            {
-              range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 },
-              text: insertText
-            }
-          ])
-          return true
-        },
+        applyEdit: (tabId: string, insertText: string) => applyTabEdit(tabId, 0, 0, insertText),
         tabsState: () => ({
           count: store.tabs.length,
           tabs: store.tabs.map((t) => ({

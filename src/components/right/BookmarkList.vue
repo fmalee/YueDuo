@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
-import { getTabModel } from '@/composables/useTabLifecycle'
+import { getTabState } from '@/composables/useTabLifecycle'
 import { INDENT_RE } from '@/composables/useLineCommands'
 import { useBookmarks } from '@/composables/useBookmarks'
 import { focusEditor, jumpToLine } from '@/composables/useSession'
@@ -29,21 +29,17 @@ const store = useTabsStore()
 const { addBookmarkAtCaret, removeBookmark } = useBookmarks()
 const status = ref('')
 
-const entry = computed(() => {
-  const id = store.activeTabId
-  return id ? getTabModel(id) : undefined
-})
-
 function shortSummary(text: string): string {
   const trimmed = text.trim()
   return trimmed.length <= SUMMARY_MAX_CHARS ? trimmed : `${trimmed.slice(0, SUMMARY_MAX_CHARS)}…`
 }
 
-/** 优先取当前正文该行文字（可能已编辑漂移），model 不在时退回入库时的摘要 */
+/** 优先取当前正文该行文字（可能已编辑漂移），state 不在时退回入库时的摘要 */
 function lineText(line: number): string {
-  const model = entry.value?.model
-  if (!model || line < 1 || line > model.getLineCount()) return ''
-  return model.getLineContent(line).replace(INDENT, '').trim()
+  const id = store.activeTabId
+  const doc = id ? getTabState(id)?.doc : undefined
+  if (!doc || line < 1 || line > doc.lines) return ''
+  return doc.line(line).text.replace(INDENT, '').trim()
 }
 
 function summaryOf(bookmark: BookmarkInfo): string {

@@ -1,8 +1,7 @@
 import { metaApplyEdit, metaApplyRating } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
-import { getActiveEditor } from './useSession'
-import { isDirty } from './useTabLifecycle'
+import { applyTabEdit, getTabState, isDirty } from './useTabLifecycle'
 import type {
   MetadataEditResult,
   MetadataField,
@@ -21,8 +20,8 @@ export interface MetadataCommitResult {
 
 /**
  * 元数据写回（方案 §2.8）：空书名/空标签放弃提交，空作者落「佚名」（对齐 Python 控制器）。
- * 主进程按编辑器当前正文算最小替换区间（未保存修改也不会错位），这里用一次
- * executeEdits 应用：pushUndoStop 包住 → 一次撤销即可回退，内容变化自动置 dirty。
+ * 主进程按编辑器当前正文算最小替换区间（UTF-16 码元偏移，与 CM6 文档偏移一致），
+ * 通过 applyTabEdit 应用并携带 isolateHistory.of('full')：一次撤销即可回退，内容变化自动置 dirty。
  */
 export function useMetadataEdit(): {
   applyMetadataField(field: MetadataField, value: string): Promise<MetadataCommitResult | null>
@@ -35,11 +34,10 @@ export function useMetadataEdit(): {
     field: MetadataField,
     value: string
   ): Promise<MetadataCommitResult | null> {
-    const editor = getActiveEditor()
     const tab = tabs.activeTab
-    if (!editor || !tab?.path) return null
-    const model = editor.getModel()
-    if (!model) return null
+    if (!tab?.path) return null
+    const state = getTabState(tab.id)
+    if (!state) return null
 
     let next = value
     if (field === 'author') {
@@ -49,30 +47,27 @@ export function useMetadataEdit(): {
       return null
     }
 
-    const result: MetadataEditResult = await metaApplyEdit(tab.path, model.getValue(), field, next)
+    const result: MetadataEditResult = await metaApplyEdit(
+      tab.path,
+      state.doc.toString(),
+      field,
+      next
+    )
 
     let changed = false
     if (result.edit) {
-      const start = model.getPositionAt(result.edit.start)
-      const end = model.getPositionAt(result.edit.end)
-      const range = {
-        startLineNumber: start.lineNumber,
-        startColumn: start.column,
-        endLineNumber: end.lineNumber,
-        endColumn: end.column
-      }
-      if (editor.getModel() === model) {
-        editor.pushUndoStop()
-        editor.executeEdits('metadata', [{ range, text: result.edit.replacement }])
-        editor.pushUndoStop()
-      } else {
-        // 提交在途时切走了标签：直接改对应 model，undo 栈仍属于该标签
-        model.pushStackElement()
-        model.pushEditOperations([], [{ range, text: result.edit.replacement }], () => null)
-        model.pushStackElement()
+      // 激活态直接 dispatch；提交在途时切走标签则离线 state.update 写回注册表
+      const applied = applyTabEdit(
+        tab.id,
+        result.edit.start,
+        result.edit.end,
+        result.edit.replacement,
+        true
+      )
+      if (applied) {
         tabs.patchTab(tab.id, { dirty: isDirty(tab.id) })
+        changed = true
       }
-      changed = true
     }
 
     if (result.updated) void library.refreshLists()

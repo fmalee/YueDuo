@@ -23,11 +23,11 @@ body {
   -webkit-user-select: none;
 }
 
-/* 可编辑区域恢复正常选择：Monaco 内部自管选区（view-lines 有更高优先级的禁选规则不受影响） */
+/* 可编辑区域恢复正常选择：CM6 内部自管选区 */
 input,
 textarea,
 [contenteditable='true'],
-.monaco-editor {
+.cm-editor {
   user-select: text;
   -webkit-user-select: text;
 }

@@ -1,18 +1,18 @@
+import type { ChangeSet, Text } from '@codemirror/state'
+import { mapBookmarksByChanges } from '@/editor/textEdits'
 import { libraryReplaceBookmarks } from '@/ipc/bridge'
 import type { BookmarkInfo } from '../../shared/types'
 
 /**
- * 书签行号漂移跟随（方案 §2.7，与 Python _on_contents_change 同口径）：
- * - 每次模型内容变化按「行数差量」平移书签：变更行之前不动；插入时其后书签下移，
- *   删除时落在删除区内的书签丢弃，其后的书签上移；
+ * 书签行号漂移跟随（方案 §2.7）：
+ * - 每次文档内容变化借助 CM6 ChangeSet 精确映射行号（包含一键整理的多段批量变更）；
+ *   整行被删除的书签丢弃，其余书签自动平移并按行号升序去重；
  * - 800ms 防抖后整本回写数据库，避免每次击键都写库；
  * - 书签列表按 path 存在非响应式 Map，高频编辑事件不进 Vue 响应式。
  */
 const FLUSH_DEBOUNCE_MS = 800
 
 const linesByPath = new Map<string, BookmarkInfo[]>()
-/** 每个标签上次见到的行数；切标签/LRU 重载后由 EditorHost 重置，避免误算差量 */
-const lineCounts = new Map<string, number>()
 const timers = new Map<string, ReturnType<typeof setTimeout>>()
 const inFlight = new Map<string, Promise<void>>()
 /** 回写在途时又有新编辑：当前轮结束后按最新内存再写一次 */
@@ -52,11 +52,6 @@ export function noteBookmarkRemoved(path: string, line: number): void {
     path,
     list.filter((item) => item.line !== line)
   )
-}
-
-/** 模型切换/重载后重置该标签的行数基线（首次变化只记录，不做差量） */
-export function trackBookmarkTab(tabId: string, lineCount: number): void {
-  lineCounts.set(tabId, lineCount)
 }
 
 function scheduleFlush(path: string): void {
@@ -101,50 +96,22 @@ async function flushPath(path: string): Promise<void> {
   }
 }
 
-function applyDrift(
-  list: BookmarkInfo[],
-  delta: number,
-  changedLine: number,
-  removedLines: number
-): BookmarkInfo[] {
-  const adjusted: BookmarkInfo[] = []
-  for (const bookmark of list) {
-    if (bookmark.line < changedLine) adjusted.push(bookmark)
-    else if (delta > 0) adjusted.push({ line: bookmark.line + delta, note: bookmark.note })
-    else if (bookmark.line > changedLine + removedLines) {
-      adjusted.push({ line: bookmark.line + delta, note: bookmark.note })
-    }
-  }
-  // 平移后可能落到同一行（例如两段被合并），按行号去重，避免撞数据库唯一约束
-  const seen = new Set<number>()
-  return adjusted.filter((bookmark) => {
-    if (seen.has(bookmark.line)) return false
-    seen.add(bookmark.line)
-    return true
-  })
-}
-
 /**
- * 内容变化后平移书签（EditorHost 的 onDidChangeModelContent 调用）。
- * changes 为 Monaco 原始变更区间（旧文档坐标），只取最早的起始行作为变更行。
+ * 内容变化后平移书签（EditorHost 的 onUpdate 调用）。
+ * 直接使用 CM6 的 ChangeSet + oldDoc/newDoc 精确映射每一条书签。
  */
 export function handleBookmarkDrift(
-  tabId: string,
+  _tabId: string,
   path: string,
-  changes: readonly { range: { startLineNumber: number } }[],
-  currentLineCount: number
+  oldDoc: Text,
+  newDoc: Text,
+  changes: ChangeSet
 ): void {
-  const previous = lineCounts.get(tabId)
-  lineCounts.set(tabId, currentLineCount)
-  if (previous === undefined || previous === currentLineCount || !path) return
+  if (!path) return
   const list = linesByPath.get(path)
   if (!list || list.length === 0) return
 
-  const delta = currentLineCount - previous
-  const changedLine = changes.length
-    ? Math.min(...changes.map((change) => change.range.startLineNumber))
-    : 1
-  const adjusted = applyDrift(list, delta, changedLine, Math.max(0, -delta))
+  const adjusted = mapBookmarksByChanges(list, oldDoc, newDoc, changes)
   if (
     adjusted.length === list.length &&
     adjusted.every((bookmark, index) => bookmark.line === list[index].line)
@@ -163,7 +130,6 @@ export function resetBookmarkDrift(): void {
   for (const timer of timers.values()) clearTimeout(timer)
   timers.clear()
   linesByPath.clear()
-  lineCounts.clear()
   pendingAgain.clear()
 }
 

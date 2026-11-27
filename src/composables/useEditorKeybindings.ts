@@ -1,4 +1,4 @@
-import type * as Monaco from 'monaco-editor/editor/editor.api'
+import type { EditorView } from '@codemirror/view'
 import { useReaderStore } from '@/stores/reader'
 import { useTabsStore } from '@/stores/tabs'
 import { useCommandPalette } from './useCommandPalette'
@@ -8,7 +8,7 @@ import { deleteToLineStart, insertLineBelow, insertNewline, pageBy } from './use
 import { showStatusMessage } from './useStatusMessage'
 import { formatError } from '../utils/format'
 
-type Editor = Monaco.editor.IStandaloneCodeEditor
+type Editor = EditorView
 
 /** 键位：code 与键盘布局无关（Shift 不改变 code），meta/ctrl 合并成 mod */
 export interface KeyChord {
@@ -42,16 +42,16 @@ export interface KeybindingOptions {
   toggleRightPanel: () => void
 }
 
-/** 焦点在正文里（Monaco 用 EditContext 时是 div，回退时是 textarea，都在 .monaco-editor 内） */
+/** 焦点在正文里（CM6 内容区是 contenteditable div，位于 .cm-editor 内） */
 function isEditorFocused(): boolean {
-  return document.activeElement?.closest('.monaco-editor') != null
+  return document.activeElement?.closest('.cm-editor') != null
 }
 
-/** 查找框、重命名浮层、命令面板、元数据编辑等输入控件：键位必须放行 */
+/** 查找框、重命名浮层、命令面板、元数据编辑等输入控件：键位必须放行；必须先排除 .cm-editor 再判 isContentEditable */
 function isTextInput(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null
   if (!el || typeof el.closest !== 'function') return false
-  if (el.closest('.monaco-editor')) return false
+  if (el.closest('.cm-editor')) return false
   const tag = el.tagName
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
   return el.isContentEditable

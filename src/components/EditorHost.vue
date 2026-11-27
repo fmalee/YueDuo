@@ -1,11 +1,21 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import { monaco } from '@/monaco'
+import type { Text } from '@codemirror/state'
+import type { EditorView } from '@codemirror/view'
+import { destroyReaderView, tabIdField } from '@/editor/codemirror'
+import { currentDocVersion } from '@/editor/dirtyState'
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
-import { disposeTabModel, isDirty, setPreloadCount } from '@/composables/useTabLifecycle'
+import {
+  disposeTabModel,
+  emitEditorViewUpdate,
+  getTabState,
+  isDirty,
+  setPreloadCount,
+  syncTabState
+} from '@/composables/useTabLifecycle'
 import {
   convertInvoker,
   useEditorCommands,
@@ -13,10 +23,11 @@ import {
 } from '@/composables/useEditorCommands'
 import { useEditorViewState } from '@/composables/useEditorViewState'
 import {
+  applyEditorTheme,
   applyReadOnly,
   applyReaderTypography,
   createReaderEditor,
-  registerEditorActions
+  openEditorContextMenu
 } from '@/composables/useEditorSetup'
 import { refreshStatusMetrics, setCursorLine } from '@/composables/useStatusMetrics'
 import { attachSessionEditor, captureProgress, schedulePersist } from '@/composables/useSession'
@@ -24,13 +35,12 @@ import { useBookmarks } from '@/composables/useBookmarks'
 import { flushBookmarkDrift, handleBookmarkDrift } from '@/composables/useBookmarkDrift'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import FindReplaceBar from './FindReplaceBar.vue'
-import { formatError } from '../utils/format'
-import { titleFromMetadata, modelHeadText } from '@/utils/format'
+import { docHeadText, formatError, titleFromMetadata } from '@/utils/format'
 
 const container = ref<HTMLDivElement>()
-// 单 Monaco 实例 + 每标签一个 model + setModel 切换（VS Code 同款，方案 §二根因教训 1）
-// 绝不用 :key 重建实例 —— 那是旧项目焦点/IME bug 的根源
-const editor = shallowRef<monaco.editor.IStandaloneCodeEditor>()
+// 单 EditorView 实例 + 每标签一个 EditorState + view.setState 切换
+// 绝不用 :key 重建实例 —— 避免焦点/IME 异常
+const editor = shallowRef<EditorView>()
 
 const store = useTabsStore()
 const settings = useSettingsStore()
@@ -67,33 +77,35 @@ function activePath(): string {
 const METADATA_HEAD_LINES = 10
 
 /** 正文前 10 行 → 书名：标签标题随正文变更跟随，不读全文 */
-function bookTitleFromModel(model: monaco.editor.ITextModel, path: string): string {
-  return titleFromMetadata(modelHeadText(model, METADATA_HEAD_LINES), path)
+function bookTitleFromDoc(doc: Text, path: string): string {
+  return titleFromMetadata(docHeadText(doc, METADATA_HEAD_LINES), path)
 }
 
 /** 空白标签标题跟随正文首行（方案 §1.5）：节流回写，避免每个按键都触发标签重排 */
 const BLANK_TITLE_THROTTLE_MS = 200
 let blankTitleTimer = 0
-let pendingBlankTitle: { tabId: string; model: monaco.editor.ITextModel } | null = null
+let pendingBlankTitleTabId: string | null = null
 
 /** 首行去空白后作为标题；空白则回到「未命名」 */
-function blankTitleOf(model: monaco.editor.ITextModel): string {
-  return model.getLineContent(1).trim() || '未命名'
+function blankTitleOf(doc: Text): string {
+  return doc.line(1).text.trim() || '未命名'
 }
 
-function scheduleBlankTitle(tabId: string, model: monaco.editor.ITextModel): void {
-  pendingBlankTitle = { tabId, model }
+function scheduleBlankTitle(tabId: string): void {
+  pendingBlankTitleTabId = tabId
   if (blankTitleTimer) return
   blankTitleTimer = window.setTimeout(() => {
     blankTitleTimer = 0
-    const pending = pendingBlankTitle
-    pendingBlankTitle = null
-    if (!pending || pending.model.isDisposed()) return
-    const tab = store.tabs.find((t) => t.id === pending.tabId)
+    const tabIdToUpdate = pendingBlankTitleTabId
+    pendingBlankTitleTabId = null
+    if (!tabIdToUpdate) return
+    const state = getTabState(tabIdToUpdate)
+    if (!state) return
+    const tab = store.tabs.find((t) => t.id === tabIdToUpdate)
     // 已另存为/关闭的标签回到文件标签口径，不再覆盖
     if (!tab || tab.path) return
-    const title = blankTitleOf(pending.model)
-    if (title !== tab.title) store.patchTab(pending.tabId, { title })
+    const title = blankTitleOf(state.doc)
+    if (title !== tab.title) store.patchTab(tabIdToUpdate, { title })
   }, BLANK_TITLE_THROTTLE_MS)
 }
 
@@ -103,68 +115,88 @@ onMounted(() => {
   if (!container.value) return
   const instance = createReaderEditor(
     container.value,
-    reader.locked,
-    settings.readerFont,
-    settings.readerFontSize
+    {
+      dark: settings.dark,
+      font: settings.readerFont,
+      fontSize: settings.readerFontSize,
+      locked: reader.locked
+    },
+    {
+      onUpdate: (update) => {
+        const tabId = update.state.field(tabIdField)
+        if (update.state !== update.startState && tabId) {
+          syncTabState(tabId, update.state)
+        }
+        emitEditorViewUpdate(update)
+
+        if (!tabId) return
+        const versionChanged =
+          currentDocVersion(update.state) !== currentDocVersion(update.startState)
+        if (update.docChanged || versionChanged) {
+          store.patchTab(tabId, { dirty: isDirty(tabId) })
+        }
+        if (update.docChanged) {
+          refreshStatusMetrics(update.state.doc)
+          const tab = store.tabs.find((t) => t.id === tabId)
+          if (tab?.path) {
+            const title = bookTitleFromDoc(update.state.doc, tab.path)
+            if (title && title !== tab.title) store.patchTab(tabId, { title })
+            handleBookmarkDrift(
+              tabId,
+              tab.path,
+              update.startState.doc,
+              update.state.doc,
+              update.changes
+            )
+          } else if (tab) {
+            scheduleBlankTitle(tabId)
+          }
+        }
+        if (update.selectionSet || update.docChanged) {
+          setCursorLine(update.state.doc.lineAt(update.state.selection.main.head).number)
+          if (update.selectionSet) {
+            const path = activePath()
+            if (path) library.scheduleReadStamp(path)
+          }
+        }
+      },
+      onScroll: () => {
+        const id = store.activeTabId
+        if (!id) return
+        captureProgress(id)
+        schedulePersist()
+        const path = activePath()
+        if (path) library.scheduleReadStamp(path)
+      },
+      onContextMenu: (event, view) => {
+        openEditorContextMenu(event, view, reader.locked, {
+          addBookmark: () => {
+            void addBookmarkAtCaret()
+              .then((message) => showStatusMessage(message))
+              .catch((e) => showStatusMessage(formatError(e)))
+          },
+          convert: (command) => void convertSelection(view, convertInvoker(command)),
+          transformCase: (mode) => transformCaseSelection(view, mode),
+          tidy: () => void tidyDocument(view)
+        })
+      }
+    }
   )
   editor.value = instance
-
-  // dirty 追踪：内容变化后以版本号对比（O(1)，方案 §1.3）
-  instance.onDidChangeModelContent((e) => {
-    const id = store.activeTabId
-    if (id) store.patchTab(id, { dirty: isDirty(id) })
-    // 状态栏字数/行数（getValueLength/getLineCount 均为增量维护，O(1)）
-    refreshStatusMetrics(instance.getModel())
-    // 书签行号漂移跟随（方案 §2.7）：按行数差量平移，800ms 防抖回写
-    const model = instance.getModel()
-    const tab = id ? store.tabs.find((t) => t.id === id) : undefined
-    if (id && model && tab?.path) {
-      // 头部书名变了就同步标签标题（方案 §1.5：与元数据栏同一解析口径）
-      const title = bookTitleFromModel(model, tab.path)
-      if (title && title !== tab.title) store.patchTab(id, { title })
-      handleBookmarkDrift(id, tab.path, e.changes, model.getLineCount())
-    } else if (id && model && tab) {
-      // 空白标签：标题跟正文首行，节流回写
-      scheduleBlankTitle(id, model)
-    }
-  })
-
-  // 状态栏「行 x / y」：光标移动只更新行号
-  instance.onDidChangeCursorPosition((e) => {
-    setCursorLine(e.position.lineNumber)
-    // 最近阅读（方案 §2.11）：光标移动是阅读位置变化，停住 60 秒再写 last_read_at
-    const path = activePath()
-    if (path) library.scheduleReadStamp(path)
-  })
-
-  // 会话进度：记录视口顶部行（方案 §1.8），滚动停止 2 秒后落盘
-  instance.onDidScrollChange(() => {
-    const id = store.activeTabId
-    if (!id) return
-    captureProgress(id)
-    schedulePersist()
-    // 最近阅读（方案 §2.11）：滚动同样算阅读位置变化，与光标共用 60 秒防抖
-    const path = activePath()
-    if (path) library.scheduleReadStamp(path)
-  })
   attachSessionEditor(instance)
 
-  // 右键动作（方案 §2.7 / §3.2）：实现都在 useEditorCommands
-  registerEditorActions(instance, {
-    addBookmark: () => {
-      void addBookmarkAtCaret()
-        .then((message) => showStatusMessage(message))
-        .catch((e) => showStatusMessage(formatError(e)))
-    },
-    convert: (command) => void convertSelection(instance, convertInvoker(command)),
-    transformCase: (mode) => transformCaseSelection(instance, mode),
-    tidy: () => void tidyDocument(instance)
-  })
-
   startEvictionTimer()
-  // 重挂载（HMR）时 activeTab 的 model 可能已被卸载 → 走重载路径恢复
+  // 重挂载（HMR）时 activeTab 的 state 可能已被卸载 → 走重载路径恢复
   void activateFor(store.activeTabId)
 })
+
+// 主题深浅切换：Compartment 动态重配
+watch(
+  () => settings.dark,
+  (dark) => {
+    if (editor.value) applyEditorTheme(editor.value, dark)
+  }
+)
 
 // 锁定阅读（方案 §3.3）：只关闭输入，保留光标与滚动；锁定时焦点交还正文，空格才能翻页
 watch(
@@ -174,12 +206,12 @@ watch(
   }
 )
 
-// 正文字体/字号（「显示」菜单）：updateOptions 即时生效，行高按字号比例重算
+// 正文字体/字号（「显示」菜单）：Compartment 即时生效，行高按字号比例重算
 watch([() => settings.readerFont, () => settings.readerFontSize], ([font, size]) => {
   if (editor.value) applyReaderTypography(editor.value, font, size)
 })
 
-// activeTabId 变化 → setModel + restoreViewState（model 缺失时走 LRU 重载）
+// activeTabId 变化 → setState + restoreViewState（state 缺失时走 LRU 重载）
 watch(
   () => store.activeTabId,
   (newId, oldId) => {
@@ -218,6 +250,7 @@ function onTabRelocated(e: Event): void {
 onBeforeUnmount(() => {
   if (blankTitleTimer) clearTimeout(blankTitleTimer)
   blankTitleTimer = 0
+  pendingBlankTitleTabId = null
   window.removeEventListener('yueduo:convert', onConvertCommand)
   window.removeEventListener('yueduo:tabRelocated', onTabRelocated)
   stopEvictionTimer()
@@ -225,16 +258,16 @@ onBeforeUnmount(() => {
   void flushBookmarkDrift()
   attachSessionEditor(null)
   for (const t of store.tabs) disposeTabModel(t.id)
-  editor.value?.dispose()
+  if (editor.value) destroyReaderView(editor.value)
 })
 </script>
 
 <template>
   <div class="editor-wrap">
-    <div ref="container" class="monaco-container"></div>
+    <div ref="container" class="cm-container"></div>
     <div v-if="loading" class="loading-overlay">正在加载…</div>
     <div v-else-if="missing" class="loading-overlay">文件暂不可用，等待书库对账后自动重连</div>
-    <FindReplaceBar :editor="editor" :loading="loading" />
+    <FindReplaceBar :loading="loading" />
   </div>
 </template>
 
@@ -244,8 +277,11 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
 }
-.monaco-container {
+.cm-container {
   width: 100%;
+  height: 100%;
+}
+.cm-container :deep(.cm-editor) {
   height: 100%;
 }
 .loading-overlay {

@@ -1,3 +1,12 @@
+import type { EditorView } from '@codemirror/view'
+import {
+  createEmptyState,
+  getTopVisibleLine,
+  revealLineCentered,
+  revealPosNearest,
+  scrollToTopLineImmediate,
+  tabIdField
+} from '@/editor/codemirror'
 import {
   fileWriteDraft,
   onSessionFlush,
@@ -8,15 +17,19 @@ import {
 } from '@/ipc/bridge'
 import { useTabsStore } from '@/stores/tabs'
 import { useLibraryStore } from '@/stores/library'
+import { useSettingsStore } from '@/stores/settings'
+import { useReaderStore } from '@/stores/reader'
 import {
+  emitEditorStateSwitch,
   getTabModel,
+  getTabState,
   isDirty,
   resetTabLifecycle,
   restoreViewState,
-  saveViewState
+  saveViewState,
+  setLifecycleView
 } from './useTabLifecycle'
 import { flushBookmarkDrift, resetBookmarkDrift } from './useBookmarkDrift'
-import { monaco } from '@/monaco'
 import { parseMetadata } from '../../shared/metadataParser'
 import type { SessionRestore, SessionSnapshot } from '../../shared/types'
 import { fileNameOf } from '../utils/format'
@@ -47,26 +60,26 @@ const carets = new Map<string, CaretPos>()
 /** 本次启动从库恢复的视图：标签首次激活时消费一次，之后交给 viewState */
 const restoredView = new Map<string, RestoredView>()
 
-let editor: monaco.editor.IStandaloneCodeEditor | null = null
+let editor: EditorView | null = null
 let timer: ReturnType<typeof setTimeout> | null = null
 let subscribed = false
 /** 验收注入：让下一次草稿写直接 reject（验证 persist 不被草稿失败牵连） */
 let failNextDraftWrite = false
 
-/** EditorHost 拿到编辑器实例后挂上（滚动抓取/退出补存草稿都靠它） */
-export function attachSessionEditor(instance: monaco.editor.IStandaloneCodeEditor | null): void {
+/** EditorHost 拿到编辑器实例后挂上（滚动抓取/退出补存草稿与生命周期同步都靠它） */
+export function attachSessionEditor(instance: EditorView | null): void {
   editor = instance
+  setLifecycleView(instance)
 }
 
-/** 当前编辑器实例（元数据写回等编排用；EditorHost 未挂载时为 null） */
-export function getActiveEditor(): monaco.editor.IStandaloneCodeEditor | null {
+/** 当前编辑器实例（元数据写回、快捷键等编排用；EditorHost 未挂载时为 null） */
+export function getActiveEditor(): EditorView | null {
   return editor
 }
 
 /**
  * 把焦点交还正文：
- * 标签栏/左栏条目是普通 div，点击后焦点掉到 body；LRU 重载的 setModel(null) 也会让 textarea 失焦。
- * 不还焦点的话，切完标签/恢复会话后必须先点一次正文才能打字（用户实测的焦点丢失）。
+ * 标签栏/左栏条目是普通 div，点击后焦点掉到 body；切完标签/恢复会话后交还正文焦点。
  */
 export function focusEditor(): void {
   editor?.focus()
@@ -74,18 +87,19 @@ export function focusEditor(): void {
 
 /** 视口顶部行（方案 §1.8 的 progress_line 口径） */
 function topVisibleLine(): number {
-  return editor?.getVisibleRanges()[0]?.startLineNumber ?? 0
+  if (!editor || editor.state.field(tabIdField) === null) return 0
+  return getTopVisibleLine(editor)
 }
 
 /** 切换标签/滚动时抓取顶部行与光标（非 reactive Map） */
 export function captureProgress(tabId: string): void {
-  // 只有编辑器当前挂的正是该标签的 model 才可信；重载在途/已卸载时保留旧进度
-  const entry = getTabModel(tabId)
-  if (!editor || !entry || editor.getModel() !== entry.model) return
+  // 只有编辑器当前挂的正是该标签的 state 才可信；重载在途/已卸载时保留旧进度
+  if (!editor || editor.state.field(tabIdField) !== tabId) return
   const line = topVisibleLine()
   if (line > 0) progress.set(tabId, line)
-  const pos = editor.getPosition()
-  if (pos) carets.set(tabId, { line: pos.lineNumber, column: pos.column })
+  const head = editor.state.selection.main.head
+  const lineObj = editor.state.doc.lineAt(head)
+  carets.set(tabId, { line: lineObj.number, column: head - lineObj.from + 1 })
 }
 
 /**
@@ -99,62 +113,57 @@ export function applyRestoredView(tabId: string): boolean {
   const view = restoredView.get(tabId)
   if (!view) return false
   restoredView.delete(tabId)
-  if (!editor) return true
-  const model = editor.getModel()
-  if (!model) return true
+  if (!editor || editor.state.field(tabIdField) !== tabId) return true
+  const doc = editor.state.doc
   if (view.topLine > 0) {
-    const top = Math.min(view.topLine, model.getLineCount())
-    editor.setScrollTop(editor.getTopForLineNumber(top), monaco.editor.ScrollType.Immediate)
+    scrollToTopLineImmediate(editor, view.topLine)
   }
   if (view.caret) {
-    const line = Math.min(view.caret.line, model.getLineCount())
-    const column = Math.max(1, Math.min(view.caret.column, model.getLineMaxColumn(line)))
-    const pos = { lineNumber: line, column }
-    editor.setPosition(pos)
+    const lineNum = Math.max(1, Math.min(view.caret.line, doc.lines))
+    const lineObj = doc.line(lineNum)
+    const column = Math.max(1, Math.min(view.caret.column, lineObj.length + 1))
+    const pos = lineObj.from + column - 1
+    editor.dispatch({ selection: { anchor: pos } })
     // 光标在屏内就不动进度；只有窗口尺寸变化等原因让它落到屏外时，才最小幅度滚动回来
-    editor.revealPosition(pos, monaco.editor.ScrollType.Immediate)
+    revealPosNearest(editor, pos)
   } else {
     restoreViewState(tabId, editor)
   }
   return true
 }
 
-/**
- * 滚到指定行并顶部对齐（方案 §1.8 验收口径）：
- * revealLineNearTop 只保证「靠近顶部」，实际会偏几行；这里按行首像素精确对齐
- */
+/** 滚到指定行并顶部对齐（方案 §1.8 验收口径） */
 export function scrollToTopLine(line: number): void {
-  if (!editor) return
-  editor.setScrollTop(editor.getTopForLineNumber(line), monaco.editor.ScrollType.Immediate)
+  if (!editor || editor.state.field(tabIdField) === null) return
+  scrollToTopLineImmediate(editor, line)
 }
 
 /** 右栏章节/书签跳转（方案 §2.6）：光标落到目标行首、居中显示并交还焦点 */
 export function jumpToLine(line: number): boolean {
-  if (!editor) return false
-  const model = editor.getModel()
-  if (!model) return false
-  const target = Math.max(1, Math.min(Math.round(line), model.getLineCount()))
-  editor.setPosition({ lineNumber: target, column: 1 })
-  editor.revealLineInCenter(target, monaco.editor.ScrollType.Immediate)
+  if (!editor || editor.state.field(tabIdField) === null) return false
+  const doc = editor.state.doc
+  const target = Math.max(1, Math.min(Math.round(line), doc.lines))
+  const pos = doc.line(target).from
+  editor.dispatch({ selection: { anchor: pos } })
+  revealLineCentered(editor, target)
   editor.focus()
   return true
 }
 
-/** 全库书签可能指向未打开的书：目标标签的 model 挂上后再跳（同 Python pending jumps） */
+/** 全库书签可能指向未打开的书：目标标签的 state 挂上后再跳（同 Python pending jumps） */
 const pendingJumps = new Map<string, number>()
 
 /** 跨书点击书签：目标标签已激活则立即跳，否则排队等 EditorHost 激活完成 */
 export function requestLineJump(tabId: string, line: number): void {
   const store = useTabsStore()
-  const entry = getTabModel(tabId)
-  if (editor && store.activeTabId === tabId && entry && editor.getModel() === entry.model) {
+  if (editor && store.activeTabId === tabId && editor.state.field(tabIdField) === tabId) {
     jumpToLine(line)
     return
   }
   pendingJumps.set(tabId, line)
 }
 
-/** EditorHost 完成 setModel 后消费排队跳转 */
+/** EditorHost 完成 setState 后消费排队跳转 */
 export function applyPendingLineJump(tabId: string): boolean {
   const line = pendingJumps.get(tabId)
   if (line === undefined) return false
@@ -198,22 +207,33 @@ export async function persistSessionNow(): Promise<void> {
   await sessionPersist(snapshot)
 }
 
-/** 启动时恢复标签顺序/active/阅读进度（model 由 EditorHost 懒加载） */
+/** 启动时恢复标签顺序/active/阅读进度（state 由 EditorHost 懒加载） */
 export async function restoreSession(): Promise<void> {
   applyRestoredSession(await sessionRestore())
 }
 
 /**
  * 换库时清空渲染层会话（方案 §2.13）：
- * 编辑器解绑 → 释放全部 model 与身份缓存 → 清空进度/恢复视图/待跳转 → 清空标签元信息。
- * 顺序必须先解绑再 dispose，避免编辑器仍挂着一个已释放的 model。
+ * 编辑器切回空占位态 → 清空全部状态与身份缓存 → 清空进度/恢复视图/待跳转 → 清空标签元信息。
  */
 function resetSessionForSwitch(): void {
   if (timer) {
     clearTimeout(timer)
     timer = null
   }
-  editor?.setModel(null)
+  if (editor) {
+    const settings = useSettingsStore()
+    const reader = useReaderStore()
+    editor.setState(
+      createEmptyState({
+        dark: settings.dark,
+        font: settings.readerFont,
+        fontSize: settings.readerFontSize,
+        locked: reader.locked
+      })
+    )
+    emitEditorStateSwitch(null)
+  }
   resetBookmarkDrift()
   resetTabLifecycle()
   progress.clear()
@@ -282,7 +302,7 @@ export async function retryMissingTabs(): Promise<void> {
     store.patchTab(item.tabId, { path: item.path, missing: false })
   }
   schedulePersist()
-  // 当前标签若刚被接上，通知 EditorHost 重新加载正文（model 在 LRU 里可能从未建过）
+  // 当前标签若刚被接上，通知 EditorHost 重新加载正文（state 在 LRU 里可能从未建过）
   const active = store.activeTabId
   if (active && relocated.some((item) => item.tabId === active)) {
     window.dispatchEvent(new CustomEvent('yueduo:tabRelocated', { detail: active }))
@@ -356,6 +376,7 @@ async function persistDirtyResidentTabs(): Promise<number> {
     const entry = getTabModel(tab.id)
     if (!entry || !isDirty(tab.id)) continue
     if (editor && store.activeTabId === tab.id) saveViewState(tab.id, editor)
+    const state = getTabState(tab.id) ?? entry.state
     const meta = {
       path: tab.path,
       title: tab.title,
@@ -367,7 +388,7 @@ async function persistDirtyResidentTabs(): Promise<number> {
       failNextDraftWrite = false
       write = Promise.reject(new Error('YUE_TEST 注入的草稿写失败'))
     } else {
-      write = fileWriteDraft(tab.id, entry.model.getValue(), entry.viewState, meta)
+      write = fileWriteDraft(tab.id, state.doc.toString(), entry.viewState, meta)
     }
     writes.push(
       write.catch((e) => {
@@ -391,7 +412,7 @@ export function initSession(): void {
 
 /** 验收辅助：滚到指定行（顶部对齐）并返回视口顶部行 */
 export function scrollSessionTo(line: number): number | null {
-  if (!editor) return null
+  if (!editor || editor.state.field(tabIdField) === null) return null
   scrollToTopLine(line)
   return topVisibleLine()
 }
@@ -403,16 +424,20 @@ export function progressSnapshot(): Record<string, number> {
 
 /** 验收辅助：当前光标行列与视口顶部行（方案 §1.12：重启后光标必须回原位） */
 export function caretSnapshot(): { line: number; column: number; topLine: number } | null {
-  if (!editor) return null
-  const pos = editor.getPosition()
-  return pos ? { line: pos.lineNumber, column: pos.column, topLine: topVisibleLine() } : null
+  if (!editor || editor.state.field(tabIdField) === null) return null
+  const head = editor.state.selection.main.head
+  const lineObj = editor.state.doc.lineAt(head)
+  return { line: lineObj.number, column: head - lineObj.from + 1, topLine: topVisibleLine() }
 }
 
 /** 验收辅助：直接放置光标且不滚动（构造「光标与视口分离」的场景） */
 export function setCaretForTest(line: number, column: number): boolean {
-  const model = editor?.getModel()
-  if (!editor || !model || line < 1 || line > model.getLineCount()) return false
-  editor.setPosition({ lineNumber: line, column })
+  if (!editor || editor.state.field(tabIdField) === null) return false
+  const doc = editor.state.doc
+  if (line < 1 || line > doc.lines) return false
+  const lineObj = doc.line(line)
+  const col = Math.max(1, Math.min(column, lineObj.length + 1))
+  editor.dispatch({ selection: { anchor: lineObj.from + col - 1 } })
   return true
 }
 

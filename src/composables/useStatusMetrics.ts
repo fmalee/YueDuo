@@ -1,9 +1,9 @@
 import { reactive } from 'vue'
-import { monaco } from '@/monaco'
+import type { Text } from '@codemirror/state'
 
 /**
  * 状态栏数据（方案 §1.10）：光标行 / 总行数 / 字数
- * 只存数字，全文始终留在 Monaco model（AGENTS.md：全文字符串不进 Vue 响应式）
+ * 只存数字，全文始终留在 CM6 EditorState.doc（AGENTS.md：全文字符串不进 Vue 响应式）
  */
 export const statusMetrics = reactive({
   cursorLine: 1,
@@ -16,14 +16,14 @@ export function setCursorLine(line: number): void {
   statusMetrics.cursorLine = line
 }
 
-/** 切换模型 / 内容变化后刷新行数与字数（getValueLength 由 Monaco 增量维护，O(1)） */
-export function refreshStatusMetrics(model: monaco.editor.ITextModel | null): void {
-  if (!model) {
+/** 切换状态 / 内容变化后刷新行数与字数（Text.lines / Text.length 为 B-tree 根属性，O(1)） */
+export function refreshStatusMetrics(doc: Text | null): void {
+  if (!doc) {
     statusMetrics.cursorLine = 1
     statusMetrics.lineCount = 0
     statusMetrics.charCount = 0
     return
   }
-  statusMetrics.lineCount = model.getLineCount()
-  statusMetrics.charCount = model.getValueLength()
+  statusMetrics.lineCount = doc.lines
+  statusMetrics.charCount = doc.length
 }

@@ -18,6 +18,7 @@ import { useLibraryStore } from '@/stores/library'
 import {
   createTabModel,
   getTabModel,
+  getTabState,
   isDirty,
   disposeTabModel,
   setStatCache,
@@ -187,7 +188,7 @@ async function saveTab(id: string): Promise<boolean> {
     const chosen = await chooseSaveFile(stripBookMarks(tab.title) || '未命名')
       if (!chosen) return false
       // 落盘后按正文书名（含书名号）重算标题，没有就走新文件名去后缀
-      const text = getTabModel(id)?.model.getValue() ?? ''
+      const text = getTabState(id)?.doc.toString() ?? ''
       store.patchTab(id, { path: chosen, title: bookTitle(text, chosen) })
     }
     return saveActive()
@@ -247,7 +248,7 @@ async function saveTab(id: string): Promise<boolean> {
       const result = await fileRename(tab.path, newName)
       if (result.path === tab.path) return null
       // 书名不随文件名变：正文有书名号仍用书名，否则按新文件名去后缀
-      const text = getTabModel(id)?.model.getValue()
+      const text = getTabState(id)?.doc.toString()
       store.patchTab(id, {
         path: result.path,
         title: text === undefined ? tab.title : bookTitle(text, result.path)

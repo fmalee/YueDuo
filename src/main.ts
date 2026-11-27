@@ -16,7 +16,12 @@ app.use(pinia)
 if (import.meta.env.PROD) {
   document.addEventListener('contextmenu', (e) => {
     const target = e.target as HTMLElement | null
-    if (target?.closest('input, textarea, [contenteditable="true"]')) return
+    if (
+      target?.closest('input, textarea') ||
+      (target?.closest('[contenteditable="true"]') && !target.closest('.cm-editor'))
+    ) {
+      return
+    }
     e.preventDefault()
   })
 }
