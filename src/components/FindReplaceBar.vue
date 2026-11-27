@@ -1,55 +1,48 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import { monaco } from '@/monaco'
+import { isolateHistory } from '@codemirror/commands'
+import { EditorSelection, type Text } from '@codemirror/state'
+import { EditorView } from '@codemirror/view'
+import { tabIdField } from '@/editor/codemirror'
+import { clearFindHighlightEffect, setFindHighlightEffect } from '@/editor/findDecorations'
+import { onEditorStateSwitch, onEditorViewUpdate } from '@/composables/useTabLifecycle'
 import { useReaderStore } from '@/stores/reader'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import { METRICS } from '@/styles/theme'
 import { DEFAULT_RULES } from '../../shared/findRules'
 import type { FindRule } from '../../shared/findRules'
 import { expandReplacement } from '../../shared/replaceTemplate'
-import { searchMultilineRegex } from '../../shared/crossLineSearch'
-
-/** 统一的命中项：与 Monaco 的 FindMatch 同形，正则模式由全文扫描自建（可跨行） */
-interface FindResult {
-  range: monaco.Range
-  matches: string[] | null
-}
+import { searchDocument, type DocumentSearchMatch } from '../../shared/crossLineSearch'
 
 /**
  * 自绘查找替换栏（方案 §3.1）：
- * 非正则搜索交给 Monaco 的 model API（findMatches / findNextMatch / findPreviousMatch）；
- * 正则模式按全文扫描（shared/crossLineSearch），以支持 `\n` 跨行命中；
- * executeEdits 负责替换、装饰集合负责高亮；这里只做输入、状态与布局。
+ * 纯文本与跨行正则统一走 shared/crossLineSearch.searchDocument，返回相对全文的 UTF-16 偏移；
+ * 视口裁剪高亮交由 findDecorations.ts 的 ViewPlugin 仅装饰 view.visibleRanges；
+ * 替换与全部替换经 CM6 原子事务 + isolateHistory 独立成步；这里只做输入、状态与布局。
  */
 const props = defineProps<{
-  editor?: monaco.editor.IStandaloneCodeEditor
+  editor?: EditorView
   loading?: boolean
 }>()
 
-/** 与 Monaco 默认单词分隔符一致（全词匹配时传给 findMatches） */
+/** 默认单词分隔符（全字匹配时传给 searchDocument） */
 const WORD_SEPARATORS = '`~!@#$%^&*()-=+[{]}\\|;:\'",.<>/?'
 const SEARCH_DEBOUNCE_MS = 100
-/** 命中过多时只装饰可视区附近，计数仍用全量结果（方案 §3.1） */
-const MAX_DECORATIONS = 5000
-const DECORATION_MARGIN_LINES = 200
-/**
- * findMatches 的 limitResultCount：Monaco 内部按 `resultLen >= limit` 截断，
- * 传 -1 只会返回 1 条；这里取 Monaco 批量替换同款上限，视为不限。
- */
-const MATCH_LIMIT = 1_073_741_824
 
 /**
- * 正则全文扫描的取文缓存：按 model 引用 + versionId 缓存 getValue 结果。
- * 搜索框每敲一个字都全量扫描，13MB 全文的 getValue/分配占大头；文档未变时直接复用。
+ * 全文扫描的取文缓存：CM6 的 state.doc（Text 实例）严格不可变，
+ * 同一 Text 引用直接复用 doc.toString()，避免输入时重复拷贝大书全文。
  */
-let scanCache: { model: monaco.editor.ITextModel; versionId: number; text: string } | null = null
-function scanTextOf(model: monaco.editor.ITextModel): string {
-  if (scanCache && scanCache.model === model && scanCache.versionId === model.getVersionId()) {
-    return scanCache.text
-  }
-  const text = model.getValue()
-  scanCache = { model, versionId: model.getVersionId(), text }
+let scanCache: { doc: Text; text: string } | null = null
+function scanTextOf(doc: Text): string {
+  if (scanCache && scanCache.doc === doc) return scanCache.text
+  const text = doc.toString()
+  scanCache = { doc, text }
   return text
+}
+
+function hasBoundDoc(view: EditorView): boolean {
+  return view.state.field(tabIdField) !== null
 }
 
 const reader = useReaderStore()
@@ -62,7 +55,7 @@ const matchCase = ref(false)
 const wholeWord = ref(false)
 const regex = ref(false)
 const preserveCase = ref(false)
-const matches = shallowRef<FindResult[]>([])
+const matches = shallowRef<DocumentSearchMatch[]>([])
 const currentIndex = ref(0)
 const regexError = ref(false)
 const rulesOpen = ref(false)
@@ -77,15 +70,15 @@ const rulesPanel = ref<HTMLElement | null>(null)
 
 /** 上次的查找文本：无选区、光标所在行没有内容时用它兜底（方案 §3.1） */
 let lastFindText = ''
-/** 与 matches 一一对应的起始偏移，供二分定位当前项 */
-let matchStarts: number[] = []
-let decorations: monaco.editor.IEditorDecorationsCollection | null = null
 let searchTimer: ReturnType<typeof setTimeout> | null = null
-let decorationTimer: ReturnType<typeof setTimeout> | null = null
 /** 下一次防抖刷新后是否自动跳到首个匹配（输入/开关变化时置位，由刷新消费） */
 let pendingAutoJump = false
-let attached: monaco.editor.IStandaloneCodeEditor | null = null
-const disposables: monaco.IDisposable[] = []
+/** 区分自身 selectMatch 引起的选区变化，避免重复同步当前项高亮 */
+let selectingMatch = false
+/** 微任务合并标记：避免在 CM6 updateListener 内部同步嵌套 dispatch */
+let highlightSyncScheduled = false
+let disposeStateSwitch: (() => void) | null = null
+let disposeViewUpdate: (() => void) | null = null
 let resizeState: { startX: number; width: number } | null = null
 
 const rules = DEFAULT_RULES
@@ -97,16 +90,6 @@ const counterText = computed(() => {
   if (!matches.value.length) return '无匹配'
   return `${currentIndex.value + 1} / ${matches.value.length}`
 })
-
-watch(
-  () => props.editor,
-  (next) => {
-    disposeAttached()
-    decorations = null
-    if (next) attach(next)
-  },
-  { immediate: true }
-)
 
 watch(findText, () => {
   if (findText.value) lastFindText = findText.value
@@ -123,6 +106,28 @@ onMounted(() => {
   window.addEventListener('yueduo:findReplace', onFindReplaceCommand)
   window.addEventListener('resize', clampToContainer)
   window.addEventListener('pointerdown', onDocumentPointerDown, true)
+  disposeStateSwitch = onEditorStateSwitch(() => {
+    matches.value = []
+    currentIndex.value = 0
+    regexError.value = false
+    scanCache = null
+    if (open.value) refreshNow()
+    else if (props.editor) clearHighlight(props.editor)
+  })
+  disposeViewUpdate = onEditorViewUpdate((update) => {
+    if (!open.value) return
+    if (update.docChanged) {
+      scheduleRefresh()
+      return
+    }
+    if (update.selectionSet && !selectingMatch && matches.value.length > 0) {
+      const prev = currentIndex.value
+      updateCurrentIndex()
+      if (currentIndex.value !== prev) {
+        scheduleHighlightSync()
+      }
+    }
+  })
 })
 
 onBeforeUnmount(() => {
@@ -132,52 +137,44 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointerdown', onDocumentPointerDown, true)
   window.removeEventListener('pointermove', onResizeMove)
   window.removeEventListener('pointerup', stopResize)
+  disposeStateSwitch?.()
+  disposeStateSwitch = null
+  disposeViewUpdate?.()
+  disposeViewUpdate = null
   clearTimers()
-  decorations?.clear()
-  decorations = null
-  disposeAttached()
+  scanCache = null
+  if (props.editor) clearHighlight(props.editor)
 })
-
-function attach(instance: monaco.editor.IStandaloneCodeEditor): void {
-  attached = instance
-  disposables.push(
-    instance.onDidChangeModel(() => {
-      matches.value = []
-      matchStarts = []
-      currentIndex.value = 0
-      decorations?.clear()
-      if (open.value) refreshNow()
-    }),
-    instance.onDidChangeModelContent(() => {
-      if (open.value) scheduleRefresh()
-    }),
-    instance.onDidChangeCursorSelection(() => {
-      if (!open.value) return
-      updateCurrentIndex()
-      scheduleDecorationUpdate()
-    })
-  )
-}
-
-function disposeAttached(): void {
-  for (const disposable of disposables) disposable.dispose()
-  disposables.length = 0
-  attached = null
-}
 
 function clearTimers(): void {
   if (searchTimer) {
     clearTimeout(searchTimer)
     searchTimer = null
   }
-  if (decorationTimer) {
-    clearTimeout(decorationTimer)
-    decorationTimer = null
-  }
   pendingAutoJump = false
 }
 
-/** 快捷键（捕获阶段）：先于 Monaco 的输入处理，内置查找 widget 永不触发 */
+function clearHighlight(view: EditorView): void {
+  view.dispatch({ effects: clearFindHighlightEffect.of(undefined) })
+}
+
+function scheduleHighlightSync(): void {
+  if (highlightSyncScheduled) return
+  highlightSyncScheduled = true
+  queueMicrotask(() => {
+    highlightSyncScheduled = false
+    const view = props.editor
+    if (!open.value || !view || !hasBoundDoc(view) || !matches.value.length) return
+    view.dispatch({
+      effects: setFindHighlightEffect.of({
+        matches: matches.value,
+        currentIndex: currentIndex.value
+      })
+    })
+  })
+}
+
+/** 快捷键（捕获阶段）：先于编辑器输入处理，统一由自绘查找栏接管 */
 function onWindowKeydown(e: KeyboardEvent): void {
   if (e.isComposing) return
   const key = e.key.toLowerCase()
@@ -211,13 +208,13 @@ function onFindReplaceCommand(e: Event): void {
 }
 
 function openBar(expandReplace: boolean): void {
-  const instance = attached ?? props.editor
-  if (!instance) return
-  if (!instance.getModel()) {
+  const view = props.editor
+  if (!view) return
+  if (!hasBoundDoc(view)) {
     showStatusMessage(props.loading ? '文档正在载入，载入完成后再查找' : '没有可查找的文档', 3000)
     return
   }
-  const initial = initialFindText(instance)
+  const initial = initialFindText(view)
   findText.value = initial || lastFindText
   if (findText.value) lastFindText = findText.value
   replaceOpen.value = expandReplace
@@ -235,36 +232,31 @@ function openBar(expandReplace: boolean): void {
  * 打开时的查找文本（用户口径）：
  * 有选区用选区；否则用光标所在单词；所在行没有内容时用上次的查找文本。
  */
-function initialFindText(instance: monaco.editor.IStandaloneCodeEditor): string {
-  const model = instance.getModel()
-  if (!model) return ''
-  const selection = instance.getSelection()
-  if (selection && !selection.isEmpty()) {
-    const selected = model.getValueInRange(selection)
+function initialFindText(view: EditorView): string {
+  const { state } = view
+  const main = state.selection.main
+  if (!main.empty) {
+    const selected = state.sliceDoc(main.from, main.to)
     if (selected) return selected
   }
-  const position = instance.getPosition()
-  if (position) {
-    const word = wordAtCursor(model, position)
-    if (word) return word
-    const line = model.getLineContent(position.lineNumber)
-    if (!line.trim()) return lastFindText
-  }
+  const line = state.doc.lineAt(main.head)
+  const word = wordAtCursor(line.text, main.head - line.from)
+  if (word) return word
+  if (!line.text.trim()) return lastFindText
   return lastFindText
 }
 
 /** 光标所在的连续文字段（中英文都以标点/空白为界）；光标在空白处时取它后面的那段 */
-function wordAtCursor(model: monaco.editor.ITextModel, position: monaco.Position): string {
-  const line = model.getLineContent(position.lineNumber)
-  const offset = Math.max(0, position.column - 1)
-  let next = ''
-  for (const match of line.matchAll(/[\p{L}\p{N}_]+/gu)) {
+function wordAtCursor(lineText: string, offset: number): string {
+  const clamped = Math.max(0, offset)
+  let nextWord = ''
+  for (const match of lineText.matchAll(/[\p{L}\p{N}_]+/gu)) {
     const start = match.index ?? 0
     const end = start + match[0].length
-    if (start <= offset && offset < end) return match[0]
-    if (start >= offset && !next) next = match[0]
+    if (start <= clamped && clamped < end) return match[0]
+    if (start >= clamped && !nextWord) nextWord = match[0]
   }
-  return next
+  return nextWord
 }
 
 function close(): void {
@@ -272,10 +264,10 @@ function close(): void {
   rulesOpen.value = false
   clearTimers()
   matches.value = []
-  matchStarts = []
   currentIndex.value = 0
   regexError.value = false
-  decorations?.clear()
+  scanCache = null
+  if (props.editor) clearHighlight(props.editor)
   props.editor?.focus()
 }
 
@@ -293,19 +285,11 @@ function scheduleRefresh(autoJump = false): void {
   }, SEARCH_DEBOUNCE_MS)
 }
 
-function scheduleDecorationUpdate(): void {
-  if (decorationTimer) return
-  decorationTimer = setTimeout(() => {
-    decorationTimer = null
-    applyDecorations()
-  }, 60)
-}
-
 function wordSeparators(): string | null {
   return wholeWord.value ? WORD_SEPARATORS : null
 }
 
-/** 全量计数 + 命中（不截断，计数才准确）；过滤零长度命中，避免替换空串 */
+/** 全量计数 + 命中（不截断，计数才准确）；视口高亮交由 findDecorations ViewPlugin 裁剪 */
 function refreshNow(autoJump = false): void {
   if (searchTimer) {
     clearTimeout(searchTimer)
@@ -313,248 +297,108 @@ function refreshNow(autoJump = false): void {
   }
   // 直接刷新视为消费掉待跳转标记，避免替换/打开等路径被残留标记带偏
   pendingAutoJump = false
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!open.value || !instance || !model) {
+  const view = props.editor
+  if (!open.value || !view || !hasBoundDoc(view)) {
     matches.value = []
-    matchStarts = []
     currentIndex.value = 0
     regexError.value = false
-    decorations?.clear()
+    if (view) clearHighlight(view)
     return
   }
   const pattern = findText.value
   if (!pattern) {
     matches.value = []
-    matchStarts = []
     currentIndex.value = 0
     regexError.value = false
-    decorations?.clear()
+    clearHighlight(view)
     return
   }
-  if (regex.value) {
-    // 正则模式按全文匹配：Monaco 的 findMatches 逐行扫描，`\n` 永远跨不过行
-    try {
-      const text = scanTextOf(model)
-      const found = searchMultilineRegex(text, pattern, matchCase.value, wordSeparators())
-      matches.value = found.map((hit) => ({
-        range: rangeFromOffsets(model, hit.index, hit.index + hit.length),
-        matches: hit.groups
-      }))
-      matchStarts = found.map((hit) => hit.index)
-      regexError.value = false
-    } catch {
-      matches.value = []
-      matchStarts = []
-      currentIndex.value = 0
-      regexError.value = true
-      decorations?.clear()
-      return
-    }
-  } else {
-    try {
-      const found = model.findMatches(
-        pattern,
-        false,
-        false,
-        matchCase.value,
-        wordSeparators(),
-        false,
-        MATCH_LIMIT
-      )
-      matches.value = found.filter((match) => !match.range.isEmpty())
-      matchStarts = matches.value.map((match) => model.getOffsetAt(match.range.getStartPosition()))
-      regexError.value = false
-    } catch {
-      matches.value = []
-      matchStarts = []
-      regexError.value = true
-    }
+  try {
+    const text = scanTextOf(view.state.doc)
+    matches.value = searchDocument(text, pattern, {
+      regex: regex.value,
+      matchCase: matchCase.value,
+      wordSeparators: wordSeparators()
+    })
+    regexError.value = false
+  } catch {
+    matches.value = []
+    currentIndex.value = 0
+    regexError.value = true
+    clearHighlight(view)
+    return
   }
   updateCurrentIndex()
-  applyDecorations()
   // 输入/开关变化后自动定位到首个匹配；无匹配或正则无效时不动光标
-  if (autoJump && !regexError.value && matches.value.length) selectMatch(currentIndex.value)
-}
-
-/** 全文偏移 → Monaco 区间（跨行时首尾行不同） */
-function rangeFromOffsets(
-  model: monaco.editor.ITextModel,
-  startOffset: number,
-  endOffset: number
-): monaco.Range {
-  const start = model.getPositionAt(startOffset)
-  const end = model.getPositionAt(endOffset)
-  return new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column)
+  if (autoJump && !regexError.value && matches.value.length > 0) {
+    selectMatch(currentIndex.value)
+    return
+  }
+  view.dispatch({
+    effects: setFindHighlightEffect.of({
+      matches: matches.value,
+      currentIndex: currentIndex.value
+    })
+  })
 }
 
 /** 当前项 = 光标位置处或其后的首个命中（越界回到第一项），二分定位 */
 function updateCurrentIndex(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!instance || !model || !matches.value.length) {
+  const view = props.editor
+  const list = matches.value
+  if (!view || !hasBoundDoc(view) || list.length === 0) {
     currentIndex.value = 0
     return
   }
-  const position = instance.getSelection()?.getStartPosition() ?? instance.getPosition()
-  if (!position) {
-    currentIndex.value = 0
-    return
+  const offset = view.state.selection.main.from
+  let index = lowerBoundFrom(list, offset)
+  if (index > 0 && offset < list[index - 1].to) {
+    index -= 1
   }
-  const offset = model.getOffsetAt(position)
-  let index = lowerBound(matchStarts, offset)
-  if (index > 0) {
-    const previousEnd = model.getOffsetAt(matches.value[index - 1].range.getEndPosition())
-    if (offset < previousEnd) index -= 1
-  }
-  currentIndex.value = index < matches.value.length ? index : 0
+  currentIndex.value = index < list.length ? index : 0
 }
 
-function lowerBound(values: number[], target: number): number {
+function lowerBoundFrom(items: readonly DocumentSearchMatch[], target: number): number {
   let low = 0
-  let high = values.length
+  let high = items.length
   while (low < high) {
-    const mid = (low + high) >> 1
-    if (values[mid] < target) low = mid + 1
+    const mid = (low + high) >>> 1
+    if (items[mid].from < target) low = mid + 1
     else high = mid
   }
   return low
 }
 
-/** 命中过多时只装饰可视区 ±200 行，当前项始终保留 */
-function applyDecorations(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!instance || !model) {
-    decorations?.clear()
-    return
-  }
-  if (!open.value || !matches.value.length) {
-    decorations?.clear()
-    return
-  }
-  if (!decorations) decorations = instance.createDecorationsCollection()
-  const ranges = instance.getVisibleRanges()
-  const top = Math.max(1, (ranges[0]?.startLineNumber ?? 1) - DECORATION_MARGIN_LINES)
-  const bottom =
-    ranges.length > 0
-      ? ranges[ranges.length - 1].endLineNumber + DECORATION_MARGIN_LINES
-      : model.getLineCount()
-  const indexSet = new Set<number>()
-  if (matches.value.length <= MAX_DECORATIONS) {
-    for (let i = 0; i < matches.value.length; i++) indexSet.add(i)
-  } else {
-    for (let i = 0; i < matches.value.length; i++) {
-      const range = matches.value[i].range
-      if (
-        i === currentIndex.value ||
-        (range.endLineNumber >= top && range.startLineNumber <= bottom)
-      ) {
-        indexSet.add(i)
-      }
-    }
-  }
-  const items: monaco.editor.IModelDeltaDecoration[] = []
-  for (const index of indexSet) {
-    items.push({
-      range: matches.value[index].range,
-      options: {
-        inlineClassName: index === currentIndex.value ? 'yd-find-match-current' : 'yd-find-match',
-        stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
-      }
-    })
-  }
-  decorations.set(items)
-}
-
 function selectMatch(index: number): void {
-  const instance = attached ?? props.editor
+  const view = props.editor
   const match = matches.value[index]
-  if (!instance || !match) return
-  instance.setSelection(match.range)
-  instance.revealRangeInCenter(match.range, monaco.editor.ScrollType.Immediate)
+  if (!view || !match) return
   currentIndex.value = index
-  applyDecorations()
+  selectingMatch = true
+  try {
+    view.dispatch({
+      selection: { anchor: match.from, head: match.to },
+      effects: [
+        EditorView.scrollIntoView(EditorSelection.range(match.from, match.to), { y: 'center' }),
+        setFindHighlightEffect.of({ matches: matches.value, currentIndex: index })
+      ]
+    })
+  } finally {
+    selectingMatch = false
+  }
 }
 
-/** 下一个/上一个：非正则走 model.findNextMatch / findPreviousMatch，越界由 Monaco 环绕 */
+/** 下一个/上一个：直接在全量有序命中表中环绕推进（纯文本与跨行正则口径一致） */
 function next(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!open.value || !instance || !model || !matches.value.length) return
-  if (regex.value) {
-    // 跨行命中 findNextMatch 定位不到，直接在命中表里环绕
-    selectMatch((currentIndex.value + 1) % matches.value.length)
-    return
-  }
-  const current = matches.value[currentIndex.value]
-  const start = current
-    ? current.range.getEndPosition()
-    : (instance.getPosition() ?? { lineNumber: 1, column: 1 })
-  const found = model.findNextMatch(
-    findText.value,
-    start,
-    regex.value,
-    matchCase.value,
-    wordSeparators(),
-    false
-  )
-  let index = found ? indexOfMatch(found) : -1
-  if (index < 0) index = (currentIndex.value + 1) % matches.value.length
-  else if (index === currentIndex.value && matches.value.length > 1) {
-    index = (index + 1) % matches.value.length
-  }
-  selectMatch(index)
+  const view = props.editor
+  if (!open.value || !view || !hasBoundDoc(view) || !matches.value.length) return
+  selectMatch((currentIndex.value + 1) % matches.value.length)
 }
 
 function previous(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!open.value || !instance || !model || !matches.value.length) return
-  if (regex.value) {
-    selectMatch((currentIndex.value - 1 + matches.value.length) % matches.value.length)
-    return
-  }
-  const current = matches.value[currentIndex.value]
-  const start = current
-    ? current.range.getStartPosition()
-    : (instance.getPosition() ?? { lineNumber: 1, column: 1 })
-  const found = model.findPreviousMatch(
-    findText.value,
-    start,
-    regex.value,
-    matchCase.value,
-    wordSeparators(),
-    false
-  )
-  let index = found ? indexOfMatch(found) : -1
-  if (index < 0) index = (currentIndex.value - 1 + matches.value.length) % matches.value.length
-  else if (index === currentIndex.value && matches.value.length > 1) {
-    index = (index - 1 + matches.value.length) % matches.value.length
-  }
-  selectMatch(index)
-}
-
-function indexOfMatch(match: FindResult): number {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!model) return -1
-  const offset = model.getOffsetAt(match.range.getStartPosition())
-  let index = lowerBound(matchStarts, offset)
-  while (index < matches.value.length && matchStarts[index] === offset) {
-    if (sameRange(matches.value[index].range, match.range)) return index
-    index++
-  }
-  return -1
-}
-
-function sameRange(a: monaco.Range, b: monaco.Range): boolean {
-  return (
-    a.startLineNumber === b.startLineNumber &&
-    a.startColumn === b.startColumn &&
-    a.endLineNumber === b.endLineNumber &&
-    a.endColumn === b.endColumn
-  )
+  const view = props.editor
+  if (!open.value || !view || !hasBoundDoc(view) || !matches.value.length) return
+  selectMatch((currentIndex.value - 1 + matches.value.length) % matches.value.length)
 }
 
 /** 保留大小写：全大写/全小写/首字母大写三种形态，其余原样 */
@@ -580,16 +424,15 @@ function applyPreservedCase(source: string, replacement: string): string {
  * 替换文本：正则模式下先把 `\n` / `\t` / `\\` 展开成实际字符，再展开 $1–$9 / $& / $$
  * （用查找正则的捕获组），最后按需套保留大小写；非正则模式保持替换框原文，与旧行为一致。
  */
-function buildReplacement(match: FindResult, original: string): string {
-  const text = regex.value ? expandReplacement(replaceText.value, match.matches) : replaceText.value
+function buildReplacement(match: DocumentSearchMatch, original: string): string {
+  const text = regex.value ? expandReplacement(replaceText.value, match.groups) : replaceText.value
   return preserveCase.value ? applyPreservedCase(original, text) : text
 }
 
 /** 单个替换：替换当前项后跳到它后面的首个命中，焦点留在替换框（方案 §3.1） */
 function replaceCurrent(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!open.value || !instance || !model) return
+  const view = props.editor
+  if (!open.value || !view || !hasBoundDoc(view)) return
   if (reader.locked) {
     showStatusMessage('已锁定，无法替换文本', 3000)
     return
@@ -603,24 +446,23 @@ function replaceCurrent(): void {
     showStatusMessage('未找到匹配', 3000)
     return
   }
-  const original = model.getValueInRange(match.range)
-  const text = buildReplacement(match, original)
-  const startOffset = model.getOffsetAt(match.range.getStartPosition())
-  instance.pushUndoStop()
-  instance.executeEdits('findReplace', [{ range: match.range, text, forceMoveMarkers: true }])
-  instance.pushUndoStop()
+  const original = view.state.sliceDoc(match.from, match.to)
+  const insert = buildReplacement(match, original)
+  view.dispatch({
+    changes: { from: match.from, to: match.to, insert },
+    annotations: isolateHistory.of('full')
+  })
   refreshNow()
   if (!matches.value.length) return
-  let index = lowerBound(matchStarts, startOffset + text.length)
+  let index = lowerBoundFrom(matches.value, match.from + insert.length)
   if (index >= matches.value.length) index = 0
   selectMatch(index)
 }
 
-/** 全部替换：一次 executeEdits 应用所有命中，可用一次撤销整体恢复 */
+/** 全部替换：一次原子事务应用所有命中，独立撤销步（一次 Cmd+Z 完整还原） */
 function replaceAllMatches(): void {
-  const instance = attached ?? props.editor
-  const model = instance?.getModel()
-  if (!open.value || !instance || !model) return
+  const view = props.editor
+  if (!open.value || !view || !hasBoundDoc(view)) return
   if (reader.locked) {
     showStatusMessage('已锁定，无法替换文本', 3000)
     return
@@ -633,16 +475,17 @@ function replaceAllMatches(): void {
     showStatusMessage('未找到匹配', 3000)
     return
   }
-  const edits = matches.value.map((match) => {
-    const original = model.getValueInRange(match.range)
-    return { range: match.range, text: buildReplacement(match, original) }
+  const changes = matches.value.map((m) => ({
+    from: m.from,
+    to: m.to,
+    insert: buildReplacement(m, view.state.sliceDoc(m.from, m.to))
+  }))
+  view.dispatch({
+    changes,
+    annotations: isolateHistory.of('full')
   })
-  const count = edits.length
-  instance.pushUndoStop()
-  instance.executeEdits('findReplaceAll', edits)
-  instance.pushUndoStop()
   refreshNow()
-  showStatusMessage(`已替换 ${count} 处`, 5000)
+  showStatusMessage(`已替换 ${changes.length} 处`, 5000)
 }
 
 /** 查找框内容变化（输入/粘贴）：防抖后刷新并跳到首个匹配；IME 组字中不跳 */

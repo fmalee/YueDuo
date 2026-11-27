@@ -267,7 +267,7 @@ onBeforeUnmount(() => {
     <div ref="container" class="cm-container"></div>
     <div v-if="loading" class="loading-overlay">正在加载…</div>
     <div v-else-if="missing" class="loading-overlay">文件暂不可用，等待书库对账后自动重连</div>
-    <FindReplaceBar :loading="loading" />
+    <FindReplaceBar :editor="editor" :loading="loading" />
   </div>
 </template>
 
