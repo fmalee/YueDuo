@@ -2,18 +2,10 @@
  * 统一文档搜索与跨行正则匹配（方案 §3.1）
  * 对全文扫描并返回相对全文的 UTF-16 偏移区间，支持纯文本、跨行正则与整词边界（分隔符字符 + 空格/制表符 + 换行）。
  */
-export interface MultilineMatch {
-  /** 相对全文的起始偏移 */
-  index: number
-  /** 匹配长度（UTF-16 code unit） */
-  length: number
-  /** [0] 是整个匹配，[1..] 是捕获组 */
-  groups: string[]
-}
-
 export interface DocumentSearchMatch {
   from: number
   to: number
+  /** [0] 是整个匹配，[1..] 是捕获组；纯文本搜索为 null */
   groups: string[] | null
 }
 
@@ -34,13 +26,7 @@ export function searchDocument(
   if (pattern.length === 0) return []
 
   if (options.regex) {
-    return searchMultilineRegex(text, pattern, options.matchCase, options.wordSeparators).map(
-      (m) => ({
-        from: m.index,
-        to: m.index + m.length,
-        groups: m.groups
-      })
-    )
+    return searchMultilineRegex(text, pattern, options.matchCase, options.wordSeparators)
   }
 
   const separatorCodes =
@@ -85,15 +71,15 @@ export function searchDocument(
  * - `u` 与现有正则校验保持一致（编译失败由调用侧捕获，按「正则无效」处理）；
  * - 零长度命中直接跳过并强制前进，避免死循环（与旧的「过滤空区间」口径一致）。
  */
-export function searchMultilineRegex(
+function searchMultilineRegex(
   text: string,
   pattern: string,
   matchCase: boolean,
   wordSeparators: string | null
-): MultilineMatch[] {
+): DocumentSearchMatch[] {
   const regex = new RegExp(pattern, matchCase ? 'gmu' : 'gimu')
   const separatorCodes = wordSeparators === null ? null : buildSeparatorCodes(wordSeparators)
-  const results: MultilineMatch[] = []
+  const results: DocumentSearchMatch[] = []
   let match: RegExpExecArray | null
   while ((match = regex.exec(text)) !== null) {
     const value = match[0]
@@ -104,7 +90,7 @@ export function searchMultilineRegex(
     if (separatorCodes && !isWholeWord(text, match.index, value.length, separatorCodes)) {
       continue
     }
-    results.push({ index: match.index, length: value.length, groups: match.slice() })
+    results.push({ from: match.index, to: match.index + value.length, groups: match.slice() })
   }
   return results
 }

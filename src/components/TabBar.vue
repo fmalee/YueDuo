@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
 import { popupContextMenu } from '@/composables/useContextMenu'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import { useSettingsStore } from '@/stores/settings'
-import { METRICS } from '@/styles/theme'
+import { useTabBarScroll } from '@/composables/useTabBarScroll'
+import { useTabDragSort } from '@/composables/useTabDragSort'
+import TabRenameModal from './TabRenameModal.vue'
 
 const store = useTabsStore()
 const settings = useSettingsStore()
@@ -21,287 +23,39 @@ const {
   deleteTabFile,
   revealTabFile
 } = useTabs()
+
 const scrollRef = ref<HTMLDivElement>()
-/** 当前标签外展圆弧 8px：滚动时留同宽余量，避免弧脚被滚动容器裁掉 */
-const SCROLL_PADDING = 8
+const renameModal = ref<InstanceType<typeof TabRenameModal>>()
 
-// 原生横向滚动条在底部且过粗，会压住标签标题；改为置顶 3px 自绘条。
-// 不滚动时自动隐藏：滚动/拖拽/悬停才显示，淡出不影响标签栏高度与标签位置。
-const overflowing = ref(false)
-const scrollbarVisible = ref(false)
-const hovering = ref(false)
-const thumbWidth = ref(0)
-const thumbLeft = ref(0)
-const draggingScrollbar = ref(false)
-let scrollbarTrackWidth = 0
-let scrollbarStartX = 0
-let scrollbarStartLeft = 0
-let hideTimer: ReturnType<typeof setTimeout> | undefined
-let resizeObserver: ResizeObserver | undefined
+const {
+  overflowing,
+  scrollbarVisible,
+  hovering,
+  thumbWidth,
+  thumbLeft,
+  draggingScrollbar,
+  onBarEnter,
+  onBarLeave,
+  onTabsScroll,
+  onScrollbarPointerDown,
+  ensureActiveVisible,
+  syncScrollbar
+} = useTabBarScroll(scrollRef)
 
-/** 滚动/拖拽结束后延时淡出；悬停或仍处于拖拽时不隐藏 */
-function scheduleScrollbarHide(): void {
-  if (hideTimer) clearTimeout(hideTimer)
-  hideTimer = setTimeout(() => {
-    hideTimer = undefined
-    if (!hovering.value && !draggingScrollbar.value) scrollbarVisible.value = false
-  }, 900)
-}
-
-function revealScrollbar(): void {
-  scrollbarVisible.value = true
-  scheduleScrollbarHide()
-}
-
-function onBarEnter(): void {
-  hovering.value = true
-  if (hideTimer) {
-    clearTimeout(hideTimer)
-    hideTimer = undefined
-  }
-}
-
-function onBarLeave(): void {
-  hovering.value = false
-  scheduleScrollbarHide()
-}
-
-/**
- * 标签栏自动横向滚动到当前标签（方案 §1.5：溢出横向滚动）。
- * 左栏「编辑」页可点到标签栏视口外的条目，此时只换 active 而不滚动，
- * 看起来就像标签栏没跟着切；这里按可见区间做最小幅度滚动。
- */
-function ensureActiveVisible(): void {
-  const container = scrollRef.value
-  if (!container) return
-  const active = container.querySelector<HTMLElement>('.tab.active')
-  if (!active) return
-  const viewRect = container.getBoundingClientRect()
-  const activeRect = active.getBoundingClientRect()
-  const leftOverflow = activeRect.left - viewRect.left
-  const rightOverflow = activeRect.right - viewRect.right
-  if (leftOverflow < SCROLL_PADDING) {
-    // 标签比视口还宽时优先露出标题开头，不再为右缘余量把开头滚出去
-    container.scrollLeft += leftOverflow - SCROLL_PADDING
-  } else if (
-    rightOverflow > -SCROLL_PADDING &&
-    activeRect.width <= viewRect.width - SCROLL_PADDING * 2
-  ) {
-    container.scrollLeft += rightOverflow + SCROLL_PADDING
-  }
-}
-
-/** 同步置顶滚动条：宽度按可视比例，位置按 scrollLeft 比例 */
-function syncScrollbar(): void {
-  const el = scrollRef.value
-  if (!el) return
-  const max = el.scrollWidth - el.clientWidth
-  overflowing.value = max > 1
-  if (max <= 1) {
-    thumbWidth.value = 0
-    thumbLeft.value = 0
-    return
-  }
-  const width = Math.min(
-    el.clientWidth,
-    Math.max(
-      METRICS.tabScrollbarMinThumbWidth,
-      Math.round((el.clientWidth / el.scrollWidth) * el.clientWidth)
-    )
-  )
-  thumbWidth.value = width
-  thumbLeft.value = Math.round((el.scrollLeft / max) * (el.clientWidth - width))
-}
-
-function onScrollbarPointerDown(e: PointerEvent): void {
-  const el = scrollRef.value
-  if (!el || e.button !== 0 || el.scrollWidth <= el.clientWidth) return
-  const track = e.currentTarget as HTMLElement
-  scrollbarTrackWidth = track.clientWidth
-  const maxThumbLeft = scrollbarTrackWidth - thumbWidth.value
-  if (maxThumbLeft <= 0) return
-  e.preventDefault()
-  const onThumb =
-    e.target instanceof HTMLElement && e.target.classList.contains('tab-scrollbar-thumb')
-  if (!onThumb) {
-    // 点轨道：先把滑块中心对齐指针，再进入拖动
-    const left = Math.min(
-      maxThumbLeft,
-      Math.max(0, e.clientX - track.getBoundingClientRect().left - thumbWidth.value / 2)
-    )
-    el.scrollLeft = (left / maxThumbLeft) * (el.scrollWidth - el.clientWidth)
-    thumbLeft.value = left
-  }
-  draggingScrollbar.value = true
-  scrollbarStartX = e.clientX
-  scrollbarStartLeft = el.scrollLeft
-  window.addEventListener('pointermove', onScrollbarPointerMove)
-  window.addEventListener('pointerup', onScrollbarPointerEnd)
-  window.addEventListener('pointercancel', onScrollbarPointerEnd)
-}
-
-function onScrollbarPointerMove(e: PointerEvent): void {
-  const el = scrollRef.value
-  if (!el || !draggingScrollbar.value) return
-  const maxThumbLeft = scrollbarTrackWidth - thumbWidth.value
-  if (maxThumbLeft <= 0) return
-  const maxScroll = el.scrollWidth - el.clientWidth
-  const next = scrollbarStartLeft + ((e.clientX - scrollbarStartX) / maxThumbLeft) * maxScroll
-  el.scrollLeft = Math.max(0, Math.min(maxScroll, next))
-}
-
-/** 滚动时同步滑块并短暂显示滚动条，停手后淡出 */
-function onTabsScroll(): void {
-  syncScrollbar()
-  revealScrollbar()
-}
-
-function onScrollbarPointerEnd(): void {
-  draggingScrollbar.value = false
-  window.removeEventListener('pointermove', onScrollbarPointerMove)
-  window.removeEventListener('pointerup', onScrollbarPointerEnd)
-  window.removeEventListener('pointercancel', onScrollbarPointerEnd)
-  syncScrollbar()
-  scheduleScrollbarHide()
-}
-
-// —— 标签拖动排序（方案 §3.4）：按下后越过阈值才算拖动，松手按落点插入 ——
-/** 与 VS Code 同口径：小幅抖动仍视为点击，不进入拖动 */
-const DRAG_THRESHOLD = 4
-/** 拖到视口左右边缘该像素内自动横向滚动，便于把标签拖到视口外 */
-const DRAG_AUTOSCROLL_ZONE = 24
-const DRAG_AUTOSCROLL_STEP = 10
-const draggingTab = ref(false)
-const dragId = ref<string | null>(null)
-/** 插入落点：去掉被拖标签后的下标（0..length），null = 尚未算出 */
-const dropIndex = ref<number | null>(null)
-/** 落点指示线在滚动内容坐标系中的 left */
-const dropLeft = ref(0)
-let pendingDragId: string | null = null
-let dragStartX = 0
-let dragPointerX = 0
-/** 拖动结束后的 click 不能再激活标签；宏任务复位，确保 click 先被拦下 */
-let suppressClick = false
-let autoScrollFrame: number | null = null
-
-function clearAutoScroll(): void {
-  if (autoScrollFrame !== null) {
-    cancelAnimationFrame(autoScrollFrame)
-    autoScrollFrame = null
-  }
-}
-
-/** 按指针位置算插入下标：只比较其余标签的中点，被拖标签自身不参与 */
-function updateDrop(clientX: number): void {
-  const container = scrollRef.value
-  if (!container || !dragId.value) return
-  const rects: DOMRect[] = []
-  for (const el of container.querySelectorAll<HTMLElement>('.tab')) {
-    if (el.dataset.tabId === dragId.value) continue
-    rects.push(el.getBoundingClientRect())
-  }
-  let index = rects.length
-  for (let i = 0; i < rects.length; i++) {
-    if (clientX < rects[i].left + rects[i].width / 2) {
-      index = i
-      break
-    }
-  }
-  dropIndex.value = index
-  if (rects.length === 0) {
-    dropLeft.value = 0
-    return
-  }
-  // 插入线画在目标标签左缘；插到末尾则画在最后一个标签右缘
-  const edge = index < rects.length ? rects[index].left : rects[rects.length - 1].right
-  dropLeft.value = edge - container.getBoundingClientRect().left + container.scrollLeft
-}
-
-function stepAutoScroll(): void {
-  autoScrollFrame = null
-  if (!draggingTab.value) return
-  const el = scrollRef.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  let delta = 0
-  if (dragPointerX < rect.left + DRAG_AUTOSCROLL_ZONE) delta = -DRAG_AUTOSCROLL_STEP
-  else if (dragPointerX > rect.right - DRAG_AUTOSCROLL_ZONE) delta = DRAG_AUTOSCROLL_STEP
-  if (delta === 0) return
-  const max = el.scrollWidth - el.clientWidth
-  const next = Math.max(0, Math.min(max, el.scrollLeft + delta))
-  if (next === el.scrollLeft) return
-  el.scrollLeft = next
-  updateDrop(dragPointerX)
-  autoScrollFrame = requestAnimationFrame(stepAutoScroll)
-}
-
-function startAutoScroll(): void {
-  if (autoScrollFrame === null) autoScrollFrame = requestAnimationFrame(stepAutoScroll)
-}
-
-function onTabPointerDown(e: PointerEvent, tabId: string): void {
-  // 中键直接关闭（浏览器习惯）：任何标签免激活即关；阻掉 WebKit 中键默认行为
-  if (e.button === 1) {
-    e.preventDefault()
+const { draggingTab, dragId, dropIndex, dropLeft, onTabPointerDown, onTabClick } = useTabDragSort({
+  scrollRef,
+  onMove: (id, target) => {
+    store.moveTab(id, target)
+    schedulePersist()
+    focusEditor()
+  },
+  onMiddleClose: (tabId) => {
     void closeTab(tabId)
-    return
+  },
+  onActivate: (tabId) => {
+    activateTab(tabId)
   }
-  if (e.button !== 0) return
-  // 关闭按钮优先响应点击，不参与拖动
-  if (e.target instanceof Element && e.target.closest('.tab-close')) return
-  pendingDragId = tabId
-  dragStartX = e.clientX
-  dragPointerX = e.clientX
-  window.addEventListener('pointermove', onTabPointerMove)
-  window.addEventListener('pointerup', onTabPointerEnd)
-  window.addEventListener('pointercancel', onTabPointerEnd)
-}
-
-function onTabPointerMove(e: PointerEvent): void {
-  dragPointerX = e.clientX
-  if (!draggingTab.value) {
-    if (!pendingDragId || Math.abs(e.clientX - dragStartX) < DRAG_THRESHOLD) return
-    draggingTab.value = true
-    dragId.value = pendingDragId
-    updateDrop(e.clientX)
-    startAutoScroll()
-    return
-  }
-  updateDrop(e.clientX)
-  startAutoScroll()
-}
-
-function onTabPointerEnd(): void {
-  const moved = draggingTab.value
-  const id = dragId.value
-  const target = dropIndex.value
-  window.removeEventListener('pointermove', onTabPointerMove)
-  window.removeEventListener('pointerup', onTabPointerEnd)
-  window.removeEventListener('pointercancel', onTabPointerEnd)
-  clearAutoScroll()
-  pendingDragId = null
-  draggingTab.value = false
-  dragId.value = null
-  dropIndex.value = null
-  if (!moved || !id || target === null) return
-  suppressClick = true
-  setTimeout(() => {
-    suppressClick = false
-  }, 0)
-  store.moveTab(id, target)
-  schedulePersist()
-  // 标签是普通 div，按下后焦点掉到 body；拖动结束把焦点还给正文
-  focusEditor()
-}
-
-function onTabClick(id: string): void {
-  if (suppressClick) return
-  activateTab(id)
-}
-
-// —— 标签右键菜单（原生菜单）与重命名浮层（方案 §3.5）——
-const rename = ref<{ tabId: string; value: string; error: string } | null>(null)
-const renameInput = ref<HTMLInputElement>()
+})
 
 /** 右键弹原生菜单：不切活动标签，动作按 tabId 作用于被右击的那一项 */
 function openTabMenu(e: MouseEvent, tabId: string): void {
@@ -358,35 +112,7 @@ function beginRename(id: string): void {
   const tab = store.tabs.find((t) => t.id === id)
   if (!tab?.path) return
   const base = tab.path.split('/').pop() ?? ''
-  rename.value = { tabId: id, value: base.replace(/\.txt$/i, ''), error: '' }
-  void nextTick(() => {
-    renameInput.value?.focus()
-    renameInput.value?.select()
-  })
-}
-
-function cancelRename(): void {
-  if (!rename.value) return
-  rename.value = null
-  focusEditor()
-}
-
-async function submitRename(): Promise<void> {
-  const state = rename.value
-  if (!state) return
-  state.error = ''
-  const error = await renameTab(state.tabId, state.value)
-  if (error) {
-    state.error = error
-    return
-  }
-  rename.value = null
-  focusEditor()
-}
-
-function onGlobalKeydown(e: KeyboardEvent): void {
-  if (e.key !== 'Escape') return
-  if (rename.value) cancelRename()
+  renameModal.value?.open(id, base.replace(/\.txt$/i, ''))
 }
 
 // 活动标签下标也要监听：左栏拖动活动标签时 active 与数量都不变，但它在标签栏里的位置变了
@@ -403,29 +129,6 @@ watch(
     })
   }
 )
-
-onMounted(() => {
-  ensureActiveVisible()
-  void nextTick(syncScrollbar)
-  window.addEventListener('keydown', onGlobalKeydown)
-  if (scrollRef.value) {
-    resizeObserver = new ResizeObserver(syncScrollbar)
-    resizeObserver.observe(scrollRef.value)
-  }
-})
-
-onBeforeUnmount(() => {
-  resizeObserver?.disconnect()
-  window.removeEventListener('keydown', onGlobalKeydown)
-  if (hideTimer) clearTimeout(hideTimer)
-  clearAutoScroll()
-  window.removeEventListener('pointermove', onScrollbarPointerMove)
-  window.removeEventListener('pointerup', onScrollbarPointerEnd)
-  window.removeEventListener('pointercancel', onScrollbarPointerEnd)
-  window.removeEventListener('pointermove', onTabPointerMove)
-  window.removeEventListener('pointerup', onTabPointerEnd)
-  window.removeEventListener('pointercancel', onTabPointerEnd)
-})
 </script>
 
 <template>
@@ -508,27 +211,7 @@ onBeforeUnmount(() => {
     </div>
   </div>
 
-  <!-- 重命名浮层：自绘轻量对话框（与整体视觉一致，且不依赖原生输入框） -->
-  <Teleport to="body">
-    <div v-if="rename" class="rename-overlay" @mousedown.self="cancelRename">
-      <div class="rename-panel" role="dialog" aria-label="重命名">
-        <div class="rename-title">重命名</div>
-        <input
-          ref="renameInput"
-          v-model="rename.value"
-          class="rename-input"
-          spellcheck="false"
-          @keydown.enter.prevent="submitRename"
-          @keydown.esc.prevent="cancelRename"
-        />
-        <div v-if="rename.error" class="rename-error">{{ rename.error }}</div>
-        <div class="rename-actions">
-          <button class="rename-button" @click="cancelRename">取消</button>
-          <button class="rename-button primary" @click="submitRename">确定</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <TabRenameModal ref="renameModal" :on-submit="renameTab" />
 </template>
 
 <style scoped>
@@ -726,76 +409,5 @@ onBeforeUnmount(() => {
 .tab-close:hover {
   background: var(--yd-active-1);
   color: var(--yd-text-1);
-}
-
-/* 重命名浮层（QInputDialog 平替） */
-.rename-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: var(--yd-palette-top-offset);
-  background: var(--yd-overlay);
-}
-.rename-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--yd-rename-gap);
-  box-sizing: border-box;
-  width: min(var(--yd-rename-width), calc(100vw - 40px));
-  padding: var(--yd-rename-padding);
-  background: var(--yd-bg-1);
-  border: 1px solid var(--yd-border-1);
-  border-radius: var(--yd-palette-radius);
-  box-shadow: 0 12px 32px var(--yd-shadow);
-}
-.rename-title {
-  color: var(--yd-text-1);
-  font-size: var(--yd-palette-font-size);
-}
-.rename-input {
-  box-sizing: border-box;
-  width: 100%;
-  height: var(--yd-find-input-height);
-  padding: 0 var(--yd-find-input-padding-x);
-  color: var(--yd-text-1);
-  font-family: inherit;
-  font-size: var(--yd-palette-font-size);
-  background: var(--yd-bg-3);
-  border: 1px solid var(--yd-border-1);
-  border-radius: var(--yd-find-input-radius);
-  outline: none;
-}
-.rename-input:focus {
-  border-color: var(--yd-accent);
-}
-.rename-error {
-  color: var(--yd-danger);
-  font-size: var(--yd-palette-meta-font-size);
-}
-.rename-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--yd-rename-gap);
-}
-.rename-button {
-  padding: var(--yd-rename-button-padding-y) var(--yd-rename-button-padding-x);
-  color: var(--yd-text-2);
-  font-family: inherit;
-  font-size: var(--yd-find-font-size);
-  background: transparent;
-  border: 1px solid var(--yd-border-1);
-  border-radius: var(--yd-palette-key-radius);
-  cursor: pointer;
-}
-.rename-button:hover {
-  background: var(--yd-hover-1);
-}
-.rename-button.primary {
-  color: var(--yd-bg-1);
-  background: var(--yd-accent);
-  border-color: var(--yd-accent);
 }
 </style>

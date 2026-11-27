@@ -18,6 +18,31 @@ export function docHeadText(doc: Text, maxLines: number): string {
   return doc.sliceString(0, doc.line(endLine).to)
 }
 
+/** 仅当变更区间触及文档前 N 行（含旧/新文档边界）时才需要重算头部元数据 */
+export function changesTouchHeadLines(
+  oldDoc: Text,
+  newDoc: Text,
+  changes: ChangeSet,
+  headLines: number
+): boolean {
+  const oldLimit = oldDoc.line(Math.min(headLines, oldDoc.lines)).to
+  const newLimit = newDoc.line(Math.min(headLines, newDoc.lines)).to
+  let touched = false
+  changes.iterChangedRanges((fromA, _toA, fromB) => {
+    if (fromA <= oldLimit || fromB <= newLimit) touched = true
+  })
+  return touched
+}
+
+/** 按原 1-based 行号与 0-based 列偏移夹取恢复光标位置（不触发滚动） */
+export function restoreCaret(view: EditorView, lineNumber: number, colOffset: number): void {
+  const doc = view.state.doc
+  const clampedLine = Math.max(1, Math.min(doc.lines, lineNumber))
+  const line = doc.line(clampedLine)
+  const pos = Math.min(line.to, line.from + Math.max(0, colOffset))
+  view.dispatch({ selection: { anchor: pos } })
+}
+
 export function insertNewlineCmd(view: EditorView, withIndent: boolean): void {
   if (view.state.readOnly) return
   const sel = view.state.selection.main
@@ -110,13 +135,7 @@ export function applyTidyEdits(view: EditorView, edits: readonly TidyEdit[]): vo
     annotations: isolateHistory.of('full')
   })
 
-  const newDoc = view.state.doc
-  const restoredLineNum = Math.max(1, Math.min(newDoc.lines, savedLine))
-  const restoredLine = newDoc.line(restoredLineNum)
-  const restoredPos = Math.min(restoredLine.to, restoredLine.from + savedCol)
-  view.dispatch({
-    selection: { anchor: restoredPos }
-  })
+  restoreCaret(view, savedLine, savedCol)
 }
 
 export function mapBookmarksByChanges(

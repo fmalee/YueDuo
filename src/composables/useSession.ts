@@ -20,15 +20,14 @@ import { useLibraryStore } from '@/stores/library'
 import { useSettingsStore } from '@/stores/settings'
 import { useReaderStore } from '@/stores/reader'
 import {
-  emitEditorStateSwitch,
   getTabModel,
   getTabState,
   isDirty,
   resetTabLifecycle,
   restoreViewState,
-  saveViewState,
-  setLifecycleView
+  saveViewState
 } from './useTabLifecycle'
+import { emitEditorStateSwitch, setActiveEditorView } from './useEditorBridge'
 import { flushBookmarkDrift, resetBookmarkDrift } from './useBookmarkDrift'
 import { parseMetadata } from '../../shared/metadataParser'
 import type { SessionRestore, SessionSnapshot } from '../../shared/types'
@@ -69,7 +68,7 @@ let failNextDraftWrite = false
 /** EditorHost 拿到编辑器实例后挂上（滚动抓取/退出补存草稿与生命周期同步都靠它） */
 export function attachSessionEditor(instance: EditorView | null): void {
   editor = instance
-  setLifecycleView(instance)
+  setActiveEditorView(instance)
 }
 
 /** 当前编辑器实例（元数据写回、快捷键等编排用；EditorHost 未挂载时为 null） */

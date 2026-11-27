@@ -11,7 +11,6 @@ import { useSettingsStore } from '@/stores/settings'
 import { useReaderStore } from '@/stores/reader'
 import {
   computeResidentSet,
-  emitEditorStateSwitch,
   getTabModel,
   reloadModel,
   restoreViewState,
@@ -20,6 +19,7 @@ import {
   unloadModel,
   waitUnloadSettled
 } from './useTabLifecycle'
+import { emitEditorStateSwitch } from './useEditorBridge'
 import { refreshStatusMetrics, setCursorLine } from './useStatusMetrics'
 import { applyPendingLineJump, applyRestoredView, captureProgress, focusEditor } from './useSession'
 

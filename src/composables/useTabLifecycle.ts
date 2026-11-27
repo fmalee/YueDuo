@@ -1,6 +1,6 @@
 import { isolateHistory } from '@codemirror/commands'
 import type { EditorState, Text } from '@codemirror/state'
-import type { EditorView, ViewUpdate } from '@codemirror/view'
+import type { EditorView } from '@codemirror/view'
 import {
   createTabState,
   isCm6ViewState,
@@ -16,6 +16,7 @@ import {
 import { fileReadDraft, fileReadText, fileWriteDraft } from '@/ipc/bridge'
 import { DEFAULT_SETTINGS, PRELOAD_MAX_COUNT, PRELOAD_MIN_COUNT } from '../../shared/types'
 import type { FileStat, TabMeta } from '../../shared/types'
+import { getActiveEditorView } from './useEditorBridge'
 
 /**
  * 状态注册表 —— 非 reactive（全文/视图状态绝不进 Vue 响应式）
@@ -35,8 +36,6 @@ export interface ModelEntry {
   encoding: string
 }
 
-export type TabStateEntry = ModelEntry
-
 const DEFAULT_EDITOR_CONFIG: ReaderEditorConfig = {
   dark: false,
   font: DEFAULT_SETTINGS.readerFont,
@@ -45,43 +44,6 @@ const DEFAULT_EDITOR_CONFIG: ReaderEditorConfig = {
 }
 
 const registry = new Map<string, ModelEntry>()
-
-/** 当前挂载的全局唯一 EditorView（用于优先读取实时 state 与直接派发编辑） */
-let activeView: EditorView | null = null
-
-export function setLifecycleView(view: EditorView | null): void {
-  activeView = view
-}
-
-/** 视图事件订阅桥（供 MetadataBar 与 FindReplaceBar 使用） */
-const viewUpdateListeners = new Set<(update: ViewUpdate) => void>()
-const stateSwitchListeners = new Set<(tabId: string | null) => void>()
-
-export function onEditorViewUpdate(listener: (update: ViewUpdate) => void): () => void {
-  viewUpdateListeners.add(listener)
-  return () => {
-    viewUpdateListeners.delete(listener)
-  }
-}
-
-export function emitEditorViewUpdate(update: ViewUpdate): void {
-  for (const listener of viewUpdateListeners) {
-    listener(update)
-  }
-}
-
-export function onEditorStateSwitch(listener: (tabId: string | null) => void): () => void {
-  stateSwitchListeners.add(listener)
-  return () => {
-    stateSwitchListeners.delete(listener)
-  }
-}
-
-export function emitEditorStateSwitch(tabId: string | null): void {
-  for (const listener of stateSwitchListeners) {
-    listener(tabId)
-  }
-}
 
 /** 除当前标签外按 lastFocusedAt 驻留的数量（方案 §1.7；1.9 由设置注入，0–20） */
 let preloadCount = DEFAULT_SETTINGS.preloadCount
@@ -143,8 +105,9 @@ export function getTabModel(tabId: string): ModelEntry | undefined {
 
 /** 优先读实时挂载视图的 state，未挂载时读注册表缓存 */
 export function getTabState(tabId: string): EditorState | null {
-  if (activeView && activeView.state.field(tabIdField) === tabId) {
-    return activeView.state
+  const view = getActiveEditorView()
+  if (view && view.state.field(tabIdField) === tabId) {
+    return view.state
   }
   return registry.get(tabId)?.state ?? null
 }
@@ -153,17 +116,6 @@ export function getTabState(tabId: string): EditorState | null {
 export function syncTabState(tabId: string, state: EditorState): void {
   const entry = registry.get(tabId)
   if (entry) entry.state = state
-}
-
-/** 同步当前激活视图的 state 到注册表 */
-export function syncActiveTabState(view: EditorView): void {
-  const tabId = view.state.field(tabIdField)
-  if (tabId) syncTabState(tabId, view.state)
-}
-
-/** 非激活标签离线更新 state 后写回注册表 */
-export function updateTabStateOffline(tabId: string, state: EditorState): void {
-  syncTabState(tabId, state)
 }
 
 /**
@@ -180,12 +132,13 @@ export function applyTabEdit(
   const entry = registry.get(tabId)
   if (!entry) return false
   const annotations = isolate ? isolateHistory.of('full') : undefined
-  if (activeView && activeView.state.field(tabIdField) === tabId) {
-    activeView.dispatch({
+  const view = getActiveEditorView()
+  if (view && view.state.field(tabIdField) === tabId) {
+    view.dispatch({
       changes: { from, to, insert },
       ...(annotations ? { annotations } : {})
     })
-    entry.state = activeView.state
+    entry.state = view.state
     return true
   }
   const tr = entry.state.update({
@@ -236,7 +189,7 @@ export function restoreViewState(tabId: string, view: EditorView): void {
 export function resetBaseline(tabId: string, view?: EditorView): void {
   const entry = registry.get(tabId)
   if (!entry) return
-  const targetView = view ?? activeView
+  const targetView = view ?? getActiveEditorView()
   if (targetView && targetView.state.field(tabIdField) === tabId) {
     entry.baselineVersion = isolateAndCaptureBaseline(targetView)
     entry.state = targetView.state

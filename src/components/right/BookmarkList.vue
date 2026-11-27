@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { getTabState } from '@/composables/useTabLifecycle'
-import { INDENT_RE } from '@/composables/useLineCommands'
+import { INDENT_RE } from '@/editor/textEdits'
 import { useBookmarks } from '@/composables/useBookmarks'
 import { focusEditor, jumpToLine } from '@/composables/useSession'
 import type { BookmarkInfo } from '../../../shared/types'

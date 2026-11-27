@@ -1,21 +1,22 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { ChangeSet, Text } from '@codemirror/state'
+import type { Text } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { destroyReaderView, tabIdField } from '@/editor/codemirror'
 import { currentDocVersion } from '@/editor/dirtyState'
+import { changesTouchHeadLines } from '@/editor/textEdits'
 import { useTabsStore } from '@/stores/tabs'
 import { useSettingsStore } from '@/stores/settings'
 import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
 import {
   disposeTabModel,
-  emitEditorViewUpdate,
   getTabState,
   isDirty,
   setPreloadCount,
   syncTabState
 } from '@/composables/useTabLifecycle'
+import { emitEditorViewUpdate } from '@/composables/useEditorBridge'
 import {
   convertInvoker,
   useEditorCommands,
@@ -95,22 +96,6 @@ function clearMetricsTimer(): void {
     clearTimeout(metricsTimer)
     metricsTimer = 0
   }
-}
-
-/** 仅当变更区间触及文档前 N 行（含旧/新文档边界）时才需要重算头部元数据 */
-function changesTouchHeadLines(
-  oldDoc: Text,
-  newDoc: Text,
-  changes: ChangeSet,
-  headLines: number
-): boolean {
-  const oldLimit = oldDoc.line(Math.min(headLines, oldDoc.lines)).to
-  const newLimit = newDoc.line(Math.min(headLines, newDoc.lines)).to
-  let touched = false
-  changes.iterChangedRanges((fromA, _toA, fromB) => {
-    if (fromA <= oldLimit || fromB <= newLimit) touched = true
-  })
-  return touched
 }
 
 function scheduleMetricsRefresh(view: EditorView): void {

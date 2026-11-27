@@ -1,7 +1,7 @@
 import { isolateHistory } from '@codemirror/commands'
 import type { EditorView } from '@codemirror/view'
 import { tabIdField } from '@/editor/codemirror'
-import { applyTidyEdits } from '@/editor/textEdits'
+import { applyTidyEdits, restoreCaret } from '@/editor/textEdits'
 import {
   convertTidy,
   convertToHalfwidth,
@@ -126,13 +126,7 @@ export function useEditorCommands(): {
       annotations: isolateHistory.of('full')
     })
     // 全文整体替换后按原行列放回光标（自动夹取到新文档范围内）
-    if (!hasSelection) {
-      const newDoc = editor.state.doc
-      const lineNum = Math.max(1, Math.min(newDoc.lines, savedLineNum))
-      const lineObj = newDoc.line(lineNum)
-      const pos = Math.min(lineObj.to, lineObj.from + savedCol)
-      editor.dispatch({ selection: { anchor: pos } })
-    }
+    if (!hasSelection) restoreCaret(editor, savedLineNum, savedCol)
     const note = conversionNote(result)
     const scope = hasSelection ? '选区' : '全文'
     showStatusMessage(`已转换${scope}，可用撤销恢复${note ? `；${note}` : ''}`, 5000)

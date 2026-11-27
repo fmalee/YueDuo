@@ -4,7 +4,12 @@ import { useTabsStore } from '@/stores/tabs'
 import { useCommandPalette } from './useCommandPalette'
 import { useTabs } from './useTabs'
 import { getActiveEditor } from './useSession'
-import { deleteToLineStart, insertLineBelow, insertNewline, pageBy } from './useLineCommands'
+import {
+  deleteToLineStartCmd,
+  insertLineBelowCmd,
+  insertNewlineCmd,
+  pageByCmd
+} from '@/editor/textEdits'
 import { showStatusMessage } from './useStatusMessage'
 import { formatError } from '../utils/format'
 
@@ -170,7 +175,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Enter' },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && insertNewline(editor, true)
+      run: (editor) => editor && insertNewlineCmd(editor, true)
     },
     {
       id: 'newlinePlain',
@@ -178,7 +183,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Enter', shift: true },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && insertNewline(editor, false)
+      run: (editor) => editor && insertNewlineCmd(editor, false)
     },
     {
       // 捕获阶段拦下，避免编辑器默认回车行为再插一行
@@ -187,7 +192,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Enter', mod: true },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && insertLineBelow(editor, true)
+      run: (editor) => editor && insertLineBelowCmd(editor, true)
     },
     {
       id: 'insertLineBelowPlain',
@@ -195,7 +200,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Enter', mod: true, shift: true },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && insertLineBelow(editor, false)
+      run: (editor) => editor && insertLineBelowCmd(editor, false)
     },
     {
       id: 'pageDown',
@@ -203,7 +208,10 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Space' },
       scope: 'editor',
       availability: 'readonly',
-      run: (editor) => editor && pageBy(editor, 1)
+      run: (editor) => {
+        const target = editor ? pageByCmd(editor, 1) : null
+        if (target !== null) showStatusMessage(`阅读到第 ${target} 行`, 2000)
+      }
     },
     {
       id: 'pageUp',
@@ -211,7 +219,10 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Space', shift: true },
       scope: 'editor',
       availability: 'readonly',
-      run: (editor) => editor && pageBy(editor, -1)
+      run: (editor) => {
+        const target = editor ? pageByCmd(editor, -1) : null
+        if (target !== null) showStatusMessage(`阅读到第 ${target} 行`, 2000)
+      }
     },
     {
       id: 'deleteToLineStart',
@@ -219,7 +230,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Backspace', shift: true },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && deleteToLineStart(editor)
+      run: (editor) => editor && deleteToLineStartCmd(editor)
     },
     {
       // 中文输入法在候选上屏后会把 Shift+Backspace 当作输入法按键吞掉（到不了应用），
@@ -229,7 +240,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       chord: { code: 'Backspace', shift: true, alt: true },
       scope: 'editor',
       availability: 'editable',
-      run: (editor) => editor && deleteToLineStart(editor)
+      run: (editor) => editor && deleteToLineStartCmd(editor)
     }
   ]
 

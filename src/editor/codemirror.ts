@@ -7,7 +7,6 @@
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import {
   Compartment,
-  EditorSelection,
   EditorState,
   StateField,
   Transaction,
@@ -284,16 +283,5 @@ export function revealPosNearest(view: EditorView, pos: number): void {
   const clamped = Math.max(0, Math.min(view.state.doc.length, Math.trunc(pos)))
   view.dispatch({
     effects: EditorView.scrollIntoView(clamped, { y: 'nearest' })
-  })
-}
-
-export function revealRangeCentered(view: EditorView, from: number, to: number): void {
-  const len = view.state.doc.length
-  const clampedFrom = Math.max(0, Math.min(len, Math.trunc(from)))
-  const clampedTo = Math.max(clampedFrom, Math.min(len, Math.trunc(to)))
-  view.dispatch({
-    effects: EditorView.scrollIntoView(EditorSelection.range(clampedFrom, clampedTo), {
-      y: 'center'
-    })
   })
 }

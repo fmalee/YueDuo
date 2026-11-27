@@ -3,7 +3,7 @@ import { libraryAddBookmark, libraryBookmarks, libraryRemoveBookmark } from '@/i
 import { getTabState } from '@/composables/useTabLifecycle'
 import { caretSnapshot } from '@/composables/useSession'
 import { useTabsStore } from '@/stores/tabs'
-import { INDENT_RE } from './useLineCommands'
+import { INDENT_RE } from '@/editor/textEdits'
 import {
   localBookmarkLines,
   noteBookmarkAdded,
