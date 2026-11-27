@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { tabIdField } from '@/editor/codemirror'
 import { useTabsStore } from '@/stores/tabs'
+import { useLibraryStore } from '@/stores/library'
 import { useReaderStore } from '@/stores/reader'
 import { useMetadataEdit } from '@/composables/useMetadataEdit'
 import { resolveRatingClick } from '@/composables/useRatingGesture'
@@ -39,6 +40,7 @@ const PLACEHOLDERS: Record<EditableField, string> = {
 const HEAD_LINES = 10
 
 const store = useTabsStore()
+const library = useLibraryStore()
 const reader = useReaderStore()
 const { applyMetadataField, applyRating } = useMetadataEdit()
 
@@ -151,10 +153,27 @@ async function load(): Promise<void> {
   rating.value = info.rating
 }
 
+/** 外部（左栏改分 / 书库重扫）更新书籍评分时，仅重读当前书的评分（防切标签与本地写入竞态） */
+async function refreshRating(): Promise<void> {
+  const path = store.activeTab?.path ?? ''
+  if (!path) return
+  const gen = loadGeneration
+  const writeGen = ratingWriteGeneration
+  const info = await metaReadRating(path).catch(() => null)
+  if (gen !== loadGeneration || writeGen !== ratingWriteGeneration || !info) return
+  rating.value = info.rating
+}
+
 /** 标签切换 / 另存为改变路径时重读：评分入口只看路径，与文本三项同步就绪 */
 watch([() => store.activeTabId, () => store.activeTab?.path], () => void load(), {
   immediate: true
 })
+
+/** 左栏修改书籍评分或书库重扫后，同步刷新底部评分显示 */
+watch(
+  () => library.ratingRevision,
+  () => void refreshRating()
+)
 
 onBeforeUnmount(() => {
   offStateSwitch()

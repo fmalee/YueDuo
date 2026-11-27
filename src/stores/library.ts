@@ -65,7 +65,9 @@ export const useLibraryStore = defineStore('library', {
     ratingFilter: null as number | null,
     rated: [] as LibraryBook[],
     /** 文件增删改计数器：书架目录树是文件系统快照，靠它触发重读（数据库列表走 refreshLists） */
-    fileRevision: 0
+    fileRevision: 0,
+    /** 书籍评分变更计数器：左栏改分/重扫后驱动底部元数据栏重读当前书评分 */
+    ratingRevision: 0
   }),
   actions: {
     /**
@@ -119,6 +121,7 @@ export const useLibraryStore = defineStore('library', {
       try {
         this.lastEnrich = await libraryEnrich()
         await this.refreshLists()
+        this.ratingRevision++
         return true
       } catch (e) {
         this.error = message(e)
@@ -287,6 +290,7 @@ export const useLibraryStore = defineStore('library', {
         for (const list of [this.history, this.following, this.tagBooks, this.rated]) {
           for (const book of list) if (book.id === id) book.rating = value
         }
+        this.ratingRevision++
         // 追更/标签下钻/评分页均按 rating DESC 排序；历史按最近阅读排序，无需重读
         await Promise.all([
           this.loadFollowing(),
