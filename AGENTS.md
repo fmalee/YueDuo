@@ -26,18 +26,18 @@
 
 目录职责与关键数据流见 [.trae/documents/architecture.md](.trae/documents/architecture.md)，这里只留常驻约束。
 
-| 目录 | 职责 |
-| --- | --- |
+| 目录                     | 职责                                                                                                      |
+| ------------------------ | --------------------------------------------------------------------------------------------------------- |
 | `src-tauri/src/commands` | 按域收敛 IPC 参数（file/library/session/meta/convert/dialog/settings/app），调用 state/services，不写业务 |
-| `src-tauri/src/services` | 纯 Rust 业务，可单测，不依赖 tauri 类型 |
-| `src-tauri/src/state` | AppState + 子模块（settings/db/library/books/bookmarks/session），rusqlite 仓储 |
-| `src-tauri/src/shell.rs` | 原生中文菜单；`theme.rs` 主题；`types.rs` shared/types.ts 的 serde 镜像 |
-| `src/components` | 只做 UI 与事件，不碰 IPC 细节 |
-| `src/composables` | 渲染层编排：标签、会话、编辑动作、书库切换 |
-| `src/editor` | CodeMirror 6 引擎层：实例/Compartment 工厂、O(1) 判脏、视口裁剪高亮、纯编辑动作 |
-| `src/stores` | 只存元信息与 UI 状态（Pinia），不存全文 |
-| `src/ipc` | `bridge.ts` 是渲染层唯一 IPC 出口 |
-| `shared` | 两侧共用契约与规则（types.ts、findRules.json、metadataParser 等） |
+| `src-tauri/src/services` | 纯 Rust 业务，可单测，不依赖 tauri 类型                                                                   |
+| `src-tauri/src/state`    | AppState + 子模块（settings/db/library/books/bookmarks/session），rusqlite 仓储                           |
+| `src-tauri/src/shell.rs` | 原生中文菜单；`theme.rs` 主题；`types.rs` shared/types.ts 的 serde 镜像                                   |
+| `src/components`         | 只做 UI 与事件，不碰 IPC 细节                                                                             |
+| `src/composables`        | 渲染层编排：标签、会话、编辑动作、书库切换                                                                |
+| `src/editor`             | CodeMirror 6 引擎层：实例/Compartment 工厂、O(1) 判脏、视口裁剪高亮、纯编辑动作                           |
+| `src/stores`             | 只存元信息与 UI 状态（Pinia），不存全文                                                                   |
+| `src/ipc`                | `bridge.ts` 是渲染层唯一 IPC 出口                                                                         |
+| `shared`                 | 两侧共用契约与规则（types.ts、findRules.json、metadataParser 等）                                         |
 
 - **typed commands 契约**：command 名 = Rust fn 名（snake_case）；前端传 camelCase 参数 key 自动映射；错误统一 `Result<T, String>`，bridge.ts 转异常（前缀 `[command名]`）。**新增通道同步四处**：`commands/<域>.rs`、`src/ipc/bridge.ts`、`shared/types.ts`、`types.rs`（serde 镜像），并在 lib.rs 的 `generate_handler!` 注册。
 - 渲染层只经 `src/ipc/bridge.ts` 调 typed invoke；禁止渲染层 import Node 模块或直接用 `@tauri-apps/api`（windowShow 等窗口能力也封装在 bridge.ts）。

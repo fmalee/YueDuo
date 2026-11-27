@@ -120,12 +120,12 @@ YueDuo/
 
 **Rust → 渲染层的推送通道**（`app.emit`，bridge.ts 按固定名订阅）：
 
-| 通道 | 方向与用途 | 发送点 |
-| --- | --- | --- |
-| `theme:updated` | 生效主题变化（system 模式随系统切换） | `theme.rs` + `commands/settings.rs` |
-| `session:flush` | 关窗/退出前要求渲染层落盘 | `lib.rs begin_flush_then_exit()` |
-| `library:scanProgress` | enrich 扫描进度（每 10 个文件） | `commands/library.rs` 扫描线程 |
-| `app:menuCommand` | 菜单/快捷键动作转交渲染层 | `shell.rs` |
+| 通道                   | 方向与用途                            | 发送点                              |
+| ---------------------- | ------------------------------------- | ----------------------------------- |
+| `theme:updated`        | 生效主题变化（system 模式随系统切换） | `theme.rs` + `commands/settings.rs` |
+| `session:flush`        | 关窗/退出前要求渲染层落盘             | `lib.rs begin_flush_then_exit()`    |
+| `library:scanProgress` | enrich 扫描进度（每 10 个文件）       | `commands/library.rs` 扫描线程      |
+| `app:menuCommand`      | 菜单/快捷键动作转交渲染层             | `shell.rs`                          |
 
 **退出握手时序**（与 Electron 版 before-quit 语义对齐，实现不同）：
 
@@ -199,28 +199,28 @@ library_open（Rust 建新库 + 停扫描 + 读新会话，旧库仍活动）
 
 ## 3. 速查索引
 
-| 想改什么 | 先看这些文件 |
-| --- | --- |
-| 加一个 IPC 通道 | `src-tauri/src/commands/<域>.rs`、`lib.rs`（generate_handler）、`src/ipc/bridge.ts`、`shared/types.ts` + `types.rs` |
-| 改文件读写 / 编码 | `commands/file.rs`、`services/codec.rs`、`services/files.rs`、`services/metadata_writer.rs` |
-| 改标签行为（打开/关闭/保存/改名） | `composables/useTabs.ts`、`components/TabBar.vue`、`composables/useTabLifecycle.ts` |
-| 改编辑器选项 / 主题 / 字体 | `src/monaco.ts`、`composables/useEditorSetup.ts`、`styles/theme.ts` |
-| 改快捷键 | `composables/useEditorKeybindings.ts`、`composables/useLineCommands.ts`、`src-tauri/src/shell.rs` |
-| 改 LRU / 草稿 / 会话 | `composables/useTabLifecycle.ts`、`useEditorViewState.ts`、`useSession.ts`、`state/session.rs` |
-| 改元数据解析 / 写回 | `shared/metadataParser.ts`、`services/metadata.rs`、`services/metadata_writer.rs`、`commands/meta.rs`、`components/MetadataBar.vue` |
-| 改书库扫描 / 对账 | `services/scanner.rs`、`services/reconcile.rs`、`commands/library.rs` |
-| 改换库流程 | `composables/useLibrarySwitch.ts`、`state/library.rs`、`commands/library.rs`、`composables/useSession.ts` |
-| 改数据库表 / 迁移 | `state/db.rs`（追加新版本，不改旧版本；SQL 与 Electron 版逐字对齐） |
-| 改书库列表 / 评分 / 标签 | `state/books.rs`、`stores/library.ts`、`components/sidebar/*` |
-| 改书签漂移 / 章节 | `composables/useBookmarkDrift.ts`、`state/bookmarks.rs`、`services/text.rs` |
-| 改查找替换 / 一键整理规则 | `shared/findRules.json`（唯一来源）、`shared/replaceTemplate.ts`、`shared/crossLineSearch.ts`、`services/find_rules.rs`、`services/convert.rs`、`components/FindReplaceBar.vue` |
-| 改简繁 / 全角半角 | `services/convert.rs`、`commands/convert.rs`、`resources/dicts/` |
-| 改 Finder 星级 / 注释 | `services/finder.rs`、`commands/meta.rs`、`commands/library.rs`、`commands/file.rs` |
-| 改应用菜单 / 菜单勾选 | `src-tauri/src/shell.rs`、`src/App.vue`（`runMenuCommand`）、`commands/app.rs` |
-| 改设置项 | `shared/types.ts`（`AppSettings`/`DEFAULT_SETTINGS`）+ `types.rs`、`state/settings.rs`、`stores/settings.ts`、`shell.rs` |
-| 改主题颜色 / 间距 | `styles/theme.ts`、`assets/base.css`（首帧底色另见 `public/bootstrap-theme.js`） |
-| 改退出握手 | `lib.rs`（CloseRequested / ExitRequested 分支）、`state.rs`（FlushGate）、`composables/useSession.ts`（flushForQuit） |
-| 加验收测试 | `src-tauri/src/services/*.rs` 的 `#[cfg(test)]`（cargo test） |
+| 想改什么                          | 先看这些文件                                                                                                                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 加一个 IPC 通道                   | `src-tauri/src/commands/<域>.rs`、`lib.rs`（generate_handler）、`src/ipc/bridge.ts`、`shared/types.ts` + `types.rs`                                                             |
+| 改文件读写 / 编码                 | `commands/file.rs`、`services/codec.rs`、`services/files.rs`、`services/metadata_writer.rs`                                                                                     |
+| 改标签行为（打开/关闭/保存/改名） | `composables/useTabs.ts`、`components/TabBar.vue`、`composables/useTabLifecycle.ts`                                                                                             |
+| 改编辑器选项 / 主题 / 字体        | `src/monaco.ts`、`composables/useEditorSetup.ts`、`styles/theme.ts`                                                                                                             |
+| 改快捷键                          | `composables/useEditorKeybindings.ts`、`composables/useLineCommands.ts`、`src-tauri/src/shell.rs`                                                                               |
+| 改 LRU / 草稿 / 会话              | `composables/useTabLifecycle.ts`、`useEditorViewState.ts`、`useSession.ts`、`state/session.rs`                                                                                  |
+| 改元数据解析 / 写回               | `shared/metadataParser.ts`、`services/metadata.rs`、`services/metadata_writer.rs`、`commands/meta.rs`、`components/MetadataBar.vue`                                             |
+| 改书库扫描 / 对账                 | `services/scanner.rs`、`services/reconcile.rs`、`commands/library.rs`                                                                                                           |
+| 改换库流程                        | `composables/useLibrarySwitch.ts`、`state/library.rs`、`commands/library.rs`、`composables/useSession.ts`                                                                       |
+| 改数据库表 / 迁移                 | `state/db.rs`（追加新版本，不改旧版本；SQL 与 Electron 版逐字对齐）                                                                                                             |
+| 改书库列表 / 评分 / 标签          | `state/books.rs`、`stores/library.ts`、`components/sidebar/*`                                                                                                                   |
+| 改书签漂移 / 章节                 | `composables/useBookmarkDrift.ts`、`state/bookmarks.rs`、`services/text.rs`                                                                                                     |
+| 改查找替换 / 一键整理规则         | `shared/findRules.json`（唯一来源）、`shared/replaceTemplate.ts`、`shared/crossLineSearch.ts`、`services/find_rules.rs`、`services/convert.rs`、`components/FindReplaceBar.vue` |
+| 改简繁 / 全角半角                 | `services/convert.rs`、`commands/convert.rs`、`resources/dicts/`                                                                                                                |
+| 改 Finder 星级 / 注释             | `services/finder.rs`、`commands/meta.rs`、`commands/library.rs`、`commands/file.rs`                                                                                             |
+| 改应用菜单 / 菜单勾选             | `src-tauri/src/shell.rs`、`src/App.vue`（`runMenuCommand`）、`commands/app.rs`                                                                                                  |
+| 改设置项                          | `shared/types.ts`（`AppSettings`/`DEFAULT_SETTINGS`）+ `types.rs`、`state/settings.rs`、`stores/settings.ts`、`shell.rs`                                                        |
+| 改主题颜色 / 间距                 | `styles/theme.ts`、`assets/base.css`（首帧底色另见 `public/bootstrap-theme.js`）                                                                                                |
+| 改退出握手                        | `lib.rs`（CloseRequested / ExitRequested 分支）、`state.rs`（FlushGate）、`composables/useSession.ts`（flushForQuit）                                                           |
+| 加验收测试                        | `src-tauri/src/services/*.rs` 的 `#[cfg(test)]`（cargo test）                                                                                                                   |
 
 ## 4. 动手前的六条红线
 

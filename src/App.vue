@@ -27,15 +27,8 @@ import { useReaderStore } from '@/stores/reader'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import type { AppMenuPayload, ReaderFont, ThemeMode } from '../shared/types'
 
-const {
-  openFile,
-  newBlankTab,
-  cycleTab,
-  closeTab,
-  closeOtherTabs,
-  closeAllTabs,
-  saveTab
-} = useTabs()
+const { openFile, newBlankTab, cycleTab, closeTab, closeOtherTabs, closeAllTabs, saveTab } =
+  useTabs()
 const palette = useCommandPalette()
 const store = useTabsStore()
 const settings = useSettingsStore()

@@ -9,28 +9,28 @@
 
 ## 一、需读取与改动的文件清单
 
-| 分组 | 文件 | 核心改动 |
-| --- | --- | --- |
-| **生命周期与会话** | `src/composables/useTabLifecycle.ts` | `ModelEntry` 改为存 `state: EditorState` + `viewState: Cm6ViewState \| null` + `baselineVersion: number`；`getTabState` 优先读 live `view.state`；增加 `syncActiveTabState`、`updateTabStateOffline`、事件桥接 `onEditorViewUpdate`/`onEditorStateSwitch`；旧 Monaco `viewState` 安全忽略 |
-| | `src/composables/useEditorSetup.ts` | 薄封装调用 `src/editor/codemirror.ts`（`createReaderEditor`、`applyReaderTypography`、`applyReadOnly`、`applyEditorTheme`、`openEditorContextMenu`） |
-| | `src/composables/useEditorViewState.ts` | `activateFor` 切 `EditorState` 前调用 `syncStateCompartments`；空态/重载/缺失态切 `createEmptyState`；`restoreEditorFocus` 修正 `.cm-editor` 与外部输入框判定 |
-| | `src/composables/useSession.ts` | 类型换 `EditorView`；`topVisibleLine`、`applyRestoredView`、`scrollToTopLine`、`jumpToLine` 改用 `src/editor/codemirror.ts` 工具；`resetSessionForSwitch` 切空占位态；草稿写盘取 `entry.state.doc.toString()` |
-| **编辑与快捷键** | `src/composables/useLineCommands.ts` | 类型换 `EditorView`，直接委派 `src/editor/textEdits.ts`；保留 `INDENT_RE` 导出 |
-| | `src/composables/useEditorCommands.ts` | 类型换 `EditorView`；`convertSelection` / `tidyDocument` 用 `view.state.doc === originalDoc` O(1) 校验；`tidyDocument` 直接调 `applyTidyEdits`（删 400 行分批与 `setTimeout`）；`saveActive` 调 `resetBaseline` |
-| | `src/composables/useEditorKeybindings.ts` | 类型换 `EditorView`；`.monaco-editor` → `.cm-editor`（**`isTextInput` 必须先排除 `.cm-editor` 再判 `isContentEditable`**） |
-| | `src/composables/useStatusMetrics.ts` | `refreshStatusMetrics(doc: Text \| null)`：`doc.lines`、`doc.length`（O(1)） |
-| **书签与元数据** | `src/composables/useBookmarkDrift.ts` | `handleBookmarkDrift(tabId, path, oldDoc, newDoc, changes)` 改调 `mapBookmarksByChanges`，去掉旧 `lineCounts` 粗差量算法 |
-| | `src/composables/useBookmarks.ts` | 读 `getTabState(tab.id)?.doc` 的 `doc.lines` / `doc.line(line).text` |
-| | `src/components/right/BookmarkList.vue` | `lineText` 读 `getTabState(id)?.doc` |
-| | `src/composables/useMetadataEdit.ts` | 直接用 UTF-16 `result.edit.start`/`end` 派发 `changes` + `annotations: isolateHistory.of('full')`；切走标签时离线 `entry.state.update` 写回注册表 |
-| | `src/components/MetadataBar.vue` | 订阅 `onEditorStateSwitch` + `onEditorViewUpdate`，用 `docHeadText(doc, 10)` 本地解析（去掉 `model.onDidChangeContent`） |
-| **宿主与外围** | `src/components/EditorHost.vue` | 挂载单 `EditorView`；监听 `settings.dark` 切主题；接入正文原生右键菜单；暂写 `<FindReplaceBar :loading="loading" />`（Card 04 接回 `:editor`） |
-| | `src/composables/useTabs.ts` | `getTabModel(id)?.model.getValue()` → `getTabState(id)?.doc.toString()`（2 处） |
-| | `src/utils/format.ts` | 移除 `monaco` 类型导入，`modelHeadText` 改为 `docHeadText`（或重导出自 `src/editor/textEdits.ts`） |
-| | `src/stores/settings.ts` | 移除 `import { applyMonacoTheme } from '@/monaco'` 及调用（CM6 主题由 `EditorHost.vue` 监听 `settings.dark` 响应） |
-| | `src/App.vue` | `runUndoRedo` 切为 `.cm-editor` + CM6 `undo(view)`/`redo(view)`（锁定态跳过）；适配 `editAndSave` 与 `__yueTest`（`getModelText`/`applyEdit`） |
-| | `src/main.ts` | 修正 `import.meta.env.PROD` 右键放行：排除 `.cm-editor` 内的 `[contenteditable="true"]` |
-| | `src/assets/base.css` | `.monaco-editor` → `.cm-editor` |
+| 分组               | 文件                                      | 核心改动                                                                                                                                                                                                                                                                                  |
+| ------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **生命周期与会话** | `src/composables/useTabLifecycle.ts`      | `ModelEntry` 改为存 `state: EditorState` + `viewState: Cm6ViewState \| null` + `baselineVersion: number`；`getTabState` 优先读 live `view.state`；增加 `syncActiveTabState`、`updateTabStateOffline`、事件桥接 `onEditorViewUpdate`/`onEditorStateSwitch`；旧 Monaco `viewState` 安全忽略 |
+|                    | `src/composables/useEditorSetup.ts`       | 薄封装调用 `src/editor/codemirror.ts`（`createReaderEditor`、`applyReaderTypography`、`applyReadOnly`、`applyEditorTheme`、`openEditorContextMenu`）                                                                                                                                      |
+|                    | `src/composables/useEditorViewState.ts`   | `activateFor` 切 `EditorState` 前调用 `syncStateCompartments`；空态/重载/缺失态切 `createEmptyState`；`restoreEditorFocus` 修正 `.cm-editor` 与外部输入框判定                                                                                                                             |
+|                    | `src/composables/useSession.ts`           | 类型换 `EditorView`；`topVisibleLine`、`applyRestoredView`、`scrollToTopLine`、`jumpToLine` 改用 `src/editor/codemirror.ts` 工具；`resetSessionForSwitch` 切空占位态；草稿写盘取 `entry.state.doc.toString()`                                                                             |
+| **编辑与快捷键**   | `src/composables/useLineCommands.ts`      | 类型换 `EditorView`，直接委派 `src/editor/textEdits.ts`；保留 `INDENT_RE` 导出                                                                                                                                                                                                            |
+|                    | `src/composables/useEditorCommands.ts`    | 类型换 `EditorView`；`convertSelection` / `tidyDocument` 用 `view.state.doc === originalDoc` O(1) 校验；`tidyDocument` 直接调 `applyTidyEdits`（删 400 行分批与 `setTimeout`）；`saveActive` 调 `resetBaseline`                                                                           |
+|                    | `src/composables/useEditorKeybindings.ts` | 类型换 `EditorView`；`.monaco-editor` → `.cm-editor`（**`isTextInput` 必须先排除 `.cm-editor` 再判 `isContentEditable`**）                                                                                                                                                                |
+|                    | `src/composables/useStatusMetrics.ts`     | `refreshStatusMetrics(doc: Text \| null)`：`doc.lines`、`doc.length`（O(1)）                                                                                                                                                                                                              |
+| **书签与元数据**   | `src/composables/useBookmarkDrift.ts`     | `handleBookmarkDrift(tabId, path, oldDoc, newDoc, changes)` 改调 `mapBookmarksByChanges`，去掉旧 `lineCounts` 粗差量算法                                                                                                                                                                  |
+|                    | `src/composables/useBookmarks.ts`         | 读 `getTabState(tab.id)?.doc` 的 `doc.lines` / `doc.line(line).text`                                                                                                                                                                                                                      |
+|                    | `src/components/right/BookmarkList.vue`   | `lineText` 读 `getTabState(id)?.doc`                                                                                                                                                                                                                                                      |
+|                    | `src/composables/useMetadataEdit.ts`      | 直接用 UTF-16 `result.edit.start`/`end` 派发 `changes` + `annotations: isolateHistory.of('full')`；切走标签时离线 `entry.state.update` 写回注册表                                                                                                                                         |
+|                    | `src/components/MetadataBar.vue`          | 订阅 `onEditorStateSwitch` + `onEditorViewUpdate`，用 `docHeadText(doc, 10)` 本地解析（去掉 `model.onDidChangeContent`）                                                                                                                                                                  |
+| **宿主与外围**     | `src/components/EditorHost.vue`           | 挂载单 `EditorView`；监听 `settings.dark` 切主题；接入正文原生右键菜单；暂写 `<FindReplaceBar :loading="loading" />`（Card 04 接回 `:editor`）                                                                                                                                            |
+|                    | `src/composables/useTabs.ts`              | `getTabModel(id)?.model.getValue()` → `getTabState(id)?.doc.toString()`（2 处）                                                                                                                                                                                                           |
+|                    | `src/utils/format.ts`                     | 移除 `monaco` 类型导入，`modelHeadText` 改为 `docHeadText`（或重导出自 `src/editor/textEdits.ts`）                                                                                                                                                                                        |
+|                    | `src/stores/settings.ts`                  | 移除 `import { applyMonacoTheme } from '@/monaco'` 及调用（CM6 主题由 `EditorHost.vue` 监听 `settings.dark` 响应）                                                                                                                                                                        |
+|                    | `src/App.vue`                             | `runUndoRedo` 切为 `.cm-editor` + CM6 `undo(view)`/`redo(view)`（锁定态跳过）；适配 `editAndSave` 与 `__yueTest`（`getModelText`/`applyEdit`）                                                                                                                                            |
+|                    | `src/main.ts`                             | 修正 `import.meta.env.PROD` 右键放行：排除 `.cm-editor` 内的 `[contenteditable="true"]`                                                                                                                                                                                                   |
+|                    | `src/assets/base.css`                     | `.monaco-editor` → `.cm-editor`                                                                                                                                                                                                                                                           |
 
 ---
 
@@ -72,6 +72,7 @@
 ### 2. 正文原生右键菜单（`useEditorSetup.ts` + `EditorHost.vue`）
 
 在 `EditorView` 的 `onContextMenu(event, view)` 回调中：
+
 1. 先 `event.preventDefault()` 阻止 WKWebView 默认菜单。
 2. 若当前处于空占位态（`view.state.field(tabIdField) === null`），直接返回。
 3. 实时读取状态：

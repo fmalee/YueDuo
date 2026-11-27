@@ -6,13 +6,7 @@ import vueParser from 'vue-eslint-parser'
 
 export default defineConfig(
   {
-    ignores: [
-      '**/node_modules',
-      '**/dist',
-      '**/out',
-      'src-tauri/**',
-      'scripts/**'
-    ]
+    ignores: ['**/node_modules', '**/dist', '**/out', 'src-tauri/**', 'scripts/**']
   },
   tseslint.configs.recommended,
   eslintPluginVue.configs['flat/recommended'],

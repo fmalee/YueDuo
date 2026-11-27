@@ -10,24 +10,26 @@
 
 ## 一、需读取与改动的文件清单
 
-| 文件 | 操作 | 说明 |
-| --- | --- | --- |
-| `src/editor/findDecorations.ts` | 只读 | 确认 `setFindHighlightEffect`、`clearFindHighlightEffect` |
-| `src/editor/codemirror.ts` | 只读 | 确认 `tabIdField`、`revealRangeCentered` |
-| `shared/crossLineSearch.ts` | 只读 | 确认 `searchDocument`、`DocumentSearchMatch` |
-| `src/composables/useTabLifecycle.ts` | 只读 | 确认 `onEditorViewUpdate`、`onEditorStateSwitch` |
-| `src/components/FindReplaceBar.vue` | 重构 | 全面切至 CM6 偏移模型 + `Text` 不可变缓存 + 视口高亮 + 原子替换 |
-| `src/components/EditorHost.vue` | 修改 | 恢复 `<FindReplaceBar :editor="editor" :loading="loading" />` |
+| 文件                                 | 操作 | 说明                                                            |
+| ------------------------------------ | ---- | --------------------------------------------------------------- |
+| `src/editor/findDecorations.ts`      | 只读 | 确认 `setFindHighlightEffect`、`clearFindHighlightEffect`       |
+| `src/editor/codemirror.ts`           | 只读 | 确认 `tabIdField`、`revealRangeCentered`                        |
+| `shared/crossLineSearch.ts`          | 只读 | 确认 `searchDocument`、`DocumentSearchMatch`                    |
+| `src/composables/useTabLifecycle.ts` | 只读 | 确认 `onEditorViewUpdate`、`onEditorStateSwitch`                |
+| `src/components/FindReplaceBar.vue`  | 重构 | 全面切至 CM6 偏移模型 + `Text` 不可变缓存 + 视口高亮 + 原子替换 |
+| `src/components/EditorHost.vue`      | 修改 | 恢复 `<FindReplaceBar :editor="editor" :loading="loading" />`   |
 
 ---
 
 ## 二、精确实现要求
 
 ### 1. Props 与文档判定
+
 - `props`: `{ editor?: EditorView; loading?: boolean }`
 - 判断当前是否有打开文档：封装 `hasBoundDoc(view)` → `view.state.field(tabIdField) !== null`（替代原 `instance.getModel() !== null`）。
 
 ### 2. `doc.toString()` 单槽缓存（零冗余拷贝）
+
 - CM6 的 `state.doc`（`Text` 实例）严格不可变：
   ```ts
   let scanCache: { doc: Text; text: string } | null = null
@@ -41,6 +43,7 @@
 - 关闭面板或卸载组件时置 `scanCache = null` 释放内存。
 
 ### 3. 统一搜索管线（替代 `model.findMatches` / `findNextMatch` / `findPreviousMatch`）
+
 - `matches` 改为 `shallowRef<DocumentSearchMatch[]>([])`（每项 `{ from, to, groups }`，天然按 `from` 升序，彻底省去 `matchStarts` 换算与 `monaco.Range` 构造！）。
 - `refreshNow(autoJump = false)`：
   - 若 `!open.value || !view || !hasBoundDoc(view) || !findText.value`：清空 `matches` 并派发 `clearFindHighlightEffect`。
@@ -69,10 +72,12 @@
     ```
 
 ### 4. 初始查找文本（`initialFindText` 与 `wordAtCursor`）
+
 - 若主选区非空：取 `view.state.sliceDoc(main.from, main.to)`。
 - 否则：取当前行 `const line = view.state.doc.lineAt(main.head)`，行内偏移 `offset = main.head - line.from`，复用原 `/[\p{L}\p{N}_]+/gu` 扫描逻辑；空行或无词退回 `lastFindText`。
 
 ### 5. 替换与全部替换（撤销粒度对齐）
+
 - **`replaceCurrent()`**：
   - 校验 `!reader.locked`、`!regexError.value`、当前命中存在。
   - 取 `original = view.state.sliceDoc(match.from, match.to)`，`insert = buildReplacement(match, original)`。
@@ -90,6 +95,7 @@
   - 立即 `refreshNow()` 并显示 `已替换 ${changes.length} 处`。
 
 ### 6. 订阅编辑器事件（替代 `instance.onDidChange*`）
+
 - 在 `onMounted` 订阅 Card 03 暴露的：
   - `onEditorStateSwitch`（切标签/重载）：清空 `matches`，清 `scanCache`，若 `open.value` 则 `refreshNow()`。
   - `onEditorViewUpdate(update)`：
@@ -100,6 +106,7 @@
 - `close()` 时派发 `clearFindHighlightEffect` 并 `props.editor?.focus()`。
 
 ### 7. 保留全部既有交互与模板样式
+
 - 完整保留 `Cmd+F` / `Ctrl+Cmd+F` / `Cmd+G` / `Shift+Cmd+G` / `Esc` 捕获阶段快捷键、常用正则下拉面板、`aA` 保留大小写、左边缘拖拽调宽、全部 HTML 模板与 CSS 样式。
 
 ---

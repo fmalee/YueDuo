@@ -6,14 +6,14 @@
 
 ## 技术栈
 
-| 层 | 选型 | 版本 |
-| --- | --- | --- |
-| 桌面运行时 | Tauri 2（Rust 后端 + 系统 WebView，无 Node 进程） | 2.12.x |
-| 后端语言 | Rust（edition 2021） | ≥1.90 |
-| 渲染层 | Vue 3 + Pinia | 3.5.x / 4.1.x |
-| 类型 | TypeScript（严格模式，`noImplicitAny: false`） | 5.9.x |
-| 编辑器 | Monaco Editor | 0.57.x |
-| 存储 | rusqlite（bundled SQLite，同步 API + 完整事务） | 0.32.x |
+| 层         | 选型                                              | 版本          |
+| ---------- | ------------------------------------------------- | ------------- |
+| 桌面运行时 | Tauri 2（Rust 后端 + 系统 WebView，无 Node 进程） | 2.12.x        |
+| 后端语言   | Rust（edition 2021）                              | ≥1.90         |
+| 渲染层     | Vue 3 + Pinia                                     | 3.5.x / 4.1.x |
+| 类型       | TypeScript（严格模式，`noImplicitAny: false`）    | 5.9.x         |
+| 编辑器     | Monaco Editor                                     | 0.57.x        |
+| 存储       | rusqlite（bundled SQLite，同步 API + 完整事务）   | 0.32.x        |
 
 TypeScript 锁在 `^5.9.3`（5.x 末版）不是随手写的：npm 上 `latest` 已是 7.0.2，TS 7 是原生移植，不提供 `lib/typescript.js` 编译 API，而 vue-tsc / Volar 的 SFC 类型检查依赖这个 API。因此禁止把版本写成 `latest`、`*` 或 `>=5.9`。
 

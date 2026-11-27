@@ -22,13 +22,13 @@
 
 ## 卡片清单
 
-| 卡片 | 主题 | 门禁命令 |
-| --- | --- | --- |
-| [01-native-context-menu.md](./01-native-context-menu.md) | Tauri 原生右键菜单底座 + 顶部撤消/恢复接管 + 标签栏/左栏右键收口 | `cargo test --manifest-path src-tauri/Cargo.toml` & `npm run typecheck` |
-| [02-codemirror-core.md](./02-codemirror-core.md) | 安装 CM6 核心包 + 构建 `src/editor/` 引擎四件套 + 统一搜索内核 | `npm run typecheck` |
-| [03-switch-editor-core.md](./03-switch-editor-core.md) | 编辑器核心链路切换（生命周期/LRU/会话/编辑/快捷键/书签/元数据/正文右键） | `npm run typecheck` + 启动冒烟验证 |
-| [04-find-replace-migration.md](./04-find-replace-migration.md) | `FindReplaceBar.vue` 迁至 CM6 偏移搜索与视口裁剪高亮 | `npm run typecheck` + 查找替换实测 |
-| [05-cleanup-and-verify.md](./05-cleanup-and-verify.md) | 卸载 Monaco、清理 Vite 补丁与废弃代码、更新 `AGENTS.md`、全量构建验收 | `npm run typecheck` & `npm run lint` & `cargo test` & `npm run build:app` |
+| 卡片                                                           | 主题                                                                     | 门禁命令                                                                  |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| [01-native-context-menu.md](./01-native-context-menu.md)       | Tauri 原生右键菜单底座 + 顶部撤消/恢复接管 + 标签栏/左栏右键收口         | `cargo test --manifest-path src-tauri/Cargo.toml` & `npm run typecheck`   |
+| [02-codemirror-core.md](./02-codemirror-core.md)               | 安装 CM6 核心包 + 构建 `src/editor/` 引擎四件套 + 统一搜索内核           | `npm run typecheck`                                                       |
+| [03-switch-editor-core.md](./03-switch-editor-core.md)         | 编辑器核心链路切换（生命周期/LRU/会话/编辑/快捷键/书签/元数据/正文右键） | `npm run typecheck` + 启动冒烟验证                                        |
+| [04-find-replace-migration.md](./04-find-replace-migration.md) | `FindReplaceBar.vue` 迁至 CM6 偏移搜索与视口裁剪高亮                     | `npm run typecheck` + 查找替换实测                                        |
+| [05-cleanup-and-verify.md](./05-cleanup-and-verify.md)         | 卸载 Monaco、清理 Vite 补丁与废弃代码、更新 `AGENTS.md`、全量构建验收    | `npm run typecheck` & `npm run lint` & `cargo test` & `npm run build:app` |
 
 ## 全程不可违反的硬红线
 

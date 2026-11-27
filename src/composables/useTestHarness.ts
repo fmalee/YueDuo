@@ -6,12 +6,7 @@ import { useTabs } from './useTabs'
 import { useEditorCommands } from './useEditorCommands'
 import { useCommandPalette } from './useCommandPalette'
 import { switchLibrary } from './useLibrarySwitch'
-import {
-  applyTabEdit,
-  getTabModel,
-  getTabState,
-  residentModelCount
-} from './useTabLifecycle'
+import { applyTabEdit, getTabModel, getTabState, residentModelCount } from './useTabLifecycle'
 import { statusMetrics } from './useStatusMetrics'
 import {
   caretSnapshot,
@@ -26,9 +21,7 @@ import type { AppMenuPayload } from '../../shared/types'
 /**
  * 自动化验收通道（仅 URL 携带 ?auto=1 时挂载到 globalThis.__yueTest；非产品路径）
  */
-export function mountTestHarnessIfNeeded(
-  runMenuCommand: (payload: AppMenuPayload) => void
-): void {
+export function mountTestHarnessIfNeeded(runMenuCommand: (payload: AppMenuPayload) => void): void {
   const params = new URLSearchParams(location.search)
   if (params.get('auto') !== '1') return
 
@@ -36,15 +29,8 @@ export function mountTestHarnessIfNeeded(
   const settings = useSettingsStore()
   const library = useLibraryStore()
   const palette = useCommandPalette()
-  const {
-    openFile,
-    newBlankTab,
-    activateTab,
-    saveTab,
-    renameTab,
-    deleteTabFile,
-    revealTabFile
-  } = useTabs()
+  const { openFile, newBlankTab, activateTab, saveTab, renameTab, deleteTabFile, revealTabFile } =
+    useTabs()
   const { saveActive } = useEditorCommands()
 
   async function editAndSave(): Promise<Record<string, unknown>> {

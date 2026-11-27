@@ -12,6 +12,7 @@
 （实测 ≈100MB+ → ≈18MB，无 Node 进程）。
 
 **老李已拍板的决策（2026-11-20）**：
+
 1. IPC 层采用**按域 typed commands**（弃首次迁移的单一 string dispatch）：Rust 侧编译期
    检查参数与返回；`bridge.ts` 是唯一需要改写的前端文件，composables/stores 零改动。
 2. 关闭未保存标签三选一（保存/放弃/取消）用**前端自绘浮层**（复用主题 token 的浮层样式），
@@ -47,6 +48,7 @@ YueDuo/
 ```
 
 **命名与契约约定**：
+
 - command 名 = Rust fn 名（snake_case）；前端传 camelCase 参数 key，Tauri 自动映射。
 - 错误契约：Rust `Result<T, String>`，bridge.ts 包装成 `[command] message` 异常抛出，
   上层 composable 的 catch 行为与 Electron 版一致。
@@ -56,6 +58,7 @@ YueDuo/
 ## 三、分阶段任务（P0–P5）
 
 ### P0 — Tauri 壳与契约底座 ✅ 已完成（2026-11-20）
+
 - src-tauri 脚手架、根 vite.config.ts（Monaco CJK wrap 插件 + optimizeDeps 排除清单迁移）。
 - types.rs 契约镜像 + AppState + rusqlite(bundled) 迁移 v1–v3（SQL 与 Electron 版逐字一致，
   数据双向兼容，可随时切回 Electron 版）。
@@ -76,6 +79,7 @@ YueDuo/
   老李真机：窗口/界面/设置通路正常 ✅（深色问题 → theme 域已修复待复测）。
 
 ### P1 — 文件与编码域（阅读主链路）✅ 核心完成（2026-11-21）
+
 - `codec.rs`：四层探测链（BOM（UTF-32 先于 UTF-16）→ NUL 判无 BOM UTF-16 字节序 →
   chardetng + GB18030 复核 → fallback utf-8→gb18030→big5）；encode 用 `str::encode_utf16`
   逐码元小端输出（**不能用 encoding_rs 的 UTF_16LE.encode**，其 output 是 UTF-8）。
@@ -90,6 +94,7 @@ YueDuo/
   build:web ✅、lint ✅。真机待验证：打开/保存一本大书对比体感。
 
 ### P2 — 会话与书库域 ✅ 核心完成（2026-11-21，与 P3 菜单提前一并落地）
+
 - 书库域 21 个命令全量：换库三步 open/activate/abort（顺序固定）、fastScan、
   **enrich 独立线程 + 独立 SQLite 连接**（WAL 多连接安全，不占主锁；单飞去重用
   EnrichResultSlot（Condvar 广播）；AtomicBool 取消 + 代际校验，被中止的扫描不对账）、
@@ -123,6 +128,7 @@ YueDuo/
 > bridge.ts 中已声明但 Rust 未注册的命令共 8 个 = P3.1 + P3.2 的全部工作量。
 
 **P3.1 convert 域（4 命令）✅ 已完成（2026-11-21）**
+
 - 缺失命令：`convert_to_halfwidth` / `convert_to_simplified` / `convert_to_traditional` /
   `convert_tidy`（bridge.ts 的 convertToHalfwidth/ToSimplified/ToTraditional/Tidy 已在调，
   菜单链路已通，注册后即整体生效）。
@@ -153,6 +159,7 @@ YueDuo/
   验证：cargo test 42/42（新增 find_rules 4 + convert 7）、typecheck/lint/build 全绿。
 
 **P3.2 meta 域（4 命令）✅ 已完成（2026-11-21）**
+
 - 缺失命令：`meta_read` / `meta_apply_edit` / `meta_read_rating` / `meta_apply_rating`。
 - 语义（对齐 `git show a46ae4a:electron/ipc/meta.ts`）：
   - `meta_read(path)`：读磁盘 → decode_bytes → `parse_metadata`（services/metadata.rs
@@ -177,6 +184,7 @@ YueDuo/
   与库外评分 xattr 留 P3.3 接入点（当前 log-skip / persisted=false）。cargo test 49/49。
 
 **P3.3 Finder 元数据（services/finder.rs）✅ 已完成（2026-11-21）**
+
 - xattr 直读写（`xattr` crate，免 spawn）：星级 `com.apple.metadata:kMDItemStarRating`
   （bplist00 实数：float marker `0x23` + 8 字节 BE double）；注释
   `com.apple.metadata:kMDItemFinderComment`（bplist00 字符串：UTF-16BE marker
@@ -195,6 +203,7 @@ YueDuo/
   保存钩子、library_set_book_rating。cargo test 54/54。
 
 **P3.4 退出握手 ✅ 已完成（2026-11-21）**
+
 - 语义（对齐 `git show a46ae4a:electron/ipc/session.ts`）：退出请求 → emit `session:flush`
   → 渲染层 persist 草稿后调 `session_flush_done`（命令已在 bridge.ts）→ 放行退出；
   超时 **3000ms** 强制放行（FLUSH_TIMEOUT_MS）。
@@ -222,12 +231,14 @@ second-instance → run_on_main_thread → show + set_focus。
 Cmd+Z/简繁/一键整理/输入法；对照 Electron 版跑同书库同操作。
 
 ### P4 — 清理与文档 ✅ 已完成（2026-11-21）
+
 - AGENTS.md 重写（§五要点全落实：作废 Electron 章节、Tauri 纪律新增——主线程规则/
   消息框 Custom 文案判定/资源探测/capabilities/dev 优化档/握手口径）、architecture.md
   重写为 Tauri 版（目录树、IPC 链路、退出握手时序、速查索引、六条红线）、README.md
   重写（Tauri 技术栈/命令/数据位置/打包）。本文件保留至 P5 完成后归档。
 
 ### P5 — 打包与性能验收 ✅ 已完成（2026-11-21）
+
 - `npm run build` 产出 `.app`（22 MB）与 DMG（8.7 MB 压缩）。注意：`--bundles dmg`
   过程会清掉 `bundle/macos/YueDuo.app`，两个都要时先跑 dmg 再跑 `--bundles app`；
   DMG 的 hdiutil 需挂载 /Volumes，普通沙箱环境被拦（要豁免执行）。
@@ -245,23 +256,23 @@ architecture.md 为权威口径。
 
 ## 四、风险与已规避坑（首次迁移报告沉淀 + 本次新增）
 
-| 风险/坑 | 状态 |
-| --- | --- |
-| blocking dialog 主线程死锁（command 必须 async，菜单/主题更新 run_on_main_thread） | P3 遵守 |
-| 大文本 IPC 走 JSON 的序列化/解析开销（CJK-UTF-8 3 字节/字 vs UTF-16 2 字节/字，另有两侧行列全量拷贝）→ Response 二进制 + TextDecoder utf-16le | ✅ P1 已落地 |
-| chardetng 不识无 BOM UTF-16（误判 windows-1252 且 had_errors=false）→ NUL 判层不可省 | P1 |
-| encoding_rs `UTF_16LE.encode()` output 是 UTF-8 → 必须逐码元 encode_utf16 | P1 |
-| bplist00 必须 Python plistlib 风格手写 | P3 |
-| WKWebView 无 EditContext：Monaco `accessibilitySupport:'off'` | ✅ P0 已带 |
-| 简繁词表必须 bundle.resources + 探测测试 | P3 |
-| WKWebView prefers-color-scheme 只跟随 NSWindow appearance → set_theme 显式设置 | ✅ P0 已修 |
-| userData 目录不一致 → 一次性搬家（copy 不删源、幂等标记） | ✅ P0 已修 |
-| enrich 同步阻塞 UI / 抢启动 I/O → spawn_blocking + 取消令牌 + 延迟触发 | P2 |
-| xattr crate 与 xattr CLI 行为差异（本次新引入）→ 字节级往返单测 | P3 |
-| tsconfig：monaco 深层 JS 导入无 .d.ts，靠 `noImplicitAny: false`（旧 toolkit 预设同款） | ✅ 已内联 |
-| `tauri dev` 零优化构建：解码/字数统计/换行归一比 release 慢一个数量级（大书打开与全库扫描「特别慢」的真凶，对照 V8 JIT）→ dev 档本 crate O1 + 依赖 O3 | ✅ 已修（真机反馈） |
-| 启动主题闪烁（深→浅→深）：WKWebView 默认白底，在页面加载到 applyTheme 之间露出 → 窗口 `visible:false` + bootstrap-theme.js 同步首帧底色 + 主题就绪后 `windowShow()`（capability 补 core:window:allow-show） | ✅ 已修（真机反馈） |
-| 消息框按钮映射：tauri-plugin-dialog 在所有平台都把原生结果转为 `Custom(按钮文案)`（desktop.rs 统一转换），按 `Yes/No/Ok` 枚举匹配恒落 default → 「放弃更改/保存/移到废纸篓」全部失效当「取消」。改按 `Custom(文案)` 匹配 + 原生值兜底（confirm_close/trash/dev_library 三处） | ✅ 已修（真机反馈） |
+| 风险/坑                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | 状态                    |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| blocking dialog 主线程死锁（command 必须 async，菜单/主题更新 run_on_main_thread）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | P3 遵守                 |
+| 大文本 IPC 走 JSON 的序列化/解析开销（CJK-UTF-8 3 字节/字 vs UTF-16 2 字节/字，另有两侧行列全量拷贝）→ Response 二进制 + TextDecoder utf-16le                                                                                                                                                                                                                                                                                                                                                                                                                                             | ✅ P1 已落地            |
+| chardetng 不识无 BOM UTF-16（误判 windows-1252 且 had_errors=false）→ NUL 判层不可省                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | P1                      |
+| encoding_rs `UTF_16LE.encode()` output 是 UTF-8 → 必须逐码元 encode_utf16                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | P1                      |
+| bplist00 必须 Python plistlib 风格手写                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | P3                      |
+| WKWebView 无 EditContext：Monaco `accessibilitySupport:'off'`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | ✅ P0 已带              |
+| 简繁词表必须 bundle.resources + 探测测试                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | P3                      |
+| WKWebView prefers-color-scheme 只跟随 NSWindow appearance → set_theme 显式设置                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | ✅ P0 已修              |
+| userData 目录不一致 → 一次性搬家（copy 不删源、幂等标记）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | ✅ P0 已修              |
+| enrich 同步阻塞 UI / 抢启动 I/O → spawn_blocking + 取消令牌 + 延迟触发                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | P2                      |
+| xattr crate 与 xattr CLI 行为差异（本次新引入）→ 字节级往返单测                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | P3                      |
+| tsconfig：monaco 深层 JS 导入无 .d.ts，靠 `noImplicitAny: false`（旧 toolkit 预设同款）                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | ✅ 已内联               |
+| `tauri dev` 零优化构建：解码/字数统计/换行归一比 release 慢一个数量级（大书打开与全库扫描「特别慢」的真凶，对照 V8 JIT）→ dev 档本 crate O1 + 依赖 O3                                                                                                                                                                                                                                                                                                                                                                                                                                     | ✅ 已修（真机反馈）     |
+| 启动主题闪烁（深→浅→深）：WKWebView 默认白底，在页面加载到 applyTheme 之间露出 → 窗口 `visible:false` + bootstrap-theme.js 同步首帧底色 + 主题就绪后 `windowShow()`（capability 补 core:window:allow-show）                                                                                                                                                                                                                                                                                                                                                                               | ✅ 已修（真机反馈）     |
+| 消息框按钮映射：tauri-plugin-dialog 在所有平台都把原生结果转为 `Custom(按钮文案)`（desktop.rs 统一转换），按 `Yes/No/Ok` 枚举匹配恒落 default → 「放弃更改/保存/移到废纸篓」全部失效当「取消」。改按 `Custom(文案)` 匹配 + 原生值兜底（confirm_close/trash/dev_library 三处）                                                                                                                                                                                                                                                                                                             | ✅ 已修（真机反馈）     |
 | **大文本 IPC 传输墙（性能专项实测沉淀）**：`tauri::ipc::Response` 单响应编组 ~13MB/s（6.5M 字大书 ~450ms）；并行分块受 WebKit 串行编组限制几乎无并行收益；zstd/fzstd 解压 60MB/s 吃掉全部收益；gzip+DecompressionStream 原生解压 ~1GB/s 但每块 async 管道 ~30ms × 块数。**最终口径：4MB 分块 + gzip L1 + 逐块原生解压 ≈ 单发打平（~450ms/6.5M 字），压缩收益留给多标签恢复的总字节减半**。死路备忘：http://127.0.0.1 被 mixed content 拦（安全上下文页禁明文，ATS 豁免无用）、DecompressionStream 不接受拼接 gzip 成员、fzstd 解压太慢、`Vec<u8>` 返回退 JSON 数字数组（必须 Response）。 | ✅ 已修（真机三轮 A/B） |
 
 ## 五、AGENTS.md 调整要点（P4 执行）
@@ -293,6 +304,7 @@ architecture.md 为权威口径。
 不需要读历史对话——本文档 + 代码即全部上下文。
 
 **当前状态快照（2026-11-21，commit `d9612cc`）**：
+
 - P0–P2 完成且真机验收通过（老李确认：窗口/主题/书库/打开文件/扫描/菜单均正常）。
 - Rust 已注册 45 个 command（settings 2 / app 2 / file 7 / library 21 / session 4 / dialog 若干，
   见 lib.rs 的 generate_handler）。
@@ -302,6 +314,7 @@ architecture.md 为权威口径。
 - 工作树干净（除 .workbuddy/ 本地日志，已 gitignore）。
 
 **常用命令**：
+
 - 开发：`npm run dev`（= tauri dev；改 Rust 后重编译 1–3 分钟属正常）
 - Rust 检查/测试：`cargo check --manifest-path /Users/Joey/Sites/Projects/YueDuo/src-tauri/Cargo.toml`
   与 `cargo test --manifest-path ...`（31 个用例；`-- --ignored --nocapture` 跑真实书库
@@ -309,6 +322,7 @@ architecture.md 为权威口径。
 - 前端：`npm run typecheck`（node+web 双侧）、`npm run lint`、`npm run build:web`
 
 **关键文件地图**：
+
 - IPC 契约三方：`src/ipc/bridge.ts`（前端唯一出口）↔ `src-tauri/src/types.rs`（serde 镜像）
   ↔ `src-tauri/src/commands/*.rs`；新命令三处同步 + lib.rs generate_handler 注册。
 - 状态层：`src-tauri/src/state.rs` + `state/`（settings/db/library/books/bookmarks/session）；
@@ -316,6 +330,7 @@ architecture.md 为权威口径。
 - 业务层：`services/`（codec/files/scanner/reconcile/metadata/text），纯 Rust 可单测。
 
 **Electron 原版参考**（已从工作树删除，git 历史可读，父提交 `a46ae4a`）：
+
 - `git show a46ae4a:electron/ipc/meta.ts`、`electron/services/metadataWriter.ts`（P3.2）
 - `git show a46ae4a:electron/services/finderMetadata.ts`（P3.3，bplist00 字节细节在此）
 - `git show a46ae4a:electron/services/chineseConvert.ts`、`textConvert.ts`、`tidy.ts`（P3.1）

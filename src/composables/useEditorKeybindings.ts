@@ -105,9 +105,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       run: () => {
         const id = store.activeTabId
         if (!id) return
-        void saveTab(id).catch((e) =>
-          showStatusMessage(`保存失败：${formatError(e)}`, 5000)
-        )
+        void saveTab(id).catch((e) => showStatusMessage(`保存失败：${formatError(e)}`, 5000))
       }
     },
     {

@@ -117,9 +117,10 @@ async function readTextSingle(path: string): Promise<FileReadResult> {
   const raw = await invoke<ArrayBuffer>('file_read_text', { path })
   const bytes = raw instanceof Uint8Array ? raw : new Uint8Array(raw)
   const headerLen = new DataView(bytes.buffer, bytes.byteOffset, 4).getUint32(0, true)
-  const header = JSON.parse(
-    new TextDecoder('utf-8').decode(bytes.subarray(4, 4 + headerLen))
-  ) as { encoding: string; stat: FileStat }
+  const header = JSON.parse(new TextDecoder('utf-8').decode(bytes.subarray(4, 4 + headerLen))) as {
+    encoding: string
+    stat: FileStat
+  }
   const text = new TextDecoder('utf-16le').decode(bytes.subarray(4 + headerLen))
   return { text, encoding: header.encoding, stat: header.stat }
 }
@@ -156,7 +157,9 @@ export async function fileReadText(path: string): Promise<FileReadResult> {
         const gz = p.subarray(4 + hl)
         const raw = h.compressed
           ? new Uint8Array(
-              await new Response(new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()
+              await new Response(
+                new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'))
+              ).arrayBuffer()
             )
           : gz
         return { raw, encoding: h.encoding }
@@ -176,9 +179,7 @@ export async function fileReadText(path: string): Promise<FileReadResult> {
     // utf-16be 浏览器 TextDecoder 不支持 → 抛错走单发回落
     const text0 = new TextDecoder(header0.encoding).decode(all)
     // 与主进程解码链对齐：CRLF/CR → LF（无 \r 时跳过扫描之外的开销）
-    const text = all.includes(13)
-      ? text0.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
-      : text0
+    const text = all.includes(13) ? text0.replace(/\r\n/g, '\n').replace(/\r/g, '\n') : text0
     chunked = { text, encoding: header0.encoding, stat }
   } catch {
     // 解压/解码异常回落单发二进制通道

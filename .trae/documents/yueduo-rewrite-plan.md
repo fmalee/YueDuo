@@ -117,6 +117,7 @@ session_tabs(id, position, book_id NULLABLE, path, title, progress_line,
 - [x] **0.4** 单实例锁 + contextIsolation/contextBridge + IPC 统一 `{ok, data|error}`；`YUE_TEST` 无窗验收可用。
 
 > **阶段 0 保留的坑与技术决策（可检索）**
+>
 > - **脚手架**：`@quick-start/create-electron`（`create-electron-vite` 无 electron 模板）；目录 `electron/`（main/preload/ipc）+ `src/`（renderer，publicDir→根 `public/`）。
 > - **Monaco 子路径**：0.57 写 `monaco-editor/editor/editor.api`（不带 `esm/vs`；主入口注册 90+ 语言太重）。
 > - **`isPackaged` 误判**：Electron 45 macOS 从 node_modules 启动时 `is.dev` 不可信，改判 `ELECTRON_RENDERER_URL` 是否存在。

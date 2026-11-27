@@ -11,22 +11,23 @@
 
 ## 一、需读取与改动的文件清单
 
-| 文件 | 操作 | 说明 |
-| --- | --- | --- |
-| `package.json` | 修改 | 安装 `@codemirror/state`、`@codemirror/view`、`@codemirror/commands`（锁 `^6.x`，不装 search/language） |
-| `src/styles/theme.ts` | 只读 | 读取 `READING`、`readingLineHeight` 及 `--yd-*` token 命名 |
-| `shared/types.ts` | 只读 | 读取 `ReaderFont`、`TidyEdit`、`BookmarkInfo` |
-| `shared/crossLineSearch.ts` | 修改 | 保留原导出，新增统一搜索 `searchDocument()` 与 `DocumentSearchMatch` |
-| `src/editor/dirtyState.ts` | **新增** | 基于 `invertedEffects` 的 O(1) 版本号判脏状态机 |
-| `src/editor/findDecorations.ts` | **新增** | 基于 `ViewPlugin` + `view.visibleRanges` 二分裁剪的查找高亮扩展 |
-| `src/editor/codemirror.ts` | **新增** | CM6 `EditorState`/`EditorView` 工厂、3 个 `Compartment`、主题/排版、`WeakMap` 跨状态监听、精准滚动工具 |
-| `src/editor/textEdits.ts` | **新增** | 纯 CM6 编辑动作：一键整理原子提交、书签精确漂移、回车缩进、下方插行、合并段落、翻页、取头部行 |
+| 文件                            | 操作     | 说明                                                                                                    |
+| ------------------------------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `package.json`                  | 修改     | 安装 `@codemirror/state`、`@codemirror/view`、`@codemirror/commands`（锁 `^6.x`，不装 search/language） |
+| `src/styles/theme.ts`           | 只读     | 读取 `READING`、`readingLineHeight` 及 `--yd-*` token 命名                                              |
+| `shared/types.ts`               | 只读     | 读取 `ReaderFont`、`TidyEdit`、`BookmarkInfo`                                                           |
+| `shared/crossLineSearch.ts`     | 修改     | 保留原导出，新增统一搜索 `searchDocument()` 与 `DocumentSearchMatch`                                    |
+| `src/editor/dirtyState.ts`      | **新增** | 基于 `invertedEffects` 的 O(1) 版本号判脏状态机                                                         |
+| `src/editor/findDecorations.ts` | **新增** | 基于 `ViewPlugin` + `view.visibleRanges` 二分裁剪的查找高亮扩展                                         |
+| `src/editor/codemirror.ts`      | **新增** | CM6 `EditorState`/`EditorView` 工厂、3 个 `Compartment`、主题/排版、`WeakMap` 跨状态监听、精准滚动工具  |
+| `src/editor/textEdits.ts`       | **新增** | 纯 CM6 编辑动作：一键整理原子提交、书签精确漂移、回车缩进、下方插行、合并段落、翻页、取头部行           |
 
 ---
 
 ## 二、精确契约与实现要求（严禁变更导出名与签名，Card 03/04 严格依赖）
 
 ### 1. 依赖安装
+
 运行 `npm install -D @codemirror/state@^6.0.0 @codemirror/view@^6.0.0 @codemirror/commands@^6.0.0`（或放入 `dependencies`/`devDependencies` 与项目现有 `package.json` 风格一致——本项目所有前端包均在 `devDependencies`，锁 `^6.x`）。**禁止**安装 `@codemirror/search`、`@codemirror/language` 或 `codemirror` 元包；**禁止**在本卡卸载 `monaco-editor`。
 
 ### 2. `src/editor/dirtyState.ts`（精确判脏，零 Bug 核心）
@@ -34,6 +35,7 @@
 **原理**：与 Monaco `getAlternativeVersionId()` 数学同构，绝不使用脆弱的 `undoDepth` 计数（避免 500ms 输入合并和 history 裁剪导致失效）。
 
 **精确实现要点**：
+
 - 定义 `const setDocVersion = StateEffect.define<number>()`；模块级自增 `let versionSeq = 1`。
 - `export const docVersionField = StateField.define<number>({ create: () => versionSeq++, update(value, tr) { ... } })`：
   - 遍历 `tr.effects` 查找 `setDocVersion`，若存在则取**最后一个** `e.value`（处理合并组撤销时倒序重放多条 effect，最后一个即该组开始前的原始版本）。
@@ -109,7 +111,11 @@
 
   export function isCm6ViewState(value: unknown): value is Cm6ViewState
   export function createEmptyState(config: ReaderEditorConfig): EditorState
-  export function createTabState(tabId: string, text: string, config: ReaderEditorConfig): EditorState
+  export function createTabState(
+    tabId: string,
+    text: string,
+    config: ReaderEditorConfig
+  ): EditorState
   export function createReaderView(
     parent: HTMLElement,
     initialState: EditorState,
@@ -131,7 +137,7 @@
   1. **跨 `view.setState()` 监听不丢失**：使用模块级 `const viewListeners = new WeakMap<EditorView, { listeners: EditorViewListeners; disposeScroll: () => void }>()`。在所有 `EditorState` 共享的基础扩展中挂载静态的 `EditorView.updateListener.of((u) => viewListeners.get(u.view)?.listeners.onUpdate?.(u))` 和 `EditorView.domEventHandlers({ contextmenu: (e, v) => { viewListeners.get(v)?.listeners.onContextMenu?.(e, v); return false } })`；`scroll` 监听挂在 `view.scrollDOM` 并在 `destroyReaderView` 中卸载。
   2. **3 个 `Compartment`**：
      - `themeCompartment`：`EditorView.theme({ ... }, { dark })`，绑定 `--yd-bg-3`（背景）、`--yd-text-1`（正文色）、`--yd-cursor`（光标）、`--yd-selection`（选区）、`--yd-text-3`（行号）、`--yd-text-2`（激活行号）、`height: '100%'`、`.cm-scroller { overflow: auto }`、`.cm-content { padding: '8px 20px' }`（20px 左右页边距）、`.cm-gutters { backgroundColor: 'var(--yd-bg-3)', borderRight: 'none', color: 'var(--yd-text-3)' }`、去掉 `.cm-editor.cm-focused` 蓝色默认 outline。
-     - `typographyCompartment`：`EditorView.theme({ '&': { fontSize: `${fontSize}px` }, '.cm-content, .cm-gutter': { fontFamily: READING.fontFamilies[font], lineHeight: `${readingLineHeight(fontSize)}px` } })`。
+     - `typographyCompartment`：`EditorView.theme({ '&': { fontSize: `${fontSize}px`}, '.cm-content, .cm-gutter': { fontFamily: READING.fontFamilies[font], lineHeight:`${readingLineHeight(fontSize)}px` } })`。
      - `readOnlyCompartment`：`EditorState.readOnly.of(locked)`（**绝对禁止设置 `EditorView.editable.of(false)`**！）。
   3. **`syncStateCompartments(state, config)`**：用于切标签 `view.setState(synced)` 之前，一次性重配 3 个 `Compartment` 且携带 `annotations: Transaction.addToHistory.of(false)`，防止切回旧标签后主题/字体/锁定态不同步。
   4. **基础扩展集合**：`lineNumbers()`、`highlightActiveLineGutter()`（不开 `highlightActiveLine`）、`history({ minDepth: 500 })`、`dirtyTrackingExtension`、`findDecorationsExtension`、`EditorView.lineWrapping`、`scrollPastEnd()`、`keymap.of([...defaultKeymap, ...historyKeymap])`。
@@ -178,6 +184,7 @@
 ### 6. `shared/crossLineSearch.ts` 扩展
 
 保留原 `MultilineMatch`、`searchMultilineRegex` 不变，新增：
+
 ```ts
 export interface DocumentSearchMatch {
   from: number
@@ -197,6 +204,7 @@ export function searchDocument(
   options: DocumentSearchOptions
 ): DocumentSearchMatch[]
 ```
+
 - `regex: true` → 调 `searchMultilineRegex` 转换结果。
 - `regex: false`：
   - `matchCase: true` → `text.indexOf(pattern, pos)` 推进（步进 `pattern.length`），若传了 `wordSeparators` 则复用内置 `isWholeWord` 过滤。

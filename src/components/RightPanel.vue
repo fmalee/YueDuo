@@ -68,7 +68,11 @@ onBeforeUnmount(() => {
       <button class="panel-tab" :class="{ active: page === 'history' }" @click="page = 'history'">
         历史
       </button>
-      <button class="panel-tab" :class="{ active: page === 'bookmarks' }" @click="page = 'bookmarks'">
+      <button
+        class="panel-tab"
+        :class="{ active: page === 'bookmarks' }"
+        @click="page = 'bookmarks'"
+      >
         书签<span v-if="libraryBookmarkTotal" class="tab-count">{{ libraryBookmarkTotal }}</span>
       </button>
       <button class="panel-tab" :class="{ active: page === 'chapters' }" @click="page = 'chapters'">

@@ -11,18 +11,18 @@
 
 ## 一、需读取与改动的文件清单
 
-| 文件 | 操作 | 说明 |
-| --- | --- | --- |
-| `src-tauri/src/types.rs` | 修改 | 新增 `ContextMenuPredefinedRole`、`ContextMenuItem`、`ContextMenuAction` |
-| `src-tauri/src/shell.rs` | 修改 | 新增 `popup_context_menu()`；`on_menu_event` 顶部拦截 `ctx:`；顶部撤消/恢复改为 `cmd:undo`/`cmd:redo` |
-| `src-tauri/src/commands/app.rs` | 修改 | 新增 `async fn app_popup_menu`（经 `run_on_main_thread` 弹出） |
-| `src-tauri/src/lib.rs` | 修改 | `generate_handler!` 注册 `commands::app::app_popup_menu` |
-| `shared/types.ts` | 修改 | `AppMenuCommand` 增 `'undo' \| 'redo'`；同步 `ContextMenu*` 类型 |
-| `src/ipc/bridge.ts` | 修改 | 新增 `appPopupMenu()`、`onContextMenuAction()` |
-| `src/composables/useContextMenu.ts` | **新增** | 统一原生右键菜单调度器（单次订阅 + 最新 `requestId` 覆盖） |
-| `src/components/TabBar.vue` | 修改 | 删除自绘右键菜单 DOM/状态/CSS/全局监听，改调 `popupContextMenu`（**保留重命名浮层**） |
-| `src/components/sidebar/SidebarEdit.vue` | 修改 | 删除自绘右键菜单 DOM/状态/CSS/全局监听，改调 `popupContextMenu` |
-| `src/App.vue` | 修改 | `runMenuCommand` 增加 `case 'undo'` / `case 'redo'` 焦点分流 |
+| 文件                                     | 操作     | 说明                                                                                                  |
+| ---------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/types.rs`                 | 修改     | 新增 `ContextMenuPredefinedRole`、`ContextMenuItem`、`ContextMenuAction`                              |
+| `src-tauri/src/shell.rs`                 | 修改     | 新增 `popup_context_menu()`；`on_menu_event` 顶部拦截 `ctx:`；顶部撤消/恢复改为 `cmd:undo`/`cmd:redo` |
+| `src-tauri/src/commands/app.rs`          | 修改     | 新增 `async fn app_popup_menu`（经 `run_on_main_thread` 弹出）                                        |
+| `src-tauri/src/lib.rs`                   | 修改     | `generate_handler!` 注册 `commands::app::app_popup_menu`                                              |
+| `shared/types.ts`                        | 修改     | `AppMenuCommand` 增 `'undo' \| 'redo'`；同步 `ContextMenu*` 类型                                      |
+| `src/ipc/bridge.ts`                      | 修改     | 新增 `appPopupMenu()`、`onContextMenuAction()`                                                        |
+| `src/composables/useContextMenu.ts`      | **新增** | 统一原生右键菜单调度器（单次订阅 + 最新 `requestId` 覆盖）                                            |
+| `src/components/TabBar.vue`              | 修改     | 删除自绘右键菜单 DOM/状态/CSS/全局监听，改调 `popupContextMenu`（**保留重命名浮层**）                 |
+| `src/components/sidebar/SidebarEdit.vue` | 修改     | 删除自绘右键菜单 DOM/状态/CSS/全局监听，改调 `popupContextMenu`                                       |
+| `src/App.vue`                            | 修改     | `runMenuCommand` 增加 `case 'undo'` / `case 'redo'` 焦点分流                                          |
 
 ---
 
@@ -31,6 +31,7 @@
 ### 1. 跨进程类型契约（严禁改名，Card 03 直接依赖）
 
 **`shared/types.ts`**：
+
 ```ts
 // AppMenuCommand 追加：
 //   | 'undo'
@@ -50,6 +51,7 @@ export interface ContextMenuAction {
 ```
 
 **`src-tauri/src/types.rs`**：
+
 ```rust
 fn default_true() -> bool {
     true

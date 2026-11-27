@@ -209,10 +209,7 @@ export function destroyReaderView(view: EditorView): void {
   view.destroy()
 }
 
-export function syncStateCompartments(
-  state: EditorState,
-  config: ReaderEditorConfig
-): EditorState {
+export function syncStateCompartments(state: EditorState, config: ReaderEditorConfig): EditorState {
   return state.update({
     effects: [
       themeCompartment.reconfigure(buildThemeExtension(config.dark)),
