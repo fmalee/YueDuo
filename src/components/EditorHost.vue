@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { Text } from '@codemirror/state'
+import type { ChangeSet, Text } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { destroyReaderView, tabIdField } from '@/editor/codemirror'
 import { currentDocVersion } from '@/editor/dirtyState'
@@ -75,6 +75,53 @@ function activePath(): string {
 
 /** 元数据只在前 10 行（与主进程扫描、元数据栏同口径） */
 const METADATA_HEAD_LINES = 10
+/** 滚动进度抓取节流：避免大文件滚动时每帧查询高度树抢占视口渲染 */
+const SCROLL_THROTTLE_MS = 150
+/** 编辑态状态栏刷新节流：避免中文 IME 组字与连续打字时每键触发底栏重排 */
+const METRICS_THROTTLE_MS = 100
+
+let scrollTimer = 0
+let metricsTimer = 0
+
+function clearScrollTimer(): void {
+  if (scrollTimer) {
+    clearTimeout(scrollTimer)
+    scrollTimer = 0
+  }
+}
+
+function clearMetricsTimer(): void {
+  if (metricsTimer) {
+    clearTimeout(metricsTimer)
+    metricsTimer = 0
+  }
+}
+
+/** 仅当变更区间触及文档前 N 行（含旧/新文档边界）时才需要重算头部元数据 */
+function changesTouchHeadLines(
+  oldDoc: Text,
+  newDoc: Text,
+  changes: ChangeSet,
+  headLines: number
+): boolean {
+  const oldLimit = oldDoc.line(Math.min(headLines, oldDoc.lines)).to
+  const newLimit = newDoc.line(Math.min(headLines, newDoc.lines)).to
+  let touched = false
+  changes.iterChangedRanges((fromA, _toA, fromB) => {
+    if (fromA <= oldLimit || fromB <= newLimit) touched = true
+  })
+  return touched
+}
+
+function scheduleMetricsRefresh(view: EditorView): void {
+  if (metricsTimer) return
+  metricsTimer = window.setTimeout(() => {
+    metricsTimer = 0
+    if (view.state.field(tabIdField) === null) return
+    refreshStatusMetrics(view.state.doc)
+    setCursorLine(view.state.doc.lineAt(view.state.selection.main.head).number)
+  }, METRICS_THROTTLE_MS)
+}
 
 /** 正文前 10 行 → 书名：标签标题随正文变更跟随，不读全文 */
 function bookTitleFromDoc(doc: Text, path: string): string {
@@ -130,17 +177,29 @@ onMounted(() => {
         emitEditorViewUpdate(update)
 
         if (!tabId) return
+        const tab = store.tabs.find((t) => t.id === tabId)
         const versionChanged =
           currentDocVersion(update.state) !== currentDocVersion(update.startState)
-        if (update.docChanged || versionChanged) {
-          store.patchTab(tabId, { dirty: isDirty(tabId) })
+        if (tab && (update.docChanged || versionChanged)) {
+          const nextDirty = isDirty(tabId)
+          if (nextDirty !== tab.dirty) {
+            store.patchTab(tabId, { dirty: nextDirty })
+          }
         }
         if (update.docChanged) {
-          refreshStatusMetrics(update.state.doc)
-          const tab = store.tabs.find((t) => t.id === tabId)
+          scheduleMetricsRefresh(update.view)
           if (tab?.path) {
-            const title = bookTitleFromDoc(update.state.doc, tab.path)
-            if (title && title !== tab.title) store.patchTab(tabId, { title })
+            if (
+              changesTouchHeadLines(
+                update.startState.doc,
+                update.state.doc,
+                update.changes,
+                METADATA_HEAD_LINES
+              )
+            ) {
+              const title = bookTitleFromDoc(update.state.doc, tab.path)
+              if (title && title !== tab.title) store.patchTab(tabId, { title })
+            }
             handleBookmarkDrift(
               tabId,
               tab.path,
@@ -152,21 +211,25 @@ onMounted(() => {
             scheduleBlankTitle(tabId)
           }
         }
-        if (update.selectionSet || update.docChanged) {
-          setCursorLine(update.state.doc.lineAt(update.state.selection.main.head).number)
-          if (update.selectionSet) {
-            const path = activePath()
-            if (path) library.scheduleReadStamp(path)
+        if (update.selectionSet) {
+          if (!update.docChanged && !update.view.composing) {
+            setCursorLine(update.state.doc.lineAt(update.state.selection.main.head).number)
           }
+          const path = activePath()
+          if (path) library.scheduleReadStamp(path)
         }
       },
       onScroll: () => {
-        const id = store.activeTabId
-        if (!id) return
-        captureProgress(id)
-        schedulePersist()
-        const path = activePath()
-        if (path) library.scheduleReadStamp(path)
+        if (scrollTimer) return
+        scrollTimer = window.setTimeout(() => {
+          scrollTimer = 0
+          const id = store.activeTabId
+          if (!id) return
+          captureProgress(id)
+          schedulePersist()
+          const path = activePath()
+          if (path) library.scheduleReadStamp(path)
+        }, SCROLL_THROTTLE_MS)
       },
       onContextMenu: (event, view) => {
         openEditorContextMenu(event, view, reader.locked, {
@@ -216,6 +279,8 @@ watch(
   () => store.activeTabId,
   (newId, oldId) => {
     if (newId === oldId) return
+    clearScrollTimer()
+    clearMetricsTimer()
     if (oldId) {
       // 切走前先抓旧标签的视口顶部行并存 viewState
       saveViewStateFor(oldId)
@@ -248,6 +313,8 @@ function onTabRelocated(e: Event): void {
 }
 
 onBeforeUnmount(() => {
+  clearScrollTimer()
+  clearMetricsTimer()
   if (blankTitleTimer) clearTimeout(blankTitleTimer)
   blankTitleTimer = 0
   pendingBlankTitleTabId = null

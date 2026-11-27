@@ -108,7 +108,16 @@ const offViewUpdate = onEditorViewUpdate((update) => {
   if (!update.docChanged) return
   const tab = store.activeTab
   if (!tab?.path || update.state.field(tabIdField) !== tab.id) return
-  const head = docHeadText(update.state.doc, HEAD_LINES)
+  const oldDoc = update.startState.doc
+  const newDoc = update.state.doc
+  const oldLimit = oldDoc.line(Math.min(HEAD_LINES, oldDoc.lines)).to
+  const newLimit = newDoc.line(Math.min(HEAD_LINES, newDoc.lines)).to
+  let touched = false
+  update.changes.iterChangedRanges((fromA, _toA, fromB) => {
+    if (fromA <= oldLimit || fromB <= newLimit) touched = true
+  })
+  if (!touched) return
+  const head = docHeadText(newDoc, HEAD_LINES)
   if (head === lastHead) return
   lastHead = head
   applyTextMetadata(head)
