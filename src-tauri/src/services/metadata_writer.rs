@@ -1,5 +1,5 @@
 //! 元数据写回（方案 §2.8）：逐行对齐 Python metadata_writer.rewrite_header。
-//! 只改正文前 10 行，返回一处最小替换区间（**UTF-16 码元偏移**，Monaco executeEdits 口径），
+//! 只改正文前 10 行，返回一处最小替换区间（**UTF-16 码元偏移**，编辑器统一偏移口径），
 //! 供编辑器一次可撤销编辑应用；无变化返回 None（避免无意义的 dirty）。纯函数可单测。
 
 use std::sync::OnceLock;

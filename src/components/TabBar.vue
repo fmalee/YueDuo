@@ -784,7 +784,7 @@ onBeforeUnmount(() => {
   padding: var(--yd-rename-button-padding-y) var(--yd-rename-button-padding-x);
   color: var(--yd-text-2);
   font-family: inherit;
-  font-size: var(--yd-tab-menu-font-size);
+  font-size: var(--yd-find-font-size);
   background: transparent;
   border: 1px solid var(--yd-border-1);
   border-radius: var(--yd-palette-key-radius);

@@ -136,13 +136,7 @@ export const METRICS = {
   findBarRulesRadius: 3,
   findBarRulesGap: 2,
   findBarRulesDescriptionFontSize: 11,
-  // 标签右键菜单与重命名浮层（方案 §3.5）
-  tabMenuMinWidth: 148,
-  tabMenuPaddingY: 4,
-  tabMenuItemPaddingY: 5,
-  tabMenuItemPaddingX: 12,
-  tabMenuFontSize: 12,
-  tabMenuRadius: 6,
+  // 重命名浮层（方案 §3.5）
   renameWidth: 360,
   renamePadding: 16,
   renameGap: 10,
@@ -151,7 +145,7 @@ export const METRICS = {
 } as const
 
 /**
- * 阅读排版 token（monaco.ts 的正文 options 引用）
+ * 阅读排版 token（src/editor/codemirror.ts 引用）
  * fontFamilies 是字体栈唯一来源（Rust 侧 types.rs READER_FONTS 是菜单与校验白名单）；
  * 行高固定按 22/15 的比例随字号换算，保证中文行距不被挤
  */
@@ -261,12 +255,6 @@ export function applyTheme(dark: boolean): void {
     '--yd-find-rules-description-font-size',
     `${METRICS.findBarRulesDescriptionFontSize}px`
   )
-  root.style.setProperty('--yd-tab-menu-min-width', `${METRICS.tabMenuMinWidth}px`)
-  root.style.setProperty('--yd-tab-menu-padding-y', `${METRICS.tabMenuPaddingY}px`)
-  root.style.setProperty('--yd-tab-menu-item-padding-y', `${METRICS.tabMenuItemPaddingY}px`)
-  root.style.setProperty('--yd-tab-menu-item-padding-x', `${METRICS.tabMenuItemPaddingX}px`)
-  root.style.setProperty('--yd-tab-menu-font-size', `${METRICS.tabMenuFontSize}px`)
-  root.style.setProperty('--yd-tab-menu-radius', `${METRICS.tabMenuRadius}px`)
   root.style.setProperty('--yd-rename-width', `${METRICS.renameWidth}px`)
   root.style.setProperty('--yd-rename-padding', `${METRICS.renamePadding}px`)
   root.style.setProperty('--yd-rename-gap', `${METRICS.renameGap}px`)

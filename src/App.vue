@@ -273,7 +273,7 @@ async function editAndSave(): Promise<Record<string, unknown>> {
 // 自动化验收通道（CDP 调用）
 
 onMounted(async () => {
-  // 捕获阶段统一分发快捷键：Monaco 的编辑器会先收到按键，冒泡阶段拦截不稳
+  // 捕获阶段统一分发快捷键：编辑器会先收到按键，冒泡阶段拦截不稳
   disposeKeybindings = installKeybindings()
   unsubscribeMenu = onAppMenuCommand(runMenuCommand)
   // 会话恢复先于任何打开动作：先挂退出握手，再按库还原标签顺序/active/进度

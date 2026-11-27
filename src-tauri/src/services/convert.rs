@@ -336,7 +336,7 @@ pub fn to_simplified(text: &str, dict_dir: &Path) -> Result<ConvertResult, Strin
 /// patience 行级 diff（git 同款思路）：前后缀整段裁剪后，以「两侧都唯一且相等」的行做锚点，
 /// 锚点间成段对比——行数一致精确到差异行，行数不同整段替换。
 /// 选择 patience 而非逐字全文替换的原因：一键整理通常只碰零散行（繁简转换、半角、少量规则），
-/// 按行下发让 Monaco 只重算被改行；空行折叠这类改行数的规则也落在小段内，不会退化成全文替换。
+/// 按行下发让编辑器只重算被改行；空行折叠这类改行数的规则也落在小段内，不会退化成全文替换。
 /// 正确性只依赖「锚点行相等 + 段内整体替换」这一保证，锚点选择只影响质量不影响结果。
 fn diff_line_edits(original: &str, result: &str) -> Vec<TidyEdit> {
     let a: Vec<&str> = original.split('\n').collect();
@@ -428,7 +428,7 @@ fn patience_anchors(a: &[&str], b: &[&str]) -> Vec<(usize, usize)> {
 /// 两锚点之间（或首尾哨兵之间）的段：相等跳过；行数一致只下差异行；否则整段替换。
 /// 编辑语义：替换 [start..end] 行**含 end 行的行尾换行符**，text 以 "\n" 结尾（纯删除为空串）。
 /// 关键依据：删除空行必须连行尾换行一起删——范围不含换行时，删空行是零宽替换（无操作），
-/// Monaco/任何范围模型里空行都永远剩一行；end 行是文档最后一行时退化为内容替换。
+/// 任何范围模型里空行都永远剩一行；end 行是文档最后一行时退化为内容替换。
 fn push_segment_edits(
     edits: &mut Vec<TidyEdit>,
     pre: usize,

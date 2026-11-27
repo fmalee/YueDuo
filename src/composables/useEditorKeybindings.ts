@@ -79,8 +79,8 @@ function matches(chord: KeyChord, e: KeyboardEvent): boolean {
 
 /**
  * 集中键位表 + 捕获阶段分发器（window capture）
- * - 单一来源：编辑器内外同一键位走同一条命令，不再分别依赖 Monaco addCommand 与 window 兜底
- * - 捕获阶段先于 Monaco：锁定阅读的空格翻页、合并段落等不会被编辑器先消费
+ * - 单一来源：编辑器内外同一键位走同一条命令，不再分别依赖编辑器内置键位与 window 兜底
+ * - 捕获阶段先于编辑器：锁定阅读的空格翻页、合并段落等不会被编辑器先消费
  * - 输入控件内一律放行；锁定阅读时写入类命令按只读语义禁用
  */
 export function useEditorKeybindings(options: KeybindingOptions): { install: () => () => void } {
@@ -181,7 +181,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       run: (editor) => editor && insertNewline(editor, false)
     },
     {
-      // 捕获阶段拦下，避免 Monaco 自带的 insertLineAfter 再插一行
+      // 捕获阶段拦下，避免编辑器默认回车行为再插一行
       id: 'insertLineBelow',
       label: '在下方插入行（带缩进）',
       chord: { code: 'Enter', mod: true },
@@ -245,7 +245,7 @@ export function useEditorKeybindings(options: KeybindingOptions): { install: () 
       if (binding.scope === 'editor' && (!editorFocused || !editor)) continue
       if (binding.availability === 'editable' && reader.locked) continue
       if (binding.availability === 'readonly' && !reader.locked) continue
-      // 捕获阶段拦下：Monaco 与 Electron 菜单加速键都不再重复处理
+      // 捕获阶段拦下：编辑器与原生菜单加速键都不再重复处理
       e.preventDefault()
       e.stopPropagation()
       binding.run(editor)

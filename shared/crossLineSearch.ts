@@ -1,8 +1,6 @@
 /**
- * 跨行正则匹配（方案 §3.1）
- * Monaco 的 findMatches 逐行扫描，正则里的 `\n` 永远跨不过行；
- * 这里对全文跑一遍正则，返回相对全文的 UTF-16 偏移，跨行区间由调用侧换算成 Monaco 位置。
- * 整词边界与 Monaco 的 findMatches 同口径（分隔符字符 + 空格/制表符 + 换行）。
+ * 统一文档搜索与跨行正则匹配（方案 §3.1）
+ * 对全文扫描并返回相对全文的 UTF-16 偏移区间，支持纯文本、跨行正则与整词边界（分隔符字符 + 空格/制表符 + 换行）。
  */
 export interface MultilineMatch {
   /** 相对全文的起始偏移 */
@@ -83,7 +81,7 @@ export function searchDocument(
 
 /**
  * 全文正则扫描。
- * - `m` 标志复刻 Monaco 逐行搜索时的 ^ / $ 语义；
+ * - `m` 标志保持逐行 ^ / $ 语义；
  * - `u` 与现有正则校验保持一致（编译失败由调用侧捕获，按「正则无效」处理）；
  * - 零长度命中直接跳过并强制前进，避免死循环（与旧的「过滤空区间」口径一致）。
  */
@@ -111,14 +109,14 @@ export function searchMultilineRegex(
   return results
 }
 
-/** 与 Monaco 的 WordCharacterClassifier 一致：传入的分隔符 + 空格 + 制表符（换行单独判） */
+/** 整词分隔符集合：传入的分隔符 + 空格 + 制表符（换行单独判） */
 function buildSeparatorCodes(wordSeparators: string): Set<number> {
   const codes = new Set<number>([9, 32])
   for (let i = 0; i < wordSeparators.length; i++) codes.add(wordSeparators.charCodeAt(i))
   return codes
 }
 
-/** 复刻 Monaco 的 isValidMatch：两侧是分隔符/换行/文档边界，或匹配自身首尾就是分隔符 */
+/** 整词边界判定：两侧是分隔符/换行/文档边界，或匹配自身首尾就是分隔符 */
 function isWholeWord(
   text: string,
   start: number,

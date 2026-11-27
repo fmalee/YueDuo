@@ -1,5 +1,5 @@
 //! 悦读后端核心库（纯 Rust，替代 Electron 主进程）。
-//! Vue + Monaco 前端原样保留，IPC 出口为按域 typed commands（`src/ipc/bridge.ts` 直调）。
+//! Vue + CodeMirror 6 前端，IPC 出口为按域 typed commands（`src/ipc/bridge.ts` 直调）。
 //!
 //! 铁律（AGENTS.md）：
 //! - command 一律 async（跑在 tokio 线程池）：blocking 对话框/长任务绝不落在主线程。

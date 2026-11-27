@@ -92,7 +92,7 @@ export type ConfirmChoice = 'save' | 'discard' | 'cancel'
 export interface DraftEntry {
   /** 卸载时的未保存全文；null = 卸载时非 dirty（重载走 file:readText） */
   text: string | null
-  /** 卸载时的 Monaco 视图状态（滚动/选区），重载恢复阅读进度 */
+  /** 卸载时的编辑器视图状态（滚动/选区），重载恢复阅读进度 */
   viewState: unknown
 }
 
@@ -154,7 +154,7 @@ export interface SessionRestore {
   tabs: SessionTabRecord[]
 }
 
-/** 标签元信息（全文内容只存在于 Monaco model，绝不进这里） */
+/** 标签元信息（全文内容只存在于 CM6 EditorState.doc，绝不进这里） */
 export interface TabMeta {
   id: string
   path: string

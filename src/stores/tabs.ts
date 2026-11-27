@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { TabMeta } from '../../shared/types'
 
 /**
- * 标签元信息 store —— 只存元信息与 UI 状态，全文内容只存在于 Monaco model
+ * 标签元信息 store —— 只存元信息与 UI 状态，全文内容只存在于 CM6 EditorState.doc
  * （方案 §二根因教训 2：全文绝不进 Pinia reactive）
  */
 export const useTabsStore = defineStore('tabs', {

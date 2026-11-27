@@ -44,7 +44,7 @@ export function unescapeReplaceTemplate(template: string): string {
  * 查找替换模板展开（方案 §3.1）
  * 支持 `$1`–`$9`（捕获组）、`$&` / `$0`（整个匹配）、`$$`（字面 `$`）。
  * 其余写法（越界组号、多位数如 `$10`、未闭合的 `$`、`$` 后跟其他字符）一律按字面输出，不报错。
- * 纯函数，不依赖 Monaco / Vue，便于单测。
+ * 纯函数，不依赖编辑器 / Vue，便于单测。
  */
 export function expandReplaceTemplate(
   template: string,

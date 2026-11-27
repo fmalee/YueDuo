@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-- 本地 TXT 小说管理与阅读器（悦读 / YueDuo）：**Tauri 2 + Rust 后端 + Vue 3 + TypeScript + Monaco** 前端（前端自 Electron 版原样迁移），编辑器界面即阅读界面，视觉与交互对齐 VS Code / Chrome 标签。
+- 本地 TXT 小说管理与阅读器（悦读 / YueDuo）：**Tauri 2 + Rust 后端 + Vue 3 + TypeScript + CodeMirror 6** 前端，编辑器界面即阅读界面，视觉与交互对齐 VS Code / Chrome 标签。
 - 功能基线是 NovelManager（Python + PySide6）；`YueDuo_old` 只作参考与坑警示，不照搬实现。
 - 2026-11-20 起从 Electron 完成向 Tauri 的重构（方案与踩坑沉淀见 [.trae/documents/tauri-refactor-plan.md](.trae/documents/tauri-refactor-plan.md)）；Electron 版代码已删除，历史参考用 `git show a46ae4a:<electron/... 路径>`。
 
@@ -17,7 +17,7 @@
 
 ## 技术栈基线
 
-- Tauri 2.12（tauri + tauri-plugin-dialog + tauri-plugin-single-instance）、rusqlite 0.32（bundled）、encoding_rs + chardetng、regex、trash、xattr、serde/serde_json、sha1；前端 Vue 3.5、TS（严格但 `noImplicitAny: false`——Monaco 深层 JS 导入无 .d.ts，照搬旧 toolkit 预设口径，勿改）、Pinia 4、Monaco 0.57。
+- Tauri 2.12（tauri + tauri-plugin-dialog + tauri-plugin-single-instance）、rusqlite 0.32（bundled）、encoding_rs + chardetng、regex、trash、xattr、serde/serde_json、sha1；前端 Vue 3.5、TS（严格但 `noImplicitAny: false` 按历史口径保留，勿改）、Pinia 4、CodeMirror 6（`@codemirror/state`、`@codemirror/view`、`@codemirror/commands`）。
 - Rust dev 档已开优化（本 crate O1 + 依赖 O3，见 Cargo.toml）：`tauri dev` 首次编译 1–3 分钟属正常，不要为编译速度退回零优化——解码/字数统计这类 CPU 路径在零优化下慢一个数量级，是「打开文件/扫描特别慢」的真凶。
 - TS 锁 `^5.9.3`（5.x 末版），禁止 `latest`/`*`：TS 7 原生移植无编译 API，vue-tsc 依赖它。
 - 新增依赖需主流稳定、说明理由并锁版本；依赖/构建/目录等全局变更先确认。
@@ -34,6 +34,7 @@
 | `src-tauri/src/shell.rs` | 原生中文菜单；`theme.rs` 主题；`types.rs` shared/types.ts 的 serde 镜像 |
 | `src/components` | 只做 UI 与事件，不碰 IPC 细节 |
 | `src/composables` | 渲染层编排：标签、会话、编辑动作、书库切换 |
+| `src/editor` | CodeMirror 6 引擎层：实例/Compartment 工厂、O(1) 判脏、视口裁剪高亮、纯编辑动作 |
 | `src/stores` | 只存元信息与 UI 状态（Pinia），不存全文 |
 | `src/ipc` | `bridge.ts` 是渲染层唯一 IPC 出口 |
 | `shared` | 两侧共用契约与规则（types.ts、findRules.json、metadataParser 等） |
@@ -45,8 +46,8 @@
 - **消息框按钮判定**：tauri-plugin-dialog 在所有平台把原生结果统一转成 `Custom(按钮文案)`（插件 desktop.rs），按文案匹配（`Yes/No/Ok` 枚举只作兜底），否则永远落到 default 分支。
 - capabilities 最小权限：`src-tauri/capabilities/default.json`，新前端能力（如 window:show）逐条补；`core:default` 不含窗口显隐。
 - 资源必须进 `bundle.resources`（tauri.conf.json）并配探测测试；**dev 态 resource_dir 不含资源**，运行时探测顺序：resource_dir → `CARGO_MANIFEST_DIR/../`（见 commands/convert.rs）。
-- 全文字符串绝不进 Pinia/Vue reactive：store 只存 `TabMeta`，全文只在 Monaco model（`useTabLifecycle.ts` 的非 reactive `Map`）。
-- 单 Monaco 实例 + 每标签一个 model + `setModel()` 切换；禁止用 `:key` 重建编辑器实例（旧项目焦点/IME bug 根因）。
+- 全文字符串绝不进 Pinia/Vue reactive：store 只存 `TabMeta`，全文只在 CM6 `EditorState.doc`（`useTabLifecycle.ts` 的非 reactive `Map`）。
+- 单 `EditorView` 实例 + 每标签不可变 `EditorState` + `view.setState()` 切换；禁止用 `:key` 重建编辑器实例（旧项目焦点/IME bug 根因）。
 - 共用类型写 `shared/types.ts`（Rust 侧镜像 `types.rs`），不用裸 `any`；文件命名 services/composables/stores 用 camelCase、Vue 组件用 PascalCase、Rust 文件 snake_case；command 用 snake_case、事件用 `域:动作`。
 - 单文件超 ~500 行拆分（state/ 已按域拆子模块的先例）。
 
@@ -64,7 +65,7 @@
 - 工作编码 UTF-16LE；探测链复刻 Python `text_codec.py`（BOM 表 UTF-32 先于 UTF-16、无 BOM UTF-16 NUL 推断——chardetng 不识无 BOM UTF-16 且 had_errors=false，此层不可省、chardetng + GB18030 复核、fallback utf-8→gb18030→big5），换行归一 `\r\n`/`\r` → `\n`。
 - `encoding_rs` 的 `UTF_16LE.encode()` 输出是 UTF-8——写出必须 `str::encode_utf16` 逐码元小端；chardetng 的 `gbk` 标签归一为 `gb18030`（同一解码器）。
 - 大文本 IPC 走 `tauri::ipc::Response` 二进制帧（`[u32 headerLen][header JSON][UTF-16LE 正文]`，bridge.ts 拆帧）——不走 JSON 通道（省序列化/解析与全量拷贝，大书恢复速度的关键）。
-- 回车补两个全角空格 `U+3000`，`Shift+回车` 只换行不缩进；WKWebView 中文输入抖动靠 `accessibilitySupport: 'off'`（monaco.ts，勿删）。
+- 回车补两个全角空格 `U+3000`，`Shift+回车` 只换行不缩进。
 - 一键整理顺序固定：归一换行 → 繁转简（保护词→词组最长匹配→单字→ambiguous 保留）→ 全角转半角（`to_halfwidth` 规则）→ 按 `shared/findRules.json` 数组顺序执行 `tidyEnabled` 的规则。
 - **findRules.json 是全项目唯一正则来源**（TS 薄类型导出 + Rust `include_str!` 嵌入同一份文件）：所有正则进查找下拉；`tidyEnabled: true` 严格按数组顺序用于一键整理；增删规则只改 JSON。Rust 只编译 tidyEnabled + to_halfwidth 模式（RE2 兼容无 lookahead，`fix_dialogue` 等纯查找规则不进 Rust）；JS `\uXXXX` 需转译为 regex crate 的 `\u{XXXX}`（services/find_rules.rs）。
 - 替换模板展开（`$1`/`$&`/`$$`/`\n`/`\t`/`\\`）语义以 `shared/replaceTemplate.ts` 为准，Rust 侧 services/convert.rs 逐语义移植，两处改动必须同步。
@@ -73,19 +74,20 @@
 
 - **设置默认值单一源 = `shared/defaultSettings.json`**（TS `import` + Rust `include_str!` 嵌入同一份文件，仿 findRules.json 模式）：`DEFAULT_SETTINGS`（types.ts）与 `default_settings()`（types.rs）都只从该 JSON 读，改默认值只改 JSON，禁止在两侧各抄一份。Rust 侧解析失败 panic 快速暴露；cargo test `default_settings_from_shared_json` 锁默认值防漂移。
 - 元数据：名称取前两行书名号内，否则文件名；作者取前十行 `作者：`，否则「佚名」；标签取前十行 `主题：`，否则目录名；评分 5 分制。书名识别只看**前两行**（titleLineIndex 限制）。
-- 元数据写回用一次最小区间替换生成可撤销 TextEdit（**UTF-16 码元偏移**，Monaco executeEdits 口径，Rust 侧 services/metadata_writer.rs 做码元↔字节换算），保留光标与未保存标记；applyEdit 按 B1 口径提交即同步 books（不等保存），不写文件。
+- 元数据写回用一次最小区间替换生成可撤销 TextEdit（**UTF-16 码元偏移**，编辑器统一偏移口径，Rust 侧 services/metadata_writer.rs 做码元↔字节换算），保留光标与未保存标记；applyEdit 按 B1 口径提交即同步 books（不等保存），不写文件。
 - Finder 星级/注释走 `xattr` crate 直读写原始字节 + 手写 bplist00（与 python3 `plistlib.dumps(FMT_BINARY)` 逐字节一致，cargo test 有对照测试）：float marker `0x23` + 8 字节 BE double；字符串全 ASCII 走 `0x5X`，否则 UTF-16BE marker `0x60|字符数` 或 `0x6F`+2 字节字符数；trailer 32 字节；禁止 plist crate 的 `buildBinary`。写前读旧值，相同跳过。
 - 注释写完再 `osascript`（argv 传路径与注释、不拼脚本，2 秒超时）让 Finder `set comment` 同步一次：Finder/Path Finder 显示的是 Spotlight 索引，raw xattr 会滞后甚至滞留旧值。`write_comment` 返回 `refreshed/written/skipped/failed`，同步失败记 warning 并返回 `written`，不阻塞保存。
 - `last_read_at` 打开即写，阅读位置变化 60 秒防抖。
 
-## Monaco 硬约束
+## CodeMirror 6 硬约束
 
-- worker 只走 `src/monaco.ts` 的 Vite 原生 `?worker` 单一路径，纯文本只需 `editor.worker`；禁止 `MonacoEnvironment.getWorkerUrl` 与 AMD loader。
-- 大文件禁止分片追加，一律一次性 `setValue`（4.8MB 约 250ms，分片慢 4 倍）。
-- 纯文本必须关闭 `unicodeHighlight`、`renderWhitespace`、`bracketPairColorization`、`guides`、建议类、`stickyScroll`、`renderLineHighlight`，`wrappingStrategy: 'simple'`，显式 `fontFamily` 含 PingFang SC，`accessibilitySupport: 'off'`。
-- dirty 用 `model.getAlternativeVersionId()` 与基线比较（O(1)）；不要为 dirty 读取全文，也不要监听全文。
-- 用 Monaco API 前先 grep `node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts` 确认存在。
-- `monaco.editor.create()` 参数只在创建时生效，改配置必须重启；查找替换由自绘 `FindReplaceBar` 接管 `Cmd+F`。
+- 单 `EditorView` 实例 + 每标签不可变 `EditorState`（非 reactive `Map`）+ `view.setState()` 切换，禁止用 `:key` 重建；`updateListener` 实时回写最新 `EditorState`；空态/加载态切共享只读空占位态（`tabIdField = null`）。
+- 每次 `view.setState()` 前必须经 `syncStateCompartments()` 同步全局主题、字体、字号与锁定态（带 `addToHistory: false`）。
+- 锁定阅读只用 `EditorState.readOnly.of(true)`，严禁 `EditorView.editable.of(false)`（否则失焦、空格翻页、选区复制全部失效）。
+- O(1) 判脏走 `src/editor/dirtyState.ts`（`docVersionField` + `invertedEffects` 反向版本号），严禁调用 `doc.toString()` 对比。
+- 查找高亮走 `src/editor/findDecorations.ts`（`ViewPlugin` 仅对 `view.visibleRanges` 二分裁剪挂 `Decoration.mark`）；查找替换由自绘 `FindReplaceBar` 接管 `Cmd+F`。
+- 统一原生右键菜单走 `app_popup_menu`（剪切/复制/粘贴/全选混合预定义策略，撤销/恢复走自定义项）；顶部菜单撤消/恢复走 `cmd:undo`/`cmd:redo` 按焦点分流。
+- 打包版 `src/main.ts` 的 `contextmenu` 放行规则必须排除 `.cm-editor` 内的 `[contenteditable="true"]`。
 
 ## 界面约定
 
