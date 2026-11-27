@@ -11,10 +11,12 @@
 use std::sync::Mutex;
 
 use serde_json::json;
-use tauri::menu::{AboutMetadata, CheckMenuItem, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{AboutMetadata, CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Wry};
 
-use crate::types::{READER_FONTS, READER_FONT_SIZES};
+use crate::types::{
+    ContextMenuAction, ContextMenuItem, ContextMenuPredefinedRole, READER_FONTS, READER_FONT_SIZES,
+};
 
 /// 「显示 → 预载数量」可选值（对齐 electron/menu.ts）
 const PRELOAD_CHOICES: [i64; 5] = [4, 8, 10, 15, 20];
@@ -130,8 +132,8 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     // ---- 编辑 ----
     let edit_menu = Submenu::with_id(app, "edit", "编辑", true)?;
-    edit_menu.append(&PredefinedMenuItem::undo(app, Some("撤消"))?)?;
-    edit_menu.append(&PredefinedMenuItem::redo(app, Some("恢复"))?)?;
+    add_item(&edit_menu, app, "cmd:undo", "撤消", Some("CmdOrCtrl+Z"))?;
+    add_item(&edit_menu, app, "cmd:redo", "恢复", Some("Shift+CmdOrCtrl+Z"))?;
     edit_menu.append(&PredefinedMenuItem::separator(app)?)?;
     edit_menu.append(&PredefinedMenuItem::cut(app, Some("剪切"))?)?;
     edit_menu.append(&PredefinedMenuItem::copy(app, Some("复制"))?)?;
@@ -300,6 +302,18 @@ pub fn install_menu(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     // 菜单事件统一分发：命令类透传渲染层，勾选类就地维护后带值透传
     app.on_menu_event(|app, event| {
         let id = event.id().as_ref().to_string();
+        if let Some(rest) = id.strip_prefix("ctx:") {
+            if let Some((request_id, item_id)) = rest.split_once(':') {
+                let _ = app.emit(
+                    "app:contextMenu",
+                    ContextMenuAction {
+                        request_id: request_id.to_string(),
+                        item_id: item_id.to_string(),
+                    },
+                );
+            }
+            return;
+        }
         let menu_state = app.state::<MenuState>();
         match id.as_str() {
             "cmd:closeWindow" => {
@@ -388,4 +402,49 @@ pub fn sync_menu_state(app: &AppHandle, sidebar_visible: bool, right_panel_visib
     let state = app.state::<MenuState>();
     let _ = state.sidebar.set_checked(sidebar_visible);
     let _ = state.right_panel.set_checked(right_panel_visible);
+}
+
+/// 弹出原生右键菜单（必须在主线程调用，由 commands/app.rs 的 run_on_main_thread 保证）。
+pub fn popup_context_menu(
+    app: &AppHandle,
+    request_id: &str,
+    items: &[ContextMenuItem],
+) -> Result<(), String> {
+    let Some(window) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    let menu = Menu::new(app).map_err(|e| e.to_string())?;
+    for entry in items {
+        match entry {
+            ContextMenuItem::Separator => {
+                let sep = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
+                menu.append(&sep).map_err(|e| e.to_string())?;
+            }
+            ContextMenuItem::Predefined { role, label } => {
+                let text = label.as_deref();
+                let predefined = match role {
+                    ContextMenuPredefinedRole::Cut => PredefinedMenuItem::cut(app, text),
+                    ContextMenuPredefinedRole::Copy => PredefinedMenuItem::copy(app, text),
+                    ContextMenuPredefinedRole::Paste => PredefinedMenuItem::paste(app, text),
+                    ContextMenuPredefinedRole::SelectAll => {
+                        PredefinedMenuItem::select_all(app, text)
+                    }
+                }
+                .map_err(|e| e.to_string())?;
+                menu.append(&predefined).map_err(|e| e.to_string())?;
+            }
+            ContextMenuItem::Item { id, label, enabled } => {
+                let menu_item = MenuItem::with_id(
+                    app,
+                    format!("ctx:{request_id}:{id}"),
+                    label,
+                    *enabled,
+                    None::<&str>,
+                )
+                .map_err(|e| e.to_string())?;
+                menu.append(&menu_item).map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    window.popup_menu(&menu).map_err(|e| e.to_string())
 }

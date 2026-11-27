@@ -24,6 +24,7 @@ import { getTabModel, residentModelCount } from '@/composables/useTabLifecycle'
 import { statusMetrics } from '@/composables/useStatusMetrics'
 import {
   caretSnapshot,
+  getActiveEditor,
   initSession,
   injectDraftWriteFailure,
   persistSessionNow,
@@ -84,6 +85,19 @@ function dispatchEditorCommand(
   detail: string
 ): void {
   window.dispatchEvent(new CustomEvent(event, { detail }))
+}
+
+/** 顶部「编辑 → 撤消 / 恢复」按焦点分流：原生输入框走 execCommand，编辑器走 Monaco */
+function runUndoRedo(action: 'undo' | 'redo'): void {
+  const active = document.activeElement
+  const inMonaco = active instanceof Element && Boolean(active.closest('.monaco-editor'))
+  if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && !inMonaco) {
+    document.execCommand(action)
+    return
+  }
+  if (inMonaco) {
+    getActiveEditor()?.trigger('menu', action, null)
+  }
 }
 
 // Cmd+N / Cmd+P / Cmd+L / Cmd+S / Cmd+B / Shift+Cmd+B 统一由 useEditorKeybindings 分发，
@@ -164,6 +178,10 @@ function runMenuCommand(payload: AppMenuPayload): void {
       break
     case 'replace':
       dispatchEditorCommand('yueduo:findReplace', 'replace')
+      break
+    case 'undo':
+    case 'redo':
+      runUndoRedo(payload.command)
       break
     case 'tidy':
       dispatchEditorCommand('yueduo:convert', 'tidy')

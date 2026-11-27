@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
+import { popupContextMenu } from '@/composables/useContextMenu'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
 import { showStatusMessage } from '@/composables/useStatusMessage'
 import { useSettingsStore } from '@/stores/settings'
@@ -298,79 +299,59 @@ function onTabClick(id: string): void {
   activateTab(id)
 }
 
-// —— 标签右键菜单与重命名浮层（方案 §3.5）——
-const menu = ref<{ x: number; y: number; tabId: string } | null>(null)
-const menuEl = ref<HTMLElement>()
-const menuTab = computed(() =>
-  menu.value ? (store.tabs.find((t) => t.id === menu.value?.tabId) ?? null) : null
-)
+// —— 标签右键菜单（原生菜单）与重命名浮层（方案 §3.5）——
 const rename = ref<{ tabId: string; value: string; error: string } | null>(null)
 const renameInput = ref<HTMLInputElement>()
 
-/** 右键弹菜单：先在指针处渲染，再按实际尺寸收进视口（菜单项增删不产生漂移） */
-async function openTabMenu(e: MouseEvent, tabId: string): Promise<void> {
+/** 右键弹原生菜单：不切活动标签，动作按 tabId 作用于被右击的那一项 */
+function openTabMenu(e: MouseEvent, tabId: string): void {
   e.preventDefault()
-  // 右键只弹菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
-  menu.value = { x: e.clientX, y: e.clientY, tabId }
-  await nextTick()
-  const rect = menuEl.value?.getBoundingClientRect()
-  if (!rect || !menu.value) return
-  menu.value.x = Math.max(4, Math.min(menu.value.x, window.innerWidth - rect.width - 4))
-  menu.value.y = Math.max(4, Math.min(menu.value.y, window.innerHeight - rect.height - 4))
-}
-
-function dismissMenu(): void {
-  menu.value = null
-}
-
-function menuSave(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) void saveTab(id).catch((e) => console.error('[tab] 保存失败:', e))
-}
-
-function menuClose(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) void closeTab(id)
-}
-
-function menuCloseOthers(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) void closeOtherTabs(id)
-}
-
-function menuCloseAll(): void {
-  dismissMenu()
-  void closeAllTabs()
-}
-
-function menuRename(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) beginRename(id)
-}
-
-function menuMove(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (!id) return
-  void moveTab(id).then((error) => {
-    if (error) showStatusMessage(`移动失败：${error}`, 5000)
-  })
-}
-
-function menuDelete(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) void deleteTabFile(id).catch((e) => console.error('[tab] 删除失败:', e))
-}
-
-function menuReveal(): void {
-  const id = menu.value?.tabId
-  dismissMenu()
-  if (id) revealTabFile(id)
+  const tab = store.tabs.find((t) => t.id === tabId)
+  if (!tab) return
+  const hasPath = Boolean(tab.path)
+  void popupContextMenu(
+    [
+      { kind: 'item', id: 'save', label: '保存' },
+      { kind: 'item', id: 'close', label: '关闭' },
+      { kind: 'item', id: 'closeOthers', label: '关闭其他', enabled: store.tabs.length > 1 },
+      { kind: 'item', id: 'closeAll', label: '关闭全部' },
+      { kind: 'separator' },
+      { kind: 'item', id: 'rename', label: '重命名…', enabled: hasPath },
+      { kind: 'item', id: 'move', label: '移动…', enabled: hasPath },
+      { kind: 'item', id: 'delete', label: '删除…', enabled: hasPath },
+      { kind: 'item', id: 'reveal', label: '在 Finder 中显示', enabled: hasPath }
+    ],
+    (itemId) => {
+      switch (itemId) {
+        case 'save':
+          void saveTab(tabId).catch((err) => console.error('[tab] 保存失败:', err))
+          break
+        case 'close':
+          void closeTab(tabId)
+          break
+        case 'closeOthers':
+          void closeOtherTabs(tabId)
+          break
+        case 'closeAll':
+          void closeAllTabs()
+          break
+        case 'rename':
+          beginRename(tabId)
+          break
+        case 'move':
+          void moveTab(tabId).then((error) => {
+            if (error) showStatusMessage(`移动失败：${error}`, 5000)
+          })
+          break
+        case 'delete':
+          void deleteTabFile(tabId).catch((err) => console.error('[tab] 删除失败:', err))
+          break
+        case 'reveal':
+          revealTabFile(tabId)
+          break
+      }
+    }
+  ).catch((err) => console.error('[tab] 右键菜单弹出失败:', err))
 }
 
 function beginRename(id: string): void {
@@ -403,23 +384,9 @@ async function submitRename(): Promise<void> {
   focusEditor()
 }
 
-function onGlobalPointerDown(e: PointerEvent): void {
-  if (!menu.value) return
-  if (e.target instanceof Element && e.target.closest('.tab-context-menu')) return
-  dismissMenu()
-}
-
 function onGlobalKeydown(e: KeyboardEvent): void {
   if (e.key !== 'Escape') return
-  if (menu.value) {
-    dismissMenu()
-    return
-  }
   if (rename.value) cancelRename()
-}
-
-function onGlobalBlur(): void {
-  dismissMenu()
 }
 
 // 活动标签下标也要监听：左栏拖动活动标签时 active 与数量都不变，但它在标签栏里的位置变了
@@ -440,9 +407,7 @@ watch(
 onMounted(() => {
   ensureActiveVisible()
   void nextTick(syncScrollbar)
-  window.addEventListener('pointerdown', onGlobalPointerDown)
   window.addEventListener('keydown', onGlobalKeydown)
-  window.addEventListener('blur', onGlobalBlur)
   if (scrollRef.value) {
     resizeObserver = new ResizeObserver(syncScrollbar)
     resizeObserver.observe(scrollRef.value)
@@ -451,9 +416,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
-  window.removeEventListener('pointerdown', onGlobalPointerDown)
   window.removeEventListener('keydown', onGlobalKeydown)
-  window.removeEventListener('blur', onGlobalBlur)
   if (hideTimer) clearTimeout(hideTimer)
   clearAutoScroll()
   window.removeEventListener('pointermove', onScrollbarPointerMove)
@@ -544,31 +507,6 @@ onBeforeUnmount(() => {
       ></div>
     </div>
   </div>
-
-  <!-- 标签右键菜单（方案 §3.5）：保存/关闭类与顶部「文件」菜单共用同一套动作 -->
-  <Teleport to="body">
-    <div
-      v-if="menu"
-      ref="menuEl"
-      class="tab-context-menu"
-      :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
-      @contextmenu.prevent
-    >
-      <button class="tab-menu-item" @click="menuSave">保存</button>
-      <button class="tab-menu-item" @click="menuClose">关闭</button>
-      <button class="tab-menu-item" :disabled="store.tabs.length <= 1" @click="menuCloseOthers">
-        关闭其他
-      </button>
-      <button class="tab-menu-item" @click="menuCloseAll">关闭全部</button>
-      <div class="tab-menu-sep"></div>
-      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuRename">重命名…</button>
-      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuMove">移动…</button>
-      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuDelete">删除…</button>
-      <button class="tab-menu-item" :disabled="!menuTab?.path" @click="menuReveal">
-        在 Finder 中显示
-      </button>
-    </div>
-  </Teleport>
 
   <!-- 重命名浮层：自绘轻量对话框（与整体视觉一致，且不依赖原生输入框） -->
   <Teleport to="body">
@@ -788,42 +726,6 @@ onBeforeUnmount(() => {
 .tab-close:hover {
   background: var(--yd-active-1);
   color: var(--yd-text-1);
-}
-
-/* 标签右键菜单（方案 §3.5） */
-.tab-context-menu {
-  position: fixed;
-  z-index: 30;
-  min-width: var(--yd-tab-menu-min-width);
-  padding: var(--yd-tab-menu-padding-y) 0;
-  background: var(--yd-bg-1);
-  border: 1px solid var(--yd-border-1);
-  border-radius: var(--yd-tab-menu-radius);
-  box-shadow: 0 6px 20px var(--yd-shadow);
-  font-size: var(--yd-tab-menu-font-size);
-}
-.tab-menu-item {
-  display: block;
-  width: 100%;
-  padding: var(--yd-tab-menu-item-padding-y) var(--yd-tab-menu-item-padding-x);
-  color: var(--yd-text-2);
-  font: inherit;
-  text-align: left;
-  background: transparent;
-  border: none;
-  cursor: default;
-}
-.tab-menu-item:hover:not(:disabled) {
-  background: var(--yd-hover-1);
-}
-.tab-menu-item:disabled {
-  color: var(--yd-text-3);
-  opacity: 0.6;
-}
-.tab-menu-sep {
-  height: 1px;
-  margin: var(--yd-tab-menu-padding-y) 0;
-  background: var(--yd-border-1);
 }
 
 /* 重命名浮层（QInputDialog 平替） */

@@ -80,6 +80,42 @@ pub struct AppMenuState {
     pub right_panel_visible: bool,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContextMenuPredefinedRole {
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ContextMenuItem {
+    Item {
+        id: String,
+        label: String,
+        #[serde(default = "default_true")]
+        enabled: bool,
+    },
+    Predefined {
+        role: ContextMenuPredefinedRole,
+        label: Option<String>,
+    },
+    Separator,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ContextMenuAction {
+    pub request_id: String,
+    pub item_id: String,
+}
+
 /// 文件身份（同文件去重依据：dev+ino 优先，realPath 兜底；shared/types.ts FileStat）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

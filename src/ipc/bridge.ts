@@ -14,6 +14,8 @@ import type {
   AppSettings,
   BookmarkInfo,
   ChapterInfo,
+  ContextMenuAction,
+  ContextMenuItem,
   ConvertResult,
   DraftEntry,
   DraftTabMeta,
@@ -92,6 +94,16 @@ export function appSyncMenuState(state: AppMenuState): Promise<null> {
 /** 订阅顶部应用菜单命令（保存/关闭类与标签右键菜单共用动作） */
 export function onAppMenuCommand(callback: (payload: AppMenuPayload) => void): () => void {
   return subscribe<AppMenuPayload>('app:menuCommand', callback)
+}
+
+/** app:popupMenu —— 弹出原生右键菜单 */
+export function appPopupMenu(requestId: string, items: ContextMenuItem[]): Promise<null> {
+  return ipcInvoke<null>('app_popup_menu', { requestId, items })
+}
+
+/** 订阅原生右键菜单点击回执 */
+export function onContextMenuAction(callback: (payload: ContextMenuAction) => void): () => void {
+  return subscribe<ContextMenuAction>('app:contextMenu', callback)
 }
 
 // ---------- file 域 ----------

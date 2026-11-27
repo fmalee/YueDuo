@@ -44,6 +44,8 @@ export type AppMenuCommand =
   | 'preloadCount'
   | 'find'
   | 'replace'
+  | 'undo'
+  | 'redo'
   | 'tidy'
   | 'toTraditional'
   | 'toSimplified'
@@ -66,6 +68,18 @@ export interface AppMenuPayload {
 export interface AppMenuState {
   sidebarVisible: boolean
   rightPanelVisible: boolean
+}
+
+export type ContextMenuPredefinedRole = 'cut' | 'copy' | 'paste' | 'selectAll'
+
+export type ContextMenuItem =
+  | { kind: 'item'; id: string; label: string; enabled?: boolean }
+  | { kind: 'predefined'; role: ContextMenuPredefinedRole; label?: string }
+  | { kind: 'separator' }
+
+export interface ContextMenuAction {
+  requestId: string
+  itemId: string
 }
 
 /** dialog:confirmClose 返回 */

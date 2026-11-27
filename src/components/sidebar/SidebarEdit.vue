@@ -2,6 +2,7 @@
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useTabsStore } from '@/stores/tabs'
 import { useTabs } from '@/composables/useTabs'
+import { popupContextMenu } from '@/composables/useContextMenu'
 import { focusEditor, schedulePersist } from '@/composables/useSession'
 
 /**
@@ -73,30 +74,22 @@ watch([() => store.activeTabId, () => store.tabs.length], () => {
   void nextTick(ensureActiveVisible)
 })
 
-interface MenuState {
-  x: number
-  y: number
-  tabId: string
-}
-
-const menu = ref<MenuState | null>(null)
-
-// 菜单尺寸用于贴边收敛，避免超出窗口
-const MENU_WIDTH = 140
-const MENU_HEIGHT = 72
-
 function openMenu(e: MouseEvent, tabId: string): void {
   e.preventDefault()
-  // 右键只弹菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
-  menu.value = {
-    x: Math.min(e.clientX, window.innerWidth - MENU_WIDTH),
-    y: Math.min(e.clientY, window.innerHeight - MENU_HEIGHT),
-    tabId
-  }
-}
-
-function dismiss(): void {
-  menu.value = null
+  // 右键只弹原生菜单，不切活动标签；菜单动作按 tabId 作用于被右击的那一项
+  void popupContextMenu(
+    [
+      { kind: 'item', id: 'close', label: '关闭' },
+      { kind: 'item', id: 'closeOthers', label: '关闭其他', enabled: store.tabs.length > 1 }
+    ],
+    (itemId) => {
+      if (itemId === 'close') {
+        void closeTab(tabId)
+      } else if (itemId === 'closeOthers') {
+        void closeOtherTabs(tabId)
+      }
+    }
+  ).catch((err) => console.error('[sidebar-edit] 右键菜单弹出失败:', err))
 }
 
 // —— 纵向拖动排序（与标签栏同口径：越过阈值才算拖动，落点去掉被拖项后再插入） ——
@@ -148,8 +141,6 @@ function onItemPointerMove(e: PointerEvent): void {
   if (!draggingId.value) {
     if (!pendingId || Math.abs(e.clientY - dragStartY) < DRAG_THRESHOLD) return
     draggingId.value = pendingId
-    // 拖动开始时收起可能开着的右键菜单
-    dismiss()
     updateDrop(e.clientY)
     return
   }
@@ -183,42 +174,12 @@ function onItemClick(tabId: string): void {
   activateTab(tabId)
 }
 
-async function closeCurrent(): Promise<void> {
-  const id = menu.value?.tabId
-  dismiss()
-  if (id) await closeTab(id)
-}
-
-/** 关闭其他：逐个走 closeTab，dirty 的仍会正常弹确认 */
-async function closeOthers(): Promise<void> {
-  const id = menu.value?.tabId
-  dismiss()
-  if (!id) return
-  await closeOtherTabs(id)
-}
-
-function onWindowPointerDown(e: PointerEvent): void {
-  const target = e.target as HTMLElement | null
-  if (target?.closest('.context-menu')) return
-  dismiss()
-}
-
-function onWindowKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape') dismiss()
-}
-
 onMounted(() => {
   void nextTick(ensureActiveVisible)
-  window.addEventListener('pointerdown', onWindowPointerDown, true)
-  window.addEventListener('keydown', onWindowKeydown)
-  window.addEventListener('blur', dismiss)
 })
 
 onBeforeUnmount(() => {
   cancelReveal()
-  window.removeEventListener('pointerdown', onWindowPointerDown, true)
-  window.removeEventListener('keydown', onWindowKeydown)
-  window.removeEventListener('blur', dismiss)
   window.removeEventListener('pointermove', onItemPointerMove)
   window.removeEventListener('pointerup', onItemPointerEnd)
   window.removeEventListener('pointercancel', onItemPointerEnd)
@@ -227,12 +188,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="yd-panel">
-    <div
-      ref="scrollRef"
-      class="yd-panel-scroll"
-      :class="{ dragging: draggingId !== null }"
-      @scroll="dismiss"
-    >
+    <div ref="scrollRef" class="yd-panel-scroll" :class="{ dragging: draggingId !== null }">
       <div
         v-for="tab in store.tabs"
         :key="tab.id"
@@ -256,18 +212,6 @@ onBeforeUnmount(() => {
       ></div>
       <div v-if="store.tabs.length === 0" class="yd-sidebar-empty">无打开的文件</div>
     </div>
-
-    <Teleport to="body">
-      <div
-        v-if="menu"
-        class="context-menu"
-        :style="{ left: `${menu.x}px`, top: `${menu.y}px` }"
-        @pointerdown.stop
-      >
-        <button class="menu-item" @click="closeCurrent">关闭</button>
-        <button class="menu-item" @click="closeOthers">关闭其他</button>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -331,29 +275,5 @@ onBeforeUnmount(() => {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.context-menu {
-  position: fixed;
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-  padding: 4px 0;
-  border: 1px solid var(--yd-border-1);
-  border-radius: 6px;
-  background: var(--yd-bg-2);
-  box-shadow: 0 6px 18px var(--yd-shadow);
-}
-.menu-item {
-  padding: 5px 14px;
-  border: none;
-  background: transparent;
-  color: var(--yd-text-1);
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-.menu-item:hover {
-  background: var(--yd-hover-1);
 }
 </style>
